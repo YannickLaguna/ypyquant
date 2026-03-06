@@ -13,7 +13,7 @@ Estructura:
         pmpt.py              ← Presets Post-Modern Portfolio Theory
 
 Uso:
-    from quant.optimization.presets import obtener_preset, listar_presets
+    from ypyquant.optimization.presets import obtener_preset, listar_presets
 
     # Listar todos los presets disponibles
     presets = listar_presets()
@@ -23,7 +23,7 @@ Uso:
 """
 
 from typing import Dict, Callable, Any
-from quant.optimization.portfolio_models import PortfolioOptimizationModel
+from ypyquant.optimization.portfolio_models import PortfolioOptimizationModel
 
 # Diccionario central de presets registrados
 # Formato: {nombre_preset: funcion_factory}
@@ -126,13 +126,13 @@ def obtener_detalles_preset(nombre_preset: str, risk_free_rate: float = 0.02) ->
 # ============================================================================
 
 # Importar presets de cada módulo (esto los registra automáticamente)
-from quant.optimization.presets import tradicionales
-from quant.optimization.presets import factor_models
-from quant.optimization.presets import pmpt
+from ypyquant.optimization.presets import tradicionales
+from ypyquant.optimization.presets import factor_models
+from ypyquant.optimization.presets import pmpt
 
 # Los presets ML avanzados se importan condicionalmente
 try:
-    from quant.optimization.presets import ml_avanzados
+    from ypyquant.optimization.presets import ml_avanzados
 except ImportError:
     # No hay dependencias ML instaladas, skip
     pass

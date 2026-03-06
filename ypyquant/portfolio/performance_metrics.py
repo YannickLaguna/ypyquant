@@ -336,7 +336,7 @@ def calculate_var_quantlib(
 
     # Método avanzado: Monte Carlo con QuantLib
     try:
-        from quant.portfolio.monte_carlo import MonteCarloRiesgo
+        from ypyquant.portfolio.monte_carlo import MonteCarloRiesgo
 
         logger.info(f"Calculando VaR/CVaR con Monte Carlo ({num_simulaciones:,} simulaciones)")
 

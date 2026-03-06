@@ -13,8 +13,8 @@ Interfaz:
 - La capa de aplicacion (app/) es responsable de cargar datos y persistir resultados
 
 Se relaciona con:
-- quant.portfolio.performance_metrics: PerformanceAnalyzer para metricas avanzadas
-- quant.optimization.data_preprocessing: DiasTrading para constantes de anualizacion
+- ypyquant.portfolio.performance_metrics: PerformanceAnalyzer para metricas avanzadas
+- ypyquant.optimization.data_preprocessing: DiasTrading para constantes de anualizacion
 
 Costes de transaccion modelados:
 - Comision: porcentaje sobre valor de la operacion (ambos lados)

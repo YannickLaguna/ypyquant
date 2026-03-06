@@ -300,7 +300,7 @@ class CAPMReturnsModel(ExpectedReturnsModel):
         self._servicio_tasas = None
         if usar_tasas_dinamicas:
             try:
-                from quant.data.risk_free_rates import TasaLibreRiesgoDinamica
+                from ypyquant.data.risk_free_rates import TasaLibreRiesgoDinamica
                 self._servicio_tasas = TasaLibreRiesgoDinamica(actualizar_curva=True)
                 self.risk_free_rate = self._servicio_tasas.obtener_tasa_por_plazo(horizonte_inversion_años)
                 logger.debug(f"[CAPMReturns] Usando tasa dinámica {horizonte_inversion_años}Y: {self.risk_free_rate:.4f}")
@@ -433,7 +433,7 @@ class BlackLittermanReturnsModel(ExpectedReturnsModel):
             # Aplicar views si existen
             if views and view_confidences:
                 try:
-                    from quant.optimization.black_litterman import BlackLittermanQuantLib, crear_views_desde_dict
+                    from ypyquant.optimization.black_litterman import BlackLittermanQuantLib, crear_views_desde_dict
 
                     logger.debug(f"[BlackLitterman] Usando QuantLib con {len(views)} views")
 
@@ -999,7 +999,7 @@ class PCADenoisedRiskModel(RiskModel):
         self.validate_returns(returns_df)
 
         try:
-            from quant.ml.pca_risk import PCARiskService
+            from ypyquant.ml.pca_risk import PCARiskService
 
             pca_risk = PCARiskService(n_components=self.n_components)
             cov_matrix = pca_risk.calculate_denoised_covariance(returns_df, self.frequency)
@@ -1053,7 +1053,7 @@ class LSTMReturnsModel(ExpectedReturnsModel):
         self.validate_returns(returns_df)
 
         try:
-            from quant.ml.lstm_predictor import LSTMReturnsPredictor
+            from ypyquant.ml.lstm_predictor import LSTMReturnsPredictor
 
             predictor = LSTMReturnsPredictor(
                 sequence_length=self.sequence_length,

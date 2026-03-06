@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from quant.data.quantlib_utils import (
+from ypyquant.data.quantlib_utils import (
     tiene_quantlib,
     convertir_fecha_a_ql,
     convertir_ql_a_fecha,

@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from quant.optimization.data_preprocessing import obtener_retornos_desde_precios
+from ypyquant.optimization.data_preprocessing import obtener_retornos_desde_precios
 
 logger = logging.getLogger(__name__)
 
@@ -621,7 +621,7 @@ class WalkForwardEngine:
         Returns:
             DataFrame con la matriz de covarianza anualizada
         """
-        from quant.optimization.portfolio_models import (
+        from ypyquant.optimization.portfolio_models import (
             SampleCovarianceModel, LedoitWolfShrinkageModel
         )
 
@@ -671,13 +671,13 @@ class WalkForwardEngine:
             pass
 
         elif config_exp.metodo_mu == MetodoEstimacionMu.MUESTRA:
-            from quant.optimization.portfolio_models import HistoricalReturnsModel
+            from ypyquant.optimization.portfolio_models import HistoricalReturnsModel
             mu = HistoricalReturnsModel(method="mean", frequency=252).calculate(retornos_train)
 
         elif config_exp.metodo_mu == MetodoEstimacionMu.CAPM:
             if retornos_mercado is None:
                 raise ValueError("Retornos del mercado requeridos para metodo_mu=CAPM")
-            from quant.factors.factor_models import CAPMModel
+            from ypyquant.factors.factor_models import CAPMModel
             modelo_capm = CAPMModel(
                 risk_free_rate=rf,
                 frequency=252,
@@ -693,7 +693,7 @@ class WalkForwardEngine:
         elif config_exp.metodo_mu == MetodoEstimacionMu.FF5_MOM:
             if factores_ff is None:
                 raise ValueError("Factores FF requeridos para metodo_mu=FF5_MOM")
-            from quant.factors.factor_models import FamaFrenchModel, FACTORES_FF5_MOM
+            from ypyquant.factors.factor_models import FamaFrenchModel, FACTORES_FF5_MOM
             modelo_ff = FamaFrenchModel(
                 factores=FACTORES_FF5_MOM,
                 risk_free_rate=rf,
@@ -753,7 +753,7 @@ class WalkForwardEngine:
             )
 
         try:
-            from quant.optimization.black_litterman import BlackLittermanQuantLib, crear_views_desde_dict
+            from ypyquant.optimization.black_litterman import BlackLittermanQuantLib, crear_views_desde_dict
 
             # Pesos de mercado: proxy con pesos iguales (simplificación)
             pesos_mercado = pd.Series(1.0 / len(tickers), index=tickers)
@@ -893,7 +893,7 @@ class WalkForwardEngine:
         Returns:
             Dict con 'weights' y metadata del optimizador
         """
-        from quant.optimization.portfolio_models import (
+        from ypyquant.optimization.portfolio_models import (
             MarkowitzOptimizer, PMPTMinCVaROptimizer, PMPTMaxSortinoOptimizer
         )
 
@@ -931,12 +931,12 @@ class WalkForwardEngine:
             # τ = rf diario (rf viene anualizado → dividir por 252)
             rf_diario = rf / 252
             if config_exp.metodo_sigma == MetodoEstimacionSigma.LEDOIT_WOLF:
-                from quant.optimization.portfolio_models import LedoitWolfSemiCovarianceModel
+                from ypyquant.optimization.portfolio_models import LedoitWolfSemiCovarianceModel
                 semi_cov = LedoitWolfSemiCovarianceModel(
                     target_return=rf_diario, frequency=252
                 ).calculate(retornos_train)
             else:
-                from quant.optimization.portfolio_models import SemiCovarianceModel
+                from ypyquant.optimization.portfolio_models import SemiCovarianceModel
                 semi_cov = SemiCovarianceModel(
                     target_return=rf_diario, frequency=252
                 ).calculate(retornos_train)
@@ -959,12 +959,12 @@ class WalkForwardEngine:
             # Calcular semi-covarianza Σ^down (igual que PMPT_MIN_SEMIVAR)
             rf_diario = rf / 252
             if config_exp.metodo_sigma == MetodoEstimacionSigma.LEDOIT_WOLF:
-                from quant.optimization.portfolio_models import LedoitWolfSemiCovarianceModel
+                from ypyquant.optimization.portfolio_models import LedoitWolfSemiCovarianceModel
                 semi_cov = LedoitWolfSemiCovarianceModel(
                     target_return=rf_diario, frequency=252
                 ).calculate(retornos_train)
             else:
-                from quant.optimization.portfolio_models import SemiCovarianceModel
+                from ypyquant.optimization.portfolio_models import SemiCovarianceModel
                 semi_cov = SemiCovarianceModel(
                     target_return=rf_diario, frequency=252
                 ).calculate(retornos_train)
@@ -1241,7 +1241,7 @@ class WalkForwardEngine:
             rf_media = float(serie_rf.mean() * 252)
 
         try:
-            from quant.portfolio.performance_metrics import PerformanceAnalyzer
+            from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
             metricas_obj = PerformanceAnalyzer.calculate_metrics(
                 resultado.retornos_oos_mensuales,
                 risk_free_rate=rf_media,

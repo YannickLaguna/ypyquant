@@ -142,7 +142,7 @@ class CAPMModel:
         self._servicio_tasas = None
         if usar_tasas_dinamicas:
             try:
-                from quant.data.risk_free_rates import TasaLibreRiesgoDinamica
+                from ypyquant.data.risk_free_rates import TasaLibreRiesgoDinamica
                 self._servicio_tasas = TasaLibreRiesgoDinamica(actualizar_curva=True)
                 self.risk_free_rate = self._servicio_tasas.obtener_tasa_por_plazo(horizonte_inversion_años)
                 logger.debug(f"[CAPM] Usando tasa dinámica {horizonte_inversion_años}Y: {self.risk_free_rate:.4f}")

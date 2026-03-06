@@ -9,14 +9,14 @@ Modelos clásicos basados en teoría moderna de portafolios (MPT):
 Estos presets usan técnicas establecidas y probadas por décadas.
 """
 
-from quant.optimization.portfolio_models import (
+from ypyquant.optimization.portfolio_models import (
     PortfolioOptimizationModel,
     HistoricalReturnsModel,
     LedoitWolfShrinkageModel,
     MarkowitzOptimizer,
     RiskParityOptimizer
 )
-from quant.optimization.presets import registrar_preset
+from ypyquant.optimization.presets import registrar_preset
 
 
 @registrar_preset('markowitz')

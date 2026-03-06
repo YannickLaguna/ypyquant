@@ -16,8 +16,8 @@ from datetime import datetime, date
 import warnings
 import pandas as pd
 
-from quant.data.yield_curves import CurvaRendimientoTesoro
-from quant.data.quantlib_utils import tiene_quantlib
+from ypyquant.data.yield_curves import CurvaRendimientoTesoro
+from ypyquant.data.quantlib_utils import tiene_quantlib
 
 
 class TasaLibreRiesgoDinamica:

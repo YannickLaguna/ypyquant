@@ -854,7 +854,7 @@ def obtener_retornos_desde_precios(
 
     Ejemplo:
         >>> # En cualquier módulo:
-        >>> from quant.optimization.data_preprocessing import obtener_retornos_desde_precios
+        >>> from ypyquant.optimization.data_preprocessing import obtener_retornos_desde_precios
         >>> retornos = obtener_retornos_desde_precios(precios, tipo_retorno="log")
     """
     periodo_enum = Periodo(periodo)

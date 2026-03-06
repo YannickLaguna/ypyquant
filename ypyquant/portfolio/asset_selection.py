@@ -12,7 +12,7 @@ Interfaz:
 - Sin acceso a base de datos: la carga de datos queda en la capa de aplicacion (app/).
 
 Se relaciona con:
-- quant.optimization.data_preprocessing: ProcesadorDatos, DiasTrading, anualizar_*
+- ypyquant.optimization.data_preprocessing: ProcesadorDatos, DiasTrading, anualizar_*
 - app.services.portafolio.asset_selection: Wrapper con acceso a BD que llama estas funciones
 
 Algoritmos de diversificacion:
@@ -28,7 +28,7 @@ import pandas as pd
 from typing import Dict, List, Optional, Literal
 from sklearn.cluster import AgglomerativeClustering
 
-from quant.optimization.data_preprocessing import (
+from ypyquant.optimization.data_preprocessing import (
     DiasTrading,
     anualizar_retorno_medio,
     anualizar_volatilidad,

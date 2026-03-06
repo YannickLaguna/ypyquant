@@ -24,7 +24,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 
-from quant.optimization.walk_forward import (
+from ypyquant.optimization.walk_forward import (
     ResultadoExperimento,
     TipoExperimento,
     WalkForwardEngine,

@@ -1,4 +1,4 @@
-from quant.data.quantlib_utils import (
+from ypyquant.data.quantlib_utils import (
     tiene_quantlib,
     convertir_fecha_a_ql,
     convertir_ql_a_fecha,
@@ -9,5 +9,5 @@ from quant.data.quantlib_utils import (
     crear_quote_handle,
     obtener_periodo,
 )
-from quant.data.yield_curves import CurvaRendimientoTesoro
-from quant.data.risk_free_rates import TasaLibreRiesgoDinamica
+from ypyquant.data.yield_curves import CurvaRendimientoTesoro
+from ypyquant.data.risk_free_rates import TasaLibreRiesgoDinamica

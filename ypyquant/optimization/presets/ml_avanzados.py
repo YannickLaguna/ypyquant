@@ -12,7 +12,7 @@ NOTA: Estos presets requieren dependencias adicionales:
 - tensorflow (LSTM)
 """
 
-from quant.optimization.presets import registrar_preset
+from ypyquant.optimization.presets import registrar_preset
 from typing import Dict
 
 

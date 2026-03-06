@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import warnings
 
-from quant.data.quantlib_utils import (
+from ypyquant.data.quantlib_utils import (
     tiene_quantlib,
     convertir_fecha_a_ql,
     crear_calendario_usa,
@@ -307,7 +307,7 @@ class BondPricer:
         Returns:
             Dict con pricing completo usando curva de mercado
         """
-        from quant.data.yield_curves import CurvaRendimientoTesoro
+        from ypyquant.data.yield_curves import CurvaRendimientoTesoro
 
         # Configurar fecha
         if fecha_valoracion is None:

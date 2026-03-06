@@ -1,17 +1,17 @@
-from quant.portfolio.performance_metrics import (
+from ypyquant.portfolio.performance_metrics import (
     PerformanceMetrics,
     PerformanceAnalyzer,
     calculate_var_quantlib,
     format_performance_metrics,
 )
-from quant.portfolio.backtest_engine import (
+from ypyquant.portfolio.backtest_engine import (
     BacktestConfig,
     BacktestTrade,
     BacktestResult,
     BacktestEngine,
     format_backtest_result,
 )
-from quant.portfolio.asset_selection import (
+from ypyquant.portfolio.asset_selection import (
     calcular_metricas_ticker,
     screen_by_sharpe,
     screen_by_momentum,
@@ -22,5 +22,5 @@ from quant.portfolio.asset_selection import (
     diversify_mixed,
     calcular_matriz_correlacion,
 )
-from quant.portfolio.monte_carlo import MonteCarloRiesgo
-from quant.portfolio.bond_pricing import BondPricer
+from ypyquant.portfolio.monte_carlo import MonteCarloRiesgo
+from ypyquant.portfolio.bond_pricing import BondPricer

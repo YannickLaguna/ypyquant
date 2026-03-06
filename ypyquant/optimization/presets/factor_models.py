@@ -10,14 +10,14 @@ Modelos que usan factores de riesgo para explicar retornos:
 Estos modelos incorporan teoría financiera sobre factores de riesgo sistemático.
 """
 
-from quant.optimization.portfolio_models import (
+from ypyquant.optimization.portfolio_models import (
     PortfolioOptimizationModel,
     CAPMReturnsModel,
     BlackLittermanReturnsModel,
     LedoitWolfShrinkageModel,
     MarkowitzOptimizer
 )
-from quant.optimization.presets import registrar_preset
+from ypyquant.optimization.presets import registrar_preset
 from typing import Dict
 
 

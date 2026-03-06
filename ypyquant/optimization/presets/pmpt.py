@@ -13,13 +13,13 @@ Estos modelos son más realistas ya que los inversores temen las pérdidas,
 no la volatilidad al alza.
 """
 
-from quant.optimization.portfolio_models import (
+from ypyquant.optimization.portfolio_models import (
     PortfolioOptimizationModel,
     HistoricalReturnsModel,
     SemiCovarianceModel,
     MarkowitzOptimizer
 )
-from quant.optimization.presets import registrar_preset
+from ypyquant.optimization.presets import registrar_preset
 
 
 @registrar_preset('pmpt_semivarianza')
