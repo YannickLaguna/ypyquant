@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant"
+version = "0.1.0"
+description = "Librería de lógica cuantitativa: optimización de portafolios, modelos de factores, backtesting y ML financiero"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.14",
+    "scikit-learn>=1.5",
+    "statsmodels>=0.14",
+    "matplotlib>=3.9",
+    "seaborn>=0.13",
+    "PyPortfolioOpt",
+    "QuantLib>=1.40",
+]
+
+[project.optional-dependencies]
+ml = [
+    "tensorflow>=2.15",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["quant*"]
