@@ -46,16 +46,20 @@ class ExportadorResultados:
 
     def __init__(
         self,
-        directorio_salida: str,
-        resultados: Dict[str, ResultadoExperimento],
+        directorio_salida,
+        resultados,
     ):
         """
         Args:
-            directorio_salida: Ruta al directorio base de reportes (ej. data/reportes/)
+            directorio_salida: Ruta al directorio base de reportes (str o Path).
             resultados: Diccionario {id_experimento: ResultadoExperimento}
+                        o lista de ResultadoExperimento (se convierte automáticamente).
         """
         self.directorio_salida = Path(directorio_salida)
-        self.resultados = resultados
+        if isinstance(resultados, list):
+            self.resultados = {r.config.id_experimento: r for r in resultados}
+        else:
+            self.resultados = resultados
 
         # Subdirectorios de salida
         self.dir_latex = self.directorio_salida / "tablas_latex"
@@ -67,13 +71,13 @@ class ExportadorResultados:
         self.dir_graficos.mkdir(parents=True, exist_ok=True)
 
         # Clasificar resultados por etapa
-        self._etapa1 = {k: v for k, v in resultados.items()
+        self._etapa1 = {k: v for k, v in self.resultados.items()
                         if v.config.tipo == TipoExperimento.ETAPA_1}
-        self._etapa2a = {k: v for k, v in resultados.items()
+        self._etapa2a = {k: v for k, v in self.resultados.items()
                          if v.config.tipo == TipoExperimento.ETAPA_2A}
-        self._etapa2b = {k: v for k, v in resultados.items()
+        self._etapa2b = {k: v for k, v in self.resultados.items()
                          if v.config.tipo == TipoExperimento.ETAPA_2B}
-        self._benchmarks = {k: v for k, v in resultados.items()
+        self._benchmarks = {k: v for k, v in self.resultados.items()
                             if v.config.tipo in (
                                 TipoExperimento.BENCHMARK_EQUAL,
                                 TipoExperimento.BENCHMARK_SP500,
@@ -213,17 +217,23 @@ class ExportadorResultados:
 
     def exportar_graficos(self) -> None:
         """Genera todos los gráficos PNG."""
-        # Importar matplotlib/seaborn aquí para permitir backend Agg
         import matplotlib.pyplot as plt
         import seaborn as sns
         sns.set_style('whitegrid')
         plt.rcParams['figure.figsize'] = (14, 7)
         plt.rcParams['font.size'] = 12
 
-        self._grafico_equity_curves(plt, sns)
-        self._grafico_heatmaps(plt, sns)
-        self._grafico_bootstrap(plt, sns)
-        logger.info(f"Gráficos exportados en {self.dir_graficos}")
+        for nombre, fn in [
+            ("equity_curves", lambda: self._grafico_equity_curves(plt, sns)),
+            ("heatmaps",      lambda: self._grafico_heatmaps(plt, sns)),
+            ("bootstrap",     lambda: self._grafico_bootstrap(plt, sns)),
+        ]:
+            try:
+                fn()
+            except Exception as exc:
+                logger.warning(f"Grafico '{nombre}' omitido: {exc}")
+
+        logger.info(f"Graficos exportados en {self.dir_graficos}")
 
     def _grafico_equity_curves(self, plt, sns) -> None:
         """Panel 2x2: equity curves por etapa y top 3 vs benchmarks."""
@@ -393,6 +403,136 @@ class ExportadorResultados:
         fig.savefig(ruta, dpi=150, bbox_inches='tight')
         plt.close(fig)
         logger.info(f"Gráfico bootstrap: {ruta}")
+
+    # ------------------------------------------------------------------
+    # DB persistence
+    # ------------------------------------------------------------------
+
+    def exportar_a_db(
+        self,
+        session,
+        nombre_experimento: str,
+        sobrescribir: bool = False,
+    ) -> list:
+        """
+        Persiste los resultados del experimento factorial en la tabla ``backtests``.
+
+        Cada ``ResultadoExperimento`` se guarda como una fila individual con:
+        - ``parametros``  JSONB ← campos de ConfigExperimento
+        - ``metricas``    JSONB ← resultado.metricas + alpha_jensen / alpha_pvalue
+        - ``resultados``  JSONB ← equity curve [[date, nav], ...] + pesos por ventana
+        - ``universo``    JSONB ← lista de tickers únicos del experimento
+        - ``start_date``  / ``end_date`` ← primera / última ventana OOS
+        - ``estado``      ← "completed" si hay métricas, "failed" si no
+
+        Idempotente: si ya existe un backtest con el mismo ``nombre`` y
+        ``sobrescribir=False``, se omite y no se lanza excepción.
+
+        Args:
+            session: Sesión SQLAlchemy activa.
+            nombre_experimento: Prefijo de agrupación (ej. "walk_forward_factorial_2025").
+            sobrescribir: Si True, elimina filas previas con el mismo nombre antes de insertar.
+
+        Returns:
+            Lista de IDs de filas insertadas.
+        """
+        try:
+            from db.models import Backtest
+        except ImportError:
+            logger.error(
+                "No se puede importar db.models.Backtest — "
+                "asegúrate de ejecutar desde la raíz del proyecto con el .venv activo."
+            )
+            return []
+
+        ids_insertados = []
+
+        for id_exp, res in self.resultados.items():
+            nombre_fila = f"{nombre_experimento}/{res.config.nombre}"
+
+            # Idempotencia: lookup por nombre
+            existente = session.query(Backtest).filter_by(nombre=nombre_fila).first()
+            if existente is not None:
+                if not sobrescribir:
+                    logger.debug(f"[DB] '{nombre_fila}' ya existe, omitiendo.")
+                    continue
+                session.delete(existente)
+                session.flush()
+
+            # --- parametros JSONB ---
+            parametros = {
+                "id_experimento": res.config.id_experimento,
+                "tipo":           res.config.tipo.value,
+                "metodo_sigma":   res.config.metodo_sigma.value,
+                "metodo_mu":      res.config.metodo_mu.value,
+                "metodo_riesgo":  res.config.metodo_riesgo.value,
+                "regularizacion": res.config.regularizacion.value,
+                "metodo_bl":      res.config.metodo_bl.value,
+            }
+
+            # --- metricas JSONB ---
+            metricas = dict(res.metricas) if res.metricas else {}
+            if res.alpha_jensen is not None:
+                metricas["alpha_jensen"] = res.alpha_jensen
+            if res.alpha_tstat is not None:
+                metricas["alpha_tstat"] = res.alpha_tstat
+            if res.alpha_pvalue is not None:
+                metricas["alpha_pvalue"] = res.alpha_pvalue
+
+            # --- resultados JSONB (compacto) ---
+            equity_list = []
+            if res.curva_equity is not None:
+                equity_list = [
+                    [str(dt.date()), float(nav)]
+                    for dt, nav in res.curva_equity.items()
+                ]
+
+            pesos_por_ventana = []
+            for v in res.ventanas:
+                if not v.ventana_fallida and v.pesos:
+                    pesos_por_ventana.append({
+                        "fecha": str(v.fecha_inicio_oos.date()),
+                        "pesos": {k: round(float(w), 6) for k, w in v.pesos.items()},
+                    })
+
+            resultados_json = {
+                "equity_curve": equity_list,
+                "pesos_historicos": pesos_por_ventana,
+            }
+
+            # --- universo JSONB ---
+            todos_tickers: set = set()
+            for v in res.ventanas:
+                todos_tickers.update(v.tickers_seleccionados)
+            universo = sorted(todos_tickers)
+
+            # --- start_date / end_date ---
+            ventanas_ok = [v for v in res.ventanas if not v.ventana_fallida]
+            start_date = ventanas_ok[0].fecha_inicio_oos.date() if ventanas_ok else None
+            end_date   = ventanas_ok[-1].fecha_fin_oos.date()   if ventanas_ok else None
+
+            # --- estado ---
+            estado = "completed" if metricas.get("sharpe_ratio") is not None else "failed"
+
+            fila = Backtest(
+                nombre=nombre_fila,
+                descripcion=res.config.nombre,
+                estado=estado,
+                start_date=start_date,
+                end_date=end_date,
+                universo=universo,
+                parametros=parametros,
+                metricas=metricas,
+                resultados=resultados_json,
+            )
+            session.add(fila)
+            session.flush()
+            ids_insertados.append(fila.id)
+            logger.info(f"[DB] Insertado backtest id={fila.id} '{nombre_fila}' ({estado})")
+
+        session.commit()
+        logger.info(f"[DB] {len(ids_insertados)} backtests persistidos en Supabase.")
+        return ids_insertados
 
     # ------------------------------------------------------------------
     # Pickle

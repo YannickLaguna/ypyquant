@@ -178,16 +178,29 @@ class WalkForwardEngine:
     def __init__(
         self,
         config: ConfigWalkForward,
-        db_session=None
+        db_session=None,
+        mlflow_enabled: bool = False,
+        mlflow_experiment_name: str = "walk_forward_factorial",
+        mlflow_tracking_uri: Optional[str] = None,
     ):
         """
         Args:
             config: Parámetros globales del walk-forward
             db_session: Sesión SQLAlchemy (opcional, para screening con fundamentals)
+            mlflow_enabled: Si True, activa tracking MLflow (requiere mlflow>=2.10).
+            mlflow_experiment_name: Nombre del experimento MLflow.
+            mlflow_tracking_uri: URI del tracking store (None → default de mlflow).
         """
         self.config = config
         self.db_session = db_session
         np.random.seed(config.semilla)
+
+        from ypyquant.optimization.mlflow_tracker import MLflowTracker
+        self._tracker = MLflowTracker(
+            enabled=mlflow_enabled,
+            experiment_name=mlflow_experiment_name,
+            tracking_uri=mlflow_tracking_uri,
+        )
 
     # ------------------------------------------------------------------
     # Método principal
@@ -216,6 +229,7 @@ class WalkForwardEngine:
             ResultadoExperimento con ventanas, retornos OOS y métricas agregadas
         """
         logger.info(f"[WF] Iniciando experimento: {config_exp.nombre} ({config_exp.id_experimento})")
+        self._tracker.start_run(config_exp)
 
         # Extraer RF de los factores FF si están disponibles
         serie_rf = self._extraer_risk_free_rate(factores_ff)
@@ -258,6 +272,7 @@ class WalkForwardEngine:
                 )
                 resultado_ventana.tiempo_segundos = time.time() - t0
                 resultado.ventanas.append(resultado_ventana)
+                self._tracker.log_window(resultado_ventana, step=i)
 
             except Exception as e:
                 logger.warning(
@@ -286,6 +301,9 @@ class WalkForwardEngine:
 
         # Checkpoint final
         self._guardar_checkpoint(resultado, config_exp.id_experimento)
+
+        # MLflow: métricas agregadas + equity curve artifact
+        self._tracker.end_run(resultado)
 
         logger.info(
             f"[WF] Experimento {config_exp.id_experimento} completado: "

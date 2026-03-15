@@ -23,6 +23,12 @@ dependencies = [
 ml = [
     "tensorflow>=2.15",
 ]
+tracking = [
+    "mlflow>=2.10",
+]
+fast = [
+    "vectorbt>=0.26",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
