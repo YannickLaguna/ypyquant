@@ -1,38 +1,23 @@
 """
-Tests para data/loader.py — puente Supabase → ypyquant.
+Tests de data/loader.py: puente BD (Supabase) -> ypyquant.
 
-Verifica que load_prices(), load_factors() y load_fx() devuelven
-DataFrames con el formato correcto para ypyquant.
+Responsabilidad:
+    Verificar que load_prices(), load_factors() y load_fx() devuelven DataFrames con el
+    formato que espera ypyquant. Todos leen de la BD Supabase (ya inexistente), por eso
+    el módulo entero va marcado `red` y se salta por defecto.
 
-Requisitos previos:
-    - AAPL con datos en tabla `activos` (test_fase1.py lo inserta)
-    - Conexión Supabase operativa
+Se relaciona con:
+    - data/loader.py (código bajo prueba) y db/database.py (vía tests/_bd.py).
+    - pyproject.toml: marcador `red`; ejecutar con `python -m pytest -m red`.
 """
 
-import sys
-import traceback
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import pandas as pd
-from db.database import SessionLocal
-from data.loader import load_prices, load_factors, load_fx
+import pytest
 
-PASS = "PASS"
-FAIL = "FAIL"
-results = []
+from data.loader import load_factors, load_fx, load_prices
+from tests._bd import SessionLocal
 
-
-def test(name: str, fn):
-    try:
-        fn()
-        results.append((PASS, name))
-        print(f"  [PASS] {name}")
-    except Exception as exc:
-        results.append((FAIL, name))
-        print(f"  [FAIL] {name}")
-        traceback.print_exc()
+pytestmark = pytest.mark.red
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +44,7 @@ def test_load_prices_dataframe_format():
         prices = load_prices(["AAPL"], "2024-01-01", "2024-12-31", s)
 
     if not prices:
-        print("    (sin datos AAPL en DB — test omitido)")
-        return
+        pytest.skip("sin datos AAPL en la BD")
 
     df = prices["AAPL"]
     assert isinstance(df.index, pd.DatetimeIndex), "Index debe ser DatetimeIndex"
@@ -75,7 +59,7 @@ def test_load_prices_numeric_columns():
         prices = load_prices(["AAPL"], "2024-01-01", "2024-12-31", s)
 
     if not prices:
-        return
+        pytest.skip("sin datos AAPL en la BD")
 
     df = prices["AAPL"]
     for col in ["Open", "High", "Low", "Close"]:
@@ -119,8 +103,7 @@ def test_load_factors_columns_when_data_present():
         df = load_factors("2020-01-01", "2024-12-31", s)
 
     if df.empty:
-        print("    (factor_data vacía — test omitido, ejecutar data/factors.py primero)")
-        return
+        pytest.skip("factor_data vacía; ejecutar data/factors.py primero")
 
     required = {"MKT_RF", "SMB", "HML", "RMW", "CMA", "MOM", "RF"}
     missing = required - set(df.columns)
@@ -148,24 +131,3 @@ def test_load_fx_empty_if_no_data():
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\n=== test_loader.py ===\n")
-
-    test("load_prices devuelve dict", test_load_prices_returns_dict)
-    test("load_prices AAPL presente", test_load_prices_aapl_present)
-    test("load_prices formato DataFrame correcto", test_load_prices_dataframe_format)
-    test("load_prices columnas numéricas", test_load_prices_numeric_columns)
-    test("load_prices ticker desconocido omitido", test_load_prices_unknown_ticker_omitted)
-    test("load_prices lista vacía devuelve {}", test_load_prices_empty_ticker_list)
-    test("load_factors devuelve DataFrame", test_load_factors_returns_dataframe)
-    test("load_factors vacío si sin datos", test_load_factors_empty_if_no_data)
-    test("load_factors columnas correctas", test_load_factors_columns_when_data_present)
-    test("load_fx devuelve DataFrame", test_load_fx_returns_dataframe)
-    test("load_fx vacío si sin datos", test_load_fx_empty_if_no_data)
-
-    passed = sum(1 for r, _ in results if r == PASS)
-    failed = sum(1 for r, _ in results if r == FAIL)
-    print(f"\nResultado: {passed}/{len(results)} tests pasados")
-    if failed:
-        sys.exit(1)

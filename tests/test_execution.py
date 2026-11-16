@@ -1,25 +1,25 @@
 """
-Tests de smoke para ypyquant.execution (M0 — Fase 3+4).
+Tests de smoke para ypyquant.execution (M0, Fase 3+4).
 
-Verifica que la migración de TFM → ypyquant.execution es correcta.
-No requiere DB ni conexión a broker real.
+Responsabilidad:
+    Verificar la migración de TFM a ypyquant.execution: interfaz de broker, PaperBroker,
+    ProtectionManager, WalletManager, TradeAnalytics, BotExecutor y API pública. Usa un
+    almacenamiento simulado (MockStorage); no requiere BD ni broker real.
+
+Se relaciona con:
+    - src/ypyquant/execution/ (código bajo prueba).
+    - Es unittest: pytest lo recoge tal cual (pyproject.toml, testpaths=tests).
 """
-
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import unittest
 from datetime import datetime
-from typing import Dict, List, Optional
-
 
 # --- StorageInterface mock para tests ---
 
 class MockStorage:
     """Implementación mínima de StorageInterface para tests."""
 
-    def load_portafolio(self, portafolio_id: int) -> Dict:
+    def load_portafolio(self, portafolio_id: int) -> dict:
         return {
             "nombre": "Test Portfolio",
             "type": "real",
@@ -37,7 +37,7 @@ class MockStorage:
     def sync_positions(self, portafolio_id, positions):
         pass
 
-    def get_operations(self, portafolio_id, ticker=None, limit=0) -> List[Dict]:
+    def get_operations(self, portafolio_id, ticker=None, limit=0) -> list[dict]:
         ops = [
             {
                 "id": 1,
@@ -62,7 +62,7 @@ class MockStorage:
             ops = [op for op in ops if op["ticker"] == ticker]
         return ops[:limit] if limit else ops
 
-    def get_posicion(self, portafolio_id, ticker) -> Optional[Dict]:
+    def get_posicion(self, portafolio_id, ticker) -> dict | None:
         if ticker == "AAPL":
             return {
                 "portafolio_id": portafolio_id,
@@ -78,7 +78,7 @@ class TestBrokerInterface(unittest.TestCase):
     """Tests de BrokerInterface y enums."""
 
     def test_import(self):
-        from ypyquant.execution import BrokerInterface, OrderSide, OrderType, OrderStatus
+        from ypyquant.execution import BrokerInterface, OrderSide, OrderStatus, OrderType  # noqa: F401
         self.assertEqual(OrderSide.BUY.value, "compra")
         self.assertEqual(OrderSide.SELL.value, "venta")
         self.assertEqual(OrderType.MARKET.value, "market")
@@ -112,7 +112,7 @@ class TestPaperBroker(unittest.TestCase):
         self.assertEqual(info["positions_count"], 0)
 
     def test_buy_increases_position(self):
-        from ypyquant.execution import OrderSide, OrderType, OrderStatus
+        from ypyquant.execution import OrderSide, OrderStatus, OrderType  # noqa: F401
         # Simular precio inyectando directamente
         original_price = self.broker.get_current_price
         self.broker.get_current_price = lambda ticker: 100.0
@@ -171,9 +171,9 @@ class TestProtectionManager(unittest.TestCase):
     def test_import(self):
         from ypyquant.execution import (
             ProtectionManager,
+            create_aggressive_protections,  # noqa: F401
             create_conservative_protections,
-            create_moderate_protections,
-            create_aggressive_protections,
+            create_moderate_protections,  # noqa: F401
         )
         protections = create_conservative_protections()
         manager = ProtectionManager(protections)
@@ -187,7 +187,7 @@ class TestProtectionManager(unittest.TestCase):
         self.assertIsNone(reason)
 
     def test_max_drawdown_blocks_trading(self):
-        from ypyquant.execution import ProtectionManager, ProtectionConfig, ProtectionType
+        from ypyquant.execution import ProtectionConfig, ProtectionManager, ProtectionType
         manager = ProtectionManager([
             ProtectionConfig(ProtectionType.MAX_DRAWDOWN, max_drawdown_pct=0.10)
         ])
@@ -197,7 +197,7 @@ class TestProtectionManager(unittest.TestCase):
         self.assertIn("Drawdown", reason)
 
     def test_position_limit_blocks_trading(self):
-        from ypyquant.execution import ProtectionManager, ProtectionConfig, ProtectionType
+        from ypyquant.execution import ProtectionConfig, ProtectionManager, ProtectionType
         manager = ProtectionManager([
             ProtectionConfig(ProtectionType.POSITION_LIMIT, max_positions=3)
         ])
@@ -237,7 +237,7 @@ class TestWalletManager(unittest.TestCase):
         self.assertAlmostEqual(tradable, 9900.0, places=1)
 
     def test_validate_stake_ok(self):
-        valid, msg = self.wallet.validate_stake_amount(1000.0, min_stake=10.0)
+        valid, _msg = self.wallet.validate_stake_amount(1000.0, min_stake=10.0)
         self.assertTrue(valid)
 
     def test_validate_stake_exceeds_max_position(self):
@@ -280,7 +280,7 @@ class TestTradeAnalytics(unittest.TestCase):
 
     def test_calculate_trade_pnl_short(self):
         from ypyquant.execution import TradeAnalytics
-        pnl, pct = TradeAnalytics.calculate_trade_pnl(100.0, 80.0, 10, is_short=True)
+        pnl, _pct = TradeAnalytics.calculate_trade_pnl(100.0, 80.0, 10, is_short=True)
         self.assertGreater(pnl, 0)
 
     def test_calculate_position_metrics(self):
@@ -385,23 +385,19 @@ class TestPublicAPI(unittest.TestCase):
 
     def test_top_level_imports(self):
         from ypyquant import (
-            BrokerInterface,
-            PaperBroker,
             BotExecutor,
+            BrokerInterface,  # noqa: F401
+            OrderSide,  # noqa: F401
+            OrderStatus,  # noqa: F401
+            OrderType,  # noqa: F401
+            PaperBroker,
             ProtectionManager,
+            StorageInterface,  # noqa: F401
+            TradeAnalytics,  # noqa: F401
             WalletManager,
-            TradeAnalytics,
-            StorageInterface,
-            OrderSide,
-            OrderType,
-            OrderStatus,
         )
         # Todos deben ser clases/enums
         self.assertTrue(callable(PaperBroker))
         self.assertTrue(callable(ProtectionManager))
         self.assertTrue(callable(WalletManager))
         self.assertTrue(callable(BotExecutor))
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

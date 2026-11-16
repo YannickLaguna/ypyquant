@@ -1,54 +1,45 @@
 """
-Tests de integración — Fase 1: DB + Fetcher
-Ejecutar desde la raíz del proyecto con el venv activado:
-    python tests/test_fase1.py
+Tests de la Fase 1: base de datos (Supabase) + DataFetcher.
+
+Responsabilidad:
+    - Offline: importación de los modelos ORM y de DataFetcher.
+    - `red`: conexión, tablas, descarga con yfinance, persistencia en `activos`, detección
+      de huecos y CRUD de portafolios. Dependen de la BD Supabase (ya inexistente) y/o de
+      la red, por eso van marcados `red` y se saltan por defecto.
+
+Se relaciona con:
+    - db/database.py, db/models.py, data/fetcher.py (código bajo prueba).
+    - tests/_bd.py (acceso perezoso a la BD) y pyproject.toml (marcador `red`).
 """
 
-import sys
-import os
-import logging
 from datetime import date
-from pathlib import Path
 
-# Asegurar que la raíz del proyecto esté en sys.path
-ROOT = Path(__file__).parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+import pytest
 
-logging.basicConfig(level=logging.WARNING)  # silenciar logs internos durante tests
-
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-
-PASS = "PASS"
-FAIL = "FAIL"
-results = []
-
-
-def check(name, fn):
-    try:
-        fn()
-        results.append((PASS, name))
-        print(f"  [PASS] {name}")
-    except Exception as e:
-        results.append((FAIL, name))
-        print(f"  [FAIL] {name}")
-        print(f"         {type(e).__name__}: {e}")
-
+from tests._bd import SessionLocal, motor
 
 # ── 1. Imports ────────────────────────────────────────────────────────────────
-print("\n── 1. Imports ──")
 
+@pytest.mark.red
 def test_import_database():
-    from db.database import engine, SessionLocal
-    assert engine is not None
+    assert motor() is not None
     assert SessionLocal is not None
 
+
 def test_import_models():
-    from db.models import (
-        Base, Ticker, Activo, FactorData, TipoCambio,
-        Portafolio, Posicion, Operacion, Signal, Backtest,
+    from db.models import (  # noqa: F401
+        Activo,
+        Backtest,
+        Base,
+        FactorData,
+        Operacion,
+        Posicion,
+        ResearchPortfolio,
+        Signal,
+        Ticker,
+        TipoCambio,
     )
+
 
 def test_import_fetcher():
     from data.fetcher import DataFetcher
@@ -58,186 +49,155 @@ def test_import_fetcher():
     assert hasattr(f, "fetch_batch")
     assert hasattr(f, "get_gaps")
 
-check("db.database importa correctamente", test_import_database)
-check("db.models importa correctamente (9 modelos)", test_import_models)
-check("data.fetcher importa correctamente", test_import_fetcher)
-
 
 # ── 2. Conexión a Supabase ────────────────────────────────────────────────────
-print("\n── 2. Conexión Supabase ──")
 
+@pytest.mark.red
 def test_connection():
-    from db.database import engine
-    with engine.connect() as conn:
-        from sqlalchemy import text
-        result = conn.execute(text("SELECT 1")).scalar()
-        assert result == 1
-
-check("Conexión a Supabase (SELECT 1)", test_connection)
+    from sqlalchemy import text
+    with motor().connect() as conn:
+        assert conn.execute(text("SELECT 1")).scalar() == 1
 
 
 # ── 3. Tablas en BD ───────────────────────────────────────────────────────────
-print("\n── 3. Tablas en BD ──")
 
+@pytest.mark.red
 def test_tables_exist():
-    from db.database import engine
     from sqlalchemy import inspect
-    inspector = inspect(engine)
-    tables = inspector.get_table_names()
-    expected = ["tickers", "activos", "factor_data", "tipos_cambio",
-                "portafolios", "posiciones", "operaciones", "signals", "backtests"]
-    missing = [t for t in expected if t not in tables]
-    assert not missing, f"Tablas faltantes: {missing}"
-
-check("9 tablas existen en Supabase", test_tables_exist)
+    tablas = inspect(motor()).get_table_names()
+    esperadas = ["tickers", "activos", "factor_data", "tipos_cambio",
+                 "portafolios", "posiciones", "operaciones", "signals", "backtests"]
+    faltan = [t for t in esperadas if t not in tablas]
+    assert not faltan, f"Tablas faltantes: {faltan}"
 
 
-# ── 4. Fetch sin persistencia ─────────────────────────────────────────────────
-print("\n── 4. Fetch (sin DB) ──")
+# ── 4. Fetch sin persistencia (red) ───────────────────────────────────────────
 
-_fetcher = None
-_df_aapl = None
-_src_aapl = None
-
-def test_fetch_returns_dataframe():
-    global _fetcher, _df_aapl, _src_aapl
+@pytest.fixture(scope="module")
+def descarga_aapl():
+    """Descarga AAPL de enero de 2024 una sola vez; devuelve (DataFrame, fuente)."""
     from data.fetcher import DataFetcher
-    _fetcher = DataFetcher()
-    _df_aapl, _src_aapl = _fetcher.fetch("AAPL", "2024-01-01", "2024-01-31")
-    assert _df_aapl is not None, "DataFrame es None"
-    assert not _df_aapl.empty, "DataFrame vacío"
+    return DataFetcher().fetch("AAPL", "2024-01-01", "2024-01-31")
 
-def test_fetch_columns():
-    assert _df_aapl is not None
-    required = {"date", "open", "high", "low", "close", "volume"}
-    missing = required - set(_df_aapl.columns)
-    assert not missing, f"Columnas faltantes: {missing}"
 
-def test_fetch_date_type():
-    assert _df_aapl is not None
-    sample_date = _df_aapl["date"].iloc[0]
-    assert isinstance(sample_date, date), f"date debería ser date, es {type(sample_date)}"
+@pytest.mark.red
+def test_fetch_returns_dataframe(descarga_aapl):
+    df, _ = descarga_aapl
+    assert df is not None, "DataFrame es None"
+    assert not df.empty, "DataFrame vacío"
 
-def test_fetch_numeric_types():
-    assert _df_aapl is not None
+
+@pytest.mark.red
+def test_fetch_columns(descarga_aapl):
+    df, _ = descarga_aapl
+    faltan = {"date", "open", "high", "low", "close", "volume"} - set(df.columns)
+    assert not faltan, f"Columnas faltantes: {faltan}"
+
+
+@pytest.mark.red
+def test_fetch_date_type(descarga_aapl):
+    df, _ = descarga_aapl
+    primera = df["date"].iloc[0]
+    assert isinstance(primera, date), f"date debería ser date, es {type(primera)}"
+
+
+@pytest.mark.red
+def test_fetch_numeric_types(descarga_aapl):
+    df, _ = descarga_aapl
     for col in ["open", "high", "low", "close"]:
-        if col in _df_aapl.columns:
-            assert _df_aapl[col].dtype == "float64", f"{col} no es float64"
-
-def test_fetch_source():
-    assert _src_aapl in ("yfinance", "twelvedata", "alphavantage"), \
-        f"Fuente inesperada: {_src_aapl}"
-
-check("fetch() retorna DataFrame no vacío", test_fetch_returns_dataframe)
-check("fetch() tiene columnas correctas", test_fetch_columns)
-check("columna 'date' es tipo date", test_fetch_date_type)
-check("columnas OHLC son float64", test_fetch_numeric_types)
-check("source es una fuente válida", test_fetch_source)
-if _src_aapl:
-    print(f"         (fuente usada: {_src_aapl})")
+        if col in df.columns:
+            assert df[col].dtype == "float64", f"{col} no es float64"
 
 
-# ── 5. Persistencia en DB ─────────────────────────────────────────────────────
-print("\n── 5. Persistencia en activos ──")
+@pytest.mark.red
+def test_fetch_source(descarga_aapl):
+    _, fuente = descarga_aapl
+    assert fuente in ("yfinance", "twelvedata", "alphavantage"), f"Fuente inesperada: {fuente}"
 
-_rows_inserted = 0
 
+# ── 5. Persistencia en `activos` ──────────────────────────────────────────────
+
+@pytest.mark.red
 def test_fetch_and_save():
-    global _rows_inserted
-    from db.database import SessionLocal
     from data.fetcher import DataFetcher
     with SessionLocal() as s:
-        _rows_inserted = DataFetcher().fetch_and_save("AAPL", "2024-01-01", "2024-01-31", s)
-    assert _rows_inserted >= 0  # 0 si ya existían
+        filas = DataFetcher().fetch_and_save("AAPL", "2024-01-01", "2024-01-31", s)
+    assert filas >= 0  # 0 si ya existían
 
+
+@pytest.mark.red
 def test_data_in_db():
-    from db.database import SessionLocal
-    from db.models import Activo
     from sqlalchemy import select
-    with SessionLocal() as s:
-        count = s.execute(
-            select(Activo).where(Activo.ticker == "AAPL")
-        ).scalars().all()
-        assert len(count) > 0, "No se encontraron registros de AAPL en activos"
 
-def test_no_duplicates():
-    from db.database import SessionLocal
     from db.models import Activo
-    from sqlalchemy import select, func
     with SessionLocal() as s:
-        result = s.execute(
+        registros = s.execute(select(Activo).where(Activo.ticker == "AAPL")).scalars().all()
+        assert len(registros) > 0, "No se encontraron registros de AAPL en activos"
+
+
+@pytest.mark.red
+def test_no_duplicates():
+    from sqlalchemy import func, select
+
+    from db.models import Activo
+    with SessionLocal() as s:
+        duplicados = s.execute(
             select(Activo.date, func.count(Activo.id).label("cnt"))
             .where(Activo.ticker == "AAPL")
             .group_by(Activo.date)
             .having(func.count(Activo.id) > 1)
         ).all()
-        assert len(result) == 0, f"Duplicados detectados: {result[:3]}"
-
-check("fetch_and_save() ejecuta sin error", test_fetch_and_save)
-check("registros de AAPL existen en DB", test_data_in_db)
-check("sin duplicados (UniqueConstraint funciona)", test_no_duplicates)
-if _rows_inserted == 0:
-    print("         (0 filas: datos ya existían — gap detection funcionó)")
-else:
-    print(f"         ({_rows_inserted} filas nuevas insertadas)")
+        assert len(duplicados) == 0, f"Duplicados detectados: {duplicados[:3]}"
 
 
-# ── 6. Gap detection ──────────────────────────────────────────────────────────
-print("\n── 6. Gap detection ──")
+# ── 6. Detección de huecos ────────────────────────────────────────────────────
 
+@pytest.mark.red
 def test_get_gaps_no_gap():
     """Si los datos ya están, get_gaps debe retornar [] para un rango interior."""
-    from db.database import SessionLocal
-    from db.models import Activo
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
+
     from data.fetcher import DataFetcher
+    from db.models import Activo
     with SessionLocal() as s:
         # Asegurar que hay datos primero
         DataFetcher().fetch_and_save("AAPL", "2024-01-01", "2024-01-31", s)
-        # Obtener el rango real de datos (excluye festivos/fines de semana)
-        row = s.execute(
-            select(func.min(Activo.date), func.max(Activo.date))
-            .where(Activo.ticker == "AAPL")
+        # Rango real de datos (excluye festivos/fines de semana)
+        fila = s.execute(
+            select(func.min(Activo.date), func.max(Activo.date)).where(Activo.ticker == "AAPL")
         ).first()
-        real_start = row[0].strftime("%Y-%m-%d")
-        real_end   = row[1].strftime("%Y-%m-%d")
-        # Pedir exactamente el rango que existe → debe devolver []
-        gaps = DataFetcher().get_gaps("AAPL", real_start, real_end, s)
-        assert gaps == [], f"Esperaba gaps=[], obtuve {gaps}"
+        inicio_real = fila[0].strftime("%Y-%m-%d")
+        fin_real = fila[1].strftime("%Y-%m-%d")
+        huecos = DataFetcher().get_gaps("AAPL", inicio_real, fin_real, s)
+        assert huecos == [], f"Esperaba gaps=[], obtuve {huecos}"
 
+
+@pytest.mark.red
 def test_get_gaps_future():
-    """Un rango futuro debe generar un gap."""
-    from db.database import SessionLocal
+    """Un rango futuro debe generar un hueco."""
     from data.fetcher import DataFetcher
     with SessionLocal() as s:
-        gaps = DataFetcher().get_gaps("AAPL", "2024-01-01", "2024-06-30", s)
-        # Debe haber al menos un gap hacia fechas más recientes
-        assert isinstance(gaps, list)
+        huecos = DataFetcher().get_gaps("AAPL", "2024-01-01", "2024-06-30", s)
+        assert isinstance(huecos, list)
 
+
+@pytest.mark.red
 def test_incremental_no_redownload():
-    """Segunda llamada fetch_and_save no debe insertar filas ya existentes."""
-    from db.database import SessionLocal
+    """Segunda llamada de fetch_and_save no debe insertar filas ya existentes."""
     from data.fetcher import DataFetcher
     with SessionLocal() as s:
-        rows = DataFetcher().fetch_and_save("AAPL", "2024-01-01", "2024-01-31", s)
-        assert rows == 0, f"Segunda llamada debería insertar 0 filas, insertó {rows}"
-
-check("get_gaps() retorna [] cuando datos completos", test_get_gaps_no_gap)
-check("get_gaps() detecta gap hacia futuro", test_get_gaps_future)
-check("segunda llamada no re-inserta (incremental OK)", test_incremental_no_redownload)
+        filas = DataFetcher().fetch_and_save("AAPL", "2024-01-01", "2024-01-31", s)
+        assert filas == 0, f"Segunda llamada debería insertar 0 filas, insertó {filas}"
 
 
-# ── 7. ORM básico ─────────────────────────────────────────────────────────────
-print("\n── 7. ORM — CRUD básico ──")
+# ── 7. ORM básico: CRUD de portafolios ────────────────────────────────────────
 
-_portafolio_id = None
-
-def test_insert_portafolio():
-    global _portafolio_id
-    from db.database import SessionLocal
-    from db.models import Portafolio
+@pytest.fixture()
+def portafolio_id():
+    """Inserta un portafolio de prueba y devuelve su id; lo borra al terminar si sigue ahí."""
+    from db.models import ResearchPortfolio
     with SessionLocal() as s:
-        p = Portafolio(
+        p = ResearchPortfolio(
             nombre="Test Portfolio",
             descripcion="Portafolio de prueba — borrar",
             tickers=["AAPL", "MSFT"],
@@ -246,44 +206,35 @@ def test_insert_portafolio():
         s.add(p)
         s.commit()
         s.refresh(p)
-        _portafolio_id = p.id
-        assert _portafolio_id is not None
-
-def test_read_portafolio():
-    from db.database import SessionLocal
-    from db.models import Portafolio
+        nuevo_id = p.id
+    yield nuevo_id
     with SessionLocal() as s:
-        p = s.get(Portafolio, _portafolio_id)
+        existente = s.get(ResearchPortfolio, nuevo_id)
+        if existente is not None:
+            s.delete(existente)
+            s.commit()
+
+
+@pytest.mark.red
+def test_insert_portafolio(portafolio_id):
+    assert portafolio_id is not None
+
+
+@pytest.mark.red
+def test_read_portafolio(portafolio_id):
+    from db.models import ResearchPortfolio
+    with SessionLocal() as s:
+        p = s.get(ResearchPortfolio, portafolio_id)
         assert p is not None
         assert p.nombre == "Test Portfolio"
         assert p.tickers == ["AAPL", "MSFT"]
 
-def test_delete_portafolio():
-    from db.database import SessionLocal
-    from db.models import Portafolio
+
+@pytest.mark.red
+def test_delete_portafolio(portafolio_id):
+    from db.models import ResearchPortfolio
     with SessionLocal() as s:
-        p = s.get(Portafolio, _portafolio_id)
+        p = s.get(ResearchPortfolio, portafolio_id)
         s.delete(p)
         s.commit()
-        p2 = s.get(Portafolio, _portafolio_id)
-        assert p2 is None
-
-check("INSERT portafolio", test_insert_portafolio)
-check("SELECT portafolio por id", test_read_portafolio)
-check("DELETE portafolio", test_delete_portafolio)
-
-
-# ── Resumen ───────────────────────────────────────────────────────────────────
-print("\n" + "─" * 50)
-passed = sum(1 for r in results if r[0] == PASS)
-failed = sum(1 for r in results if r[0] == FAIL)
-print(f"  {passed}/{len(results)} tests pasados")
-if failed:
-    print(f"  {failed} tests fallaron:")
-    for status, name in results:
-        if status == FAIL:
-            print(f"    - {name}")
-    sys.exit(1)
-else:
-    print("  Todo OK — Fase 1 operativa")
-print("─" * 50)
+        assert s.get(ResearchPortfolio, portafolio_id) is None

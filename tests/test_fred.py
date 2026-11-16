@@ -1,21 +1,24 @@
 """
-Tests para FREDFetcher — data/fred.py
+Tests de data/fred.py (FREDFetcher): descarga de series macro de FRED.
 
-Ejecutar:
-    python -X utf8 tests/test_fred.py
+Responsabilidad:
+    - Offline: importación, configuración de series y comportamiento sin FRED_API_KEY.
+    - `red`: TestFREDFetcherFetch descarga de la API de FRED y guarda en la BD Supabase
+      (ya inexistente); requiere FRED_API_KEY en .env.
+
+Se relaciona con:
+    - data/fred.py (código bajo prueba); db/models.py (IndicatorData).
+    - tests/_bd.py y pyproject.toml (marcador `red`). Es unittest: pytest lo recoge tal cual.
 """
 
 import os
-import sys
 import unittest
-from datetime import date
 
-# Añadir raíz del proyecto al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
 
-from data.fred import FREDFetcher, SERIES_CONFIG
-from db.database import SessionLocal
+from data.fred import SERIES_CONFIG, FREDFetcher
 from db.models import IndicatorData
+from tests._bd import SessionLocal
 
 
 class TestFREDFetcherImport(unittest.TestCase):
@@ -34,6 +37,7 @@ class TestFREDFetcherImport(unittest.TestCase):
         self.assertIn("DEXUSEU", SERIES_CONFIG)
 
 
+@pytest.mark.red
 class TestFREDFetcherFetch(unittest.TestCase):
     """Tests de integración — requieren FRED_API_KEY en .env y conexión a Supabase."""
 
@@ -124,7 +128,3 @@ class TestFREDNoKey(unittest.TestCase):
         finally:
             if original is not None:
                 os.environ["FRED_API_KEY"] = original
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

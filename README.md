@@ -15,7 +15,7 @@ Sistema cuantitativo end-to-end. Este repo contiene **ypyquant**, la librería P
 - `data/` — scripts de ingesta (fetcher.py, factors.py, fred.py, loader.py)
 - `db/` — ORM SQLAlchemy para Supabase (database.py + models.py)
 - `scripts/` — pipeline completo (run_fase2.py, vbt_signal_scan.py, etc.)
-- `tests/` — 40/40 tests pasando (Fase 1+2)
+- `tests/` — pytest real: `python -m pytest` (offline, sin red; marcador `red` para los de red/BD)
 
 GrowSave (repo `tfm`) **no forma parte del sistema**: es un producto de ahorro aparte que solo reutiliza ypyquant (optimización de carteras, Monte Carlo y perfiles de riesgo). El trading que todavía vive allí se migrará aquí (ver bitácora).
 
@@ -49,14 +49,21 @@ Ver `PRD.md` §3 para la arquitectura completa y `project_fase34_status.md` para
 ## Cómo correr el pipeline (Fase 2)
 
 ```bash
-# Setup
+# Setup (uv; crea .venv con Python 3.11 e instala la librería editable + dev + entorno)
 cd Sistema_trading
-python -m venv .venv && .venv/Scripts/activate
-pip install -r requirements.txt
-pip install -e ypyquant/
+uv venv --python 3.11
+uv pip install -e . --group dev --group entorno
+uv pip install "mlflow>=2.10"   # opcional: activa los tests de MLflow (si no, se saltan)
 
-# Tests
-python -X utf8 tests/test_fase2.py   # 40/40
+# Tests (pytest real; por defecto sin red ni BD, ~10 s)
+.venv/Scripts/python.exe -m pytest              # todo lo offline
+.venv/Scripts/python.exe -m pytest -m red       # solo los que necesitan red o la BD Supabase
+.venv/Scripts/python.exe -m pytest -m "red or not red"   # todo
+.venv/Scripts/ruff.exe check tests              # lint de tests (debe quedar limpio)
+
+# Los tests marcados `red` (marcador en pyproject.toml) descargan de internet
+# (yfinance, FRED, Wikipedia, Kenneth French) o usan la BD Supabase, que ya no existe:
+# sin BD se saltan con el motivo; fallan solo si la red/BD responde mal. Acceso a la BD: tests/_bd.py.
 
 # Pipeline completo
 python scripts/run_fase2.py

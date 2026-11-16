@@ -60,6 +60,12 @@ include = ["ypyquant*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Por defecto se saltan los tests que necesitan red o la antigua BD Supabase.
+# Ejecutarlos: python -m pytest -m red
+addopts = "-m 'not red'"
+markers = [
+    "red: necesita red (yfinance, FRED, Wikipedia, Kenneth French) o la BD Supabase (ya inexistente); se salta por defecto",
+]
 
 [tool.ruff]
 line-length = 120

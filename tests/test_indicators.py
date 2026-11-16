@@ -1,23 +1,26 @@
 """
-Tests para load_indicators() — data/loader.py
+Tests de load_indicators() en data/loader.py.
 
-Ejecutar:
-    python -X utf8 tests/test_indicators.py
+Responsabilidad:
+    Verificar la lectura de indicadores (tabla indicator_data) como DataFrame. Todos
+    los tests usan la BD Supabase (ya inexistente), por eso van marcados `red`.
+
+Se relaciona con:
+    - data/loader.py (código bajo prueba); db/models.py (IndicatorData).
+    - tests/_bd.py y pyproject.toml (marcador `red`). Es unittest: pytest lo recoge tal cual.
 """
 
-import os
-import sys
 import unittest
 from datetime import date
 
 import pandas as pd
-
-# Añadir raíz del proyecto al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
 
 from data.loader import load_indicators
-from db.database import SessionLocal
 from db.models import IndicatorData
+from tests._bd import SessionLocal
+
+pytestmark = pytest.mark.red
 
 
 class TestLoadIndicatorsUnit(unittest.TestCase):
@@ -150,7 +153,3 @@ class TestLoadIndicatorsIntegration(unittest.TestCase):
         if not df.empty:
             self.assertGreaterEqual(df.index.min(), pd.Timestamp("2023-06-01"))
             self.assertLessEqual(df.index.max(), pd.Timestamp("2023-06-02"))
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

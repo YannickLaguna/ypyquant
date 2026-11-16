@@ -1,41 +1,25 @@
 """
-Tests para data/factors.py — FF5+MOM → factor_data en Supabase.
+Tests de data/factors.py: FF5+MOM de Kenneth French -> factor_data en la BD.
 
-Verifica FactorDataManager: fetch_and_save(), get_rf_rate(), y la
-integración con load_factors() del loader.
+Responsabilidad:
+    Verificar FactorDataManager (fetch_and_save, get_rf_rate) y la integración con
+    load_factors(). La construcción del gestor es offline; todo lo demás descarga de
+    internet (Kenneth French) y/o escribe en la BD Supabase (ya inexistente), así que va
+    marcado `red`.
 
-Nota: fetch_and_save() descarga desde internet (Kenneth French Data Library).
-      Si no hay conexión, los tests de descarga fallan con warning.
+Se relaciona con:
+    - data/factors.py, data/loader.py (código bajo prueba); db/models.py (FactorData).
+    - tests/_bd.py (acceso perezoso a la BD) y pyproject.toml (marcador `red`).
 """
 
-import sys
-import traceback
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import pandas as pd
-from db.database import SessionLocal
-from db.models import FactorData
+import pytest
+from sqlalchemy import func, select
+
 from data.factors import FactorDataManager
 from data.loader import load_factors
-from sqlalchemy import select, func
-
-PASS = "PASS"
-FAIL = "FAIL"
-results = []
-
-
-def test(name: str, fn):
-    try:
-        fn()
-        results.append((PASS, name))
-        print(f"  [PASS] {name}")
-    except Exception as exc:
-        results.append((FAIL, name))
-        print(f"  [FAIL] {name}")
-        traceback.print_exc()
-
+from db.models import FactorData
+from tests._bd import SessionLocal
 
 # ---------------------------------------------------------------------------
 # FactorDataManager — importación y construcción
@@ -56,6 +40,7 @@ def test_fetcher_attribute():
 # fetch_and_save — rango pequeño para test rápido
 # ---------------------------------------------------------------------------
 
+@pytest.mark.red
 def test_fetch_and_save_returns_int():
     """fetch_and_save debe devolver int (puede ser 0 si ya hay datos)."""
     mgr = FactorDataManager()
@@ -64,6 +49,7 @@ def test_fetch_and_save_returns_int():
     assert isinstance(result, int), f"Debe ser int, got {type(result)}"
 
 
+@pytest.mark.red
 def test_fetch_and_save_idempotent():
     """Segunda llamada con mismo rango debe devolver 0 (ya completo)."""
     mgr = FactorDataManager()
@@ -73,6 +59,7 @@ def test_fetch_and_save_idempotent():
     assert result2 == 0, f"Segunda llamada debe ser 0, got {result2}"
 
 
+@pytest.mark.red
 def test_data_in_db_after_fetch():
     """Después de fetch_and_save, debe haber filas en factor_data."""
     mgr = FactorDataManager()
@@ -85,6 +72,7 @@ def test_data_in_db_after_fetch():
     assert count > 0, "factor_data debe tener filas después de fetch"
 
 
+@pytest.mark.red
 def test_factor_data_columns():
     """Las filas en factor_data deben tener los campos principales."""
     mgr = FactorDataManager()
@@ -97,8 +85,7 @@ def test_factor_data_columns():
         ).scalars().first()
 
     if row is None:
-        print("    (sin filas en factor_data — test omitido)")
-        return
+        pytest.skip("sin filas en factor_data")
 
     assert row.mkt_rf is not None or row.smb is not None, "Al menos mkt_rf o smb debe tener valor"
     assert row.rf is not None, "rf (tasa libre de riesgo) debe tener valor"
@@ -108,6 +95,7 @@ def test_factor_data_columns():
 # get_rf_rate
 # ---------------------------------------------------------------------------
 
+@pytest.mark.red
 def test_get_rf_rate_returns_float_or_none():
     mgr = FactorDataManager()
     with SessionLocal() as s:
@@ -120,6 +108,7 @@ def test_get_rf_rate_returns_float_or_none():
 # Integración: load_factors después de fetch_and_save
 # ---------------------------------------------------------------------------
 
+@pytest.mark.red
 def test_load_factors_after_fetch():
     """load_factors debe devolver DataFrame no vacío tras fetch_and_save."""
     mgr = FactorDataManager()
@@ -128,8 +117,7 @@ def test_load_factors_after_fetch():
         df = load_factors("2024-01-01", "2024-01-31", s)
 
     if df.empty:
-        print("    (load_factors vacío — revisar fetch_and_save)")
-        return
+        pytest.skip("load_factors vacío; revisar fetch_and_save")
 
     required = {"MKT_RF", "SMB", "HML", "RMW", "CMA", "MOM", "RF"}
     missing = required - set(df.columns)
@@ -140,21 +128,3 @@ def test_load_factors_after_fetch():
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\n=== test_factors.py ===\n")
-
-    test("FactorDataManager importación", test_import)
-    test("FactorDataManager atributo _fetcher", test_fetcher_attribute)
-    test("fetch_and_save devuelve int", test_fetch_and_save_returns_int)
-    test("fetch_and_save idempotente", test_fetch_and_save_idempotent)
-    test("datos en DB después de fetch", test_data_in_db_after_fetch)
-    test("columnas factor_data correctas", test_factor_data_columns)
-    test("get_rf_rate devuelve float o None", test_get_rf_rate_returns_float_or_none)
-    test("load_factors tras fetch tiene columnas correctas", test_load_factors_after_fetch)
-
-    passed = sum(1 for r, _ in results if r == PASS)
-    failed = sum(1 for r, _ in results if r == FAIL)
-    print(f"\nResultado: {passed}/{len(results)} tests pasados")
-    if failed:
-        sys.exit(1)
