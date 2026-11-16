@@ -1,0 +1,49 @@
+# ============================================================
+# Sistema_trading — dependencias del entorno raíz
+# ============================================================
+# ypyquant se instala desde su propia carpeta:
+#   pip install -e ypyquant/ --config-settings editable_mode=compat
+# Sus dependencias quedan cubiertas por ypyquant/pyproject.toml.
+
+# DB
+sqlalchemy>=2.0
+psycopg2-binary
+python-dotenv
+
+# Data fetching
+yfinance>=0.2
+requests>=2.31
+beautifulsoup4       # yfinance dependency (HTML parsing)
+curl_cffi            # yfinance dependency (HTTP client)
+lxml                 # pd.read_html() para scraping Wikipedia (fetch_sp500.py)
+
+# Quant / análisis (core del stack)
+pandas>=2.2
+numpy>=1.26
+scipy>=1.14
+scikit-learn>=1.5
+statsmodels>=0.14
+pyarrow              # Parquet cache (FrenchDataFetcher + future data lake)
+
+# Portfolio optimization
+PyPortfolioOpt
+cvxpy                # solver backend para PyPortfolioOpt
+QuantLib>=1.40
+
+# Visualización
+matplotlib>=3.9
+seaborn>=0.13
+
+# Pipeline scripts
+pyyaml               # config_fase2.yaml parsing (run_fase2.py)
+
+# Fase 2 — opcionales (instalar según necesidad)
+# mlflow>=2.10        # tracking de experimentos  (pip install "mlflow>=2.10")
+# vectorbt>=0.26      # fast signal scan M4        (pip install "vectorbt>=0.26")
+# — o via extras de ypyquant:
+#   pip install -e "ypyquant/[tracking]"
+#   pip install -e "ypyquant/[fast]"
+#   pip install -e "ypyquant/[tracking,fast]"
+
+# Optional: Supabase client (para RPC / storage / auth)
+# supabase

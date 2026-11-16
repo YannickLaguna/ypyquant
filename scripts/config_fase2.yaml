@@ -1,0 +1,50 @@
+# config_fase2.yaml — Configuración del pipeline Fase 2
+# ======================================================
+# Cada sección controla un stage del pipeline run_fase2.py
+
+walk_forward:
+  ventana_entrenamiento_meses: 12
+  fecha_inicio_oos: "2010-01-01"
+  fecha_fin_oos: "2025-01-01"
+  top_n_activos: 50
+  # Universo de activos (ruta relativa a la raíz del proyecto)
+  universo_file: "universos/sp500.txt"
+
+mlflow:
+  enabled: true
+  tracking_uri: "sqlite:///data/mlflow.db"  # DB local SQLite (recomendado sobre file store)
+  experiment_name: "walk_forward_factorial"
+
+signals:
+  # Generadores a activar y sus pesos en SignalCombiner
+  generators:
+    - name: technical
+      weight: 0.5
+    - name: factor
+      weight: 0.3
+    - name: regime
+      weight: 0.2
+  combination_method: "weighted_mean"
+
+vbt_scan:
+  enabled: true
+  commission: 0.001
+  slippage: 0.001
+  entry_threshold: 0.5
+  top_n_signals: 10      # cuántas configs pasar al stage 4 (backtest_engine)
+
+backtest:
+  enabled: true
+  commission: 0.001
+  slippage: 0.001
+  initial_capital: 100000.0
+
+output:
+  directorio_salida: "data/reportes/fase2"
+  persistir_db: true
+  persistir_signals: false   # insertar SignalFrame del mejor exp en tabla signals
+
+# Experimentos a ejecutar (subset para testing rápido)
+# null o lista vacía → ejecutar los 21 experimentos completos
+# Ejemplo subset: [1, 2, 3]
+experimentos_subset: null

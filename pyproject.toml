@@ -1,11 +1,21 @@
+# pyproject.toml — Sistema_trading (monorepo desde 2026-11-16).
+#
+# Un solo repo con dos partes:
+#   - src/ypyquant/: la librería instalable (lo que importan GrowSave y las pipelines).
+#   - data/, db/, scripts/, tests/: el entorno de investigación y ejecución, que usa la librería.
+# GrowSave instala solo la librería, con una versión fijada:
+#   ypyquant @ git+https://github.com/YannickLaguna/ypyquant.git@vX.Y.Z
+# Propósito del proyecto: nota de Obsidian «Sistema trading» (ver README.md).
+
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ypyquant"
-version = "0.1.0"
-description = "Librería de lógica cuantitativa: optimización de portafolios, modelos de factores, backtesting y ML financiero"
+version = "0.2.0"
+description = "Librería de lógica cuantitativa: optimización de portafolios, modelos de factores, backtesting, señales, ML financiero y ejecución"
+readme = "docs/ypyquant.md"
 requires-python = ">=3.11"
 dependencies = [
     "pandas>=2.2",
@@ -20,16 +30,37 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ml = [
-    "tensorflow>=2.15",
+ml = ["tensorflow>=2.15"]
+tracking = ["mlflow>=2.10"]
+fast = ["vectorbt>=0.26"]
+
+# Dependencias del entorno (no de la librería): solo para trabajar en este repo
+[dependency-groups]
+entorno = [
+    "yfinance>=0.2",
+    "requests>=2.31",
+    "lxml",
+    "pyarrow",
+    "duckdb",
+    "pyyaml",
+    "python-dotenv",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary",
+    "cvxpy",
 ]
-tracking = [
-    "mlflow>=2.10",
-]
-fast = [
-    "vectorbt>=0.26",
+dev = [
+    "pytest>=8",
+    "ruff",
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["ypyquant*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
