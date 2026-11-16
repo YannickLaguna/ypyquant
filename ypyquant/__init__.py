@@ -14,7 +14,7 @@ Importaciones directas disponibles:
     from ypyquant import SignalCombiner, TechnicalSignalGenerator, BaseSignalGenerator, SignalFrame
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # ---------------------------------------------------------------------------
 # Portfolio — backtesting y métricas
@@ -69,6 +69,22 @@ from ypyquant.signals import (
 )
 
 # ---------------------------------------------------------------------------
+# Execution — ejecución de trading (Fase 3+4)
+# ---------------------------------------------------------------------------
+from ypyquant.execution import (
+    BrokerInterface,
+    PaperBroker,
+    BotExecutor,
+    ProtectionManager,
+    WalletManager,
+    TradeAnalytics,
+    StorageInterface,
+    OrderSide,
+    OrderType,
+    OrderStatus,
+)
+
+# ---------------------------------------------------------------------------
 # __all__ — exportaciones explícitas
 # ---------------------------------------------------------------------------
 __all__ = [
@@ -102,4 +118,15 @@ __all__ = [
     "RegimeSignalGenerator",
     "FactorSignalGenerator",
     "SignalCombiner",
+    # Execution (Fase 3+4)
+    "BrokerInterface",
+    "PaperBroker",
+    "BotExecutor",
+    "ProtectionManager",
+    "WalletManager",
+    "TradeAnalytics",
+    "StorageInterface",
+    "OrderSide",
+    "OrderType",
+    "OrderStatus",
 ]
