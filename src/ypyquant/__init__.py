@@ -2,7 +2,8 @@
 ypyquant — API pública del paquete.
 
 Importaciones directas disponibles:
-    from ypyquant import BacktestEngine, BacktestConfig, BacktestResult
+    from ypyquant import BacktestEngine, BacktestConfig, BacktestResult, PortfolioBacktestService
+    from ypyquant import AssetSelectionService, PortfolioOptimizationService
     from ypyquant import PerformanceMetrics, PerformanceAnalyzer
     from ypyquant import PortfolioOptimizationModel
     from ypyquant import WalkForwardEngine, ConfigWalkForward
@@ -14,7 +15,7 @@ Importaciones directas disponibles:
     from ypyquant import SignalCombiner, TechnicalSignalGenerator, BaseSignalGenerator, SignalFrame
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # ---------------------------------------------------------------------------
 # Portfolio — backtesting y métricas
@@ -54,17 +55,20 @@ from ypyquant.optimization.black_litterman import (
 # ---------------------------------------------------------------------------
 # Optimization — modelos y walk-forward
 # ---------------------------------------------------------------------------
+from ypyquant.optimization.optimizador_portafolio import PortfolioOptimizationService
 from ypyquant.optimization.portfolio_models import PortfolioOptimizationModel
 from ypyquant.optimization.presets import listar_presets, obtener_preset
 from ypyquant.optimization.walk_forward import (
     ConfigWalkForward,
     WalkForwardEngine,
 )
+from ypyquant.portfolio.asset_selection import AssetSelectionService
 from ypyquant.portfolio.backtest_engine import (
     BacktestConfig,
     BacktestEngine,
     BacktestResult,
     BacktestTrade,
+    PortfolioBacktestService,
 )
 from ypyquant.portfolio.performance_metrics import (
     PerformanceAnalyzer,
@@ -93,11 +97,14 @@ __all__ = [
     "BacktestConfig",
     "BacktestResult",
     "BacktestTrade",
+    "PortfolioBacktestService",
+    "AssetSelectionService",
     # Métricas
     "PerformanceMetrics",
     "PerformanceAnalyzer",
     # Optimización
     "PortfolioOptimizationModel",
+    "PortfolioOptimizationService",
     "WalkForwardEngine",
     "ConfigWalkForward",
     "BlackLittermanQuantLib",

@@ -6,11 +6,14 @@ Clases principales:
 - PerformanceAnalyzer: métodos estáticos de cálculo.
   · calculate_metrics(): retorno anualizado, vol, Sharpe, Sortino, Calmar, VaR, CVaR.
   · compare_to_benchmark(): beta (scipy.stats.linregress + SE + p-valor),
-    alpha Jensen anualizado, tracking error, information ratio, up/downside capture.
+    alpha de Jensen CAPM (como GrowSave) y alpha de regresión, tracking error,
+    information ratio, up/downside capture.
   · rolling_metrics(): métricas en ventana deslizante.
 
 Relacionado con: walk_forward.py (consume compare_to_benchmark), monte_carlo.py
-(calculate_var_quantlib usa MonteCarloRiesgo como backend).
+(calculate_var_quantlib usa MonteCarloRiesgo como backend). Desde v0.3.0 es la única
+fuente de estas métricas: GrowSave (app/services/portafolio/performance_metrics.py y
+app/services/reportes/report_generator.py) importa de aquí.
 """
 
 import logging
@@ -171,10 +174,11 @@ class PerformanceAnalyzer:
 
         I: Series de retornos diarios de portafolio y benchmark, rf anualizada.
         T: Alinea fechas → beta vía scipy.stats.linregress (slope, SE, p-valor)
-           → alpha Jensen anualizado (intercept * 252) → tracking error, IR,
-           upside/downside capture.
+           → alpha de Jensen CAPM con retornos anualizados (alpha) y alpha de regresión
+           (intercept * 252, alpha_regresion) → tracking error, IR, upside/downside capture.
         O: Dict con portfolio, benchmark (PerformanceMetrics), beta, beta_pvalue,
-           beta_stderr, alpha, tracking_error, information_ratio, upside/downside_capture.
+           beta_stderr, alpha, alpha_regresion, tracking_error, information_ratio,
+           upside/downside_capture.
         """
         # Alinear fechas
         aligned = pd.DataFrame({
@@ -199,15 +203,24 @@ class PerformanceAnalyzer:
 
         # Beta con regresión lineal (scipy.stats.linregress devuelve SE y p-valor)
         from scipy import stats as _sp_stats
-        slope, intercept, r_val, p_val, std_err = _sp_stats.linregress(
+        slope, intercept, _r_val, p_val, std_err = _sp_stats.linregress(
             aligned['benchmark'].values, aligned['portfolio'].values
         )
-        beta = float(slope)
+        # La pendiente MCO coincide con cov/var (cálculo de GrowSave); se conserva el
+        # mismo convenio de antes: 0 si el benchmark no tiene varianza.
+        beta = float(slope) if aligned['benchmark'].var() > 0 else 0.0
         beta_pvalue = float(p_val)
         beta_stderr = float(std_err)
 
-        # Alpha de Jensen (anualizado): intercept diario * 252
-        alpha = float(intercept) * 252
+        # Alpha de Jensen CAPM (versión validada en GrowSave, la que muestran sus informes):
+        # alpha = R_p − [r_f + β (R_m − r_f)] con retornos anualizados compuestos.
+        alpha = float(
+            portfolio_metrics.annualized_return
+            - (risk_free_rate + beta * (benchmark_metrics.annualized_return - risk_free_rate))
+        )
+        # Alpha de regresión (intercepto diario × 252, sin restar r_f): la que devolvía
+        # ypyquant 0.2.0 en 'alpha'; se conserva con otro nombre.
+        alpha_regresion = float(intercept) * 252
 
         # Upside/Downside capture
         up_months = aligned[aligned['benchmark'] > 0]
@@ -229,6 +242,7 @@ class PerformanceAnalyzer:
             'beta_pvalue': beta_pvalue,
             'beta_stderr': beta_stderr,
             'alpha': alpha,
+            'alpha_regresion': alpha_regresion,
             'upside_capture': upside_capture,
             'downside_capture': downside_capture,
         }

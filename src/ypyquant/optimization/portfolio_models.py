@@ -53,6 +53,10 @@ def _validar_retornos(df: pd.DataFrame) -> None:
 
 class ReturnModelType(str, Enum):
     """Tipos de modelos para calcular rendimientos esperados"""
+    # Históricos (v0.3.0): los usa crear_modelo_personalizado y la API de GrowSave
+    # ("historical_mean"); antes faltaban y create_custom_model fallaba siempre.
+    HISTORICAL_MEAN = "historical_mean"
+    HISTORICAL_MEDIAN = "historical_median"
     CAPM = "capm"
     FAMA_FRENCH_4 = "fama_french_4"
     BLACK_LITTERMAN = "black_litterman"

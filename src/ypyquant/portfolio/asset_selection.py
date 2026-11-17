@@ -1,19 +1,21 @@
 """
-Asset Selection — Algoritmos puros de screening y diversificacion de activos.
-==============================================================================
+Asset Selection — Screening y diversificación de activos (única fuente desde v0.3.0).
+=====================================================================================
 
 Responsabilidades:
-- Screening de activos por Sharpe, momentum y volatilidad (acepta DataFrames pre-cargados)
-- Diversificacion de universos por correlacion (4 algoritmos)
-- Calculo de metricas de screening individuales por ticker
-
-Interfaz:
-- Todas las funciones reciben DataFrames de precios o retornos pre-calculados.
-- Sin acceso a base de datos: la carga de datos queda en la capa de aplicacion (app/).
+- Funciones puras sobre DataFrames ya cargados (API de ypyquant 0.2.0, claves en español):
+  calcular_metricas_ticker, screen_by_*, diversify_*, calcular_matriz_correlacion.
+- `AssetSelectionService`: el servicio completo que tenía GrowSave
+  (app/services/portafolio/asset_selection.py), con las mismas firmas y claves de resultado
+  en inglés, pero sin BD: recibe un `cargador_precios` (ticker, inicio, fin) -> OHLCV y,
+  opcionalmente, proveedores de universo histórico y de fundamentales.
 
 Se relaciona con:
-- ypyquant.optimization.data_preprocessing: ProcesadorDatos, DiasTrading, anualizar_*
-- app.services.portafolio.asset_selection: Wrapper con acceso a BD que llama estas funciones
+- ypyquant.data.matriz_precios: construir_matriz_precios / calcular_matriz_retornos.
+- ypyquant.optimization.data_preprocessing: DiasTrading, TipoRetorno.
+- GrowSave: su AssetSelectionService pasa a ser una subclase que inyecta get_ticker_data,
+  TickerService.get_index_constituents_in_period y get_latest_fundamentals
+  (ver docs/migracion-growsave-v0.3.0.md).
 
 Algoritmos de diversificacion:
   1. Greedy:      Seleccion secuencial evitando alta correlacion
@@ -23,14 +25,23 @@ Algoritmos de diversificacion:
 """
 
 import logging
-from typing import Literal
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 from sklearn.cluster import AgglomerativeClustering
 
+from ypyquant.data.matriz_precios import (
+    CargadorPrecios,
+    calcular_matriz_retornos,
+    construir_matriz_precios,
+    extraer_serie_precios,
+)
 from ypyquant.optimization.data_preprocessing import (
     DiasTrading,
+    TipoRetorno,
 )
 
 logger = logging.getLogger(__name__)
@@ -287,7 +298,9 @@ def diversify_distance(
     corr = retornos_df.corr()
     distancias = 1 - corr.abs()
     tickers = retornos_df.columns.tolist()
-    rng = np.random.default_rng(semilla)
+    # RandomState(semilla) reproduce exactamente np.random.seed(42) + np.random.choice de
+    # GrowSave (resultados validados en producción) sin tocar el estado global de NumPy.
+    rng = np.random.RandomState(semilla)
 
     mejor_seleccion: list[str] = []
     mejor_distancia = -1.0
@@ -355,3 +368,543 @@ def calcular_matriz_correlacion(retornos_df: pd.DataFrame) -> pd.DataFrame:
     if retornos_df.empty:
         return pd.DataFrame()
     return retornos_df.corr()
+
+
+# ============================================================================
+# SERVICIO COMPLETO (API de GrowSave, sin BD: datos inyectados)
+# ============================================================================
+
+# (index_name, fecha_inicio, fecha_fin, include_survivors_only) -> lista de tickers
+ProveedorUniverso = Callable[[str, datetime, datetime, bool], list[str]]
+# ticker -> dict de fundamentales (market_cap, pe_ratio, ...) o None
+ProveedorFundamentales = Callable[[str], dict | None]
+
+_PREFIJOS_FUNDAMENTALES = ('market_cap', 'pe_ratio', 'dividend', 'profit', 'return_on', 'debt_to')
+
+
+class AssetSelectionService:
+    """
+    Servicio de selección de activos: screening (momentum, Sharpe, volatilidad, filtros
+    técnicos y fundamentales) y 4 métodos de diversificación por correlación.
+
+    Es el servicio de GrowSave sin acceso a BD. Los datos llegan por inyección:
+        cargador_precios(ticker, inicio, fin) -> DataFrame OHLCV (columnas en minúscula o no)
+        proveedor_universo(index_name, inicio_dt, fin_dt, include_survivors_only) -> [tickers]
+        proveedor_fundamentales(ticker) -> dict | None
+        proveedor_tickers_disponibles() -> [tickers]
+
+    Usa log-retornos por defecto, como el resto del sistema de optimización. Los resultados
+    conservan las claves en inglés de GrowSave ('ticker', 'sharpe_ratio', ...).
+    """
+
+    def __init__(
+        self,
+        cargador_precios: CargadorPrecios | None = None,
+        tipo_retorno: Literal["log", "simple"] = "log",
+        proveedor_universo: ProveedorUniverso | None = None,
+        proveedor_fundamentales: ProveedorFundamentales | None = None,
+        proveedor_tickers_disponibles: Callable[[], list[str]] | None = None,
+    ):
+        self.cargador_precios = cargador_precios
+        self.tipo_retorno = tipo_retorno
+        self._tipo_retorno_enum = TipoRetorno(tipo_retorno)
+        self.proveedor_universo = proveedor_universo
+        self.proveedor_fundamentales = proveedor_fundamentales
+        self.proveedor_tickers_disponibles = proveedor_tickers_disponibles
+
+    # ------------------------------------------------------------------
+    # Acceso a datos (inyectado)
+    # ------------------------------------------------------------------
+
+    def _cargar_ohlcv(self, ticker: str, start_date: str, end_date: str) -> pd.DataFrame | None:
+        """Carga el OHLCV de un ticker con el cargador inyectado."""
+        if self.cargador_precios is None:
+            raise RuntimeError("AssetSelectionService necesita un cargador_precios para cargar datos")
+        return self.cargador_precios(ticker, start_date, end_date)
+
+    def _resolver_universo(
+        self,
+        tickers: list[str] | None,
+        start_date: str | None,
+        end_date: str | None,
+        index_name: str | None,
+        avoid_survivorship_bias: bool,
+    ) -> list[str]:
+        """Devuelve la lista de tickers a evaluar (explícita o universo histórico del índice)."""
+        if index_name:
+            if not start_date or not end_date:
+                raise ValueError("start_date y end_date son requeridos cuando se usa index_name")
+            tickers = self.get_historical_universe(
+                index_name=index_name,
+                start_date=start_date,
+                end_date=end_date,
+                avoid_survivorship_bias=avoid_survivorship_bias,
+            )
+            logger.info(f"Usando universo histórico de {index_name}: {len(tickers)} tickers")
+        if not tickers:
+            raise ValueError("Debe proporcionar 'tickers' o 'index_name'")
+        return tickers
+
+    def get_historical_universe(
+        self,
+        index_name: str,
+        start_date: str,
+        end_date: str,
+        avoid_survivorship_bias: bool = True,
+    ) -> list[str]:
+        """
+        Tickers que pertenecieron al índice en el período (evita survivorship bias).
+
+        Requiere `proveedor_universo`; con avoid_survivorship_bias=True se incluyen los
+        tickers que salieron del índice.
+        """
+        if self.proveedor_universo is None:
+            raise RuntimeError("get_historical_universe necesita un proveedor_universo")
+        return self.proveedor_universo(
+            index_name,
+            datetime.strptime(start_date, '%Y-%m-%d'),
+            datetime.strptime(end_date, '%Y-%m-%d'),
+            not avoid_survivorship_bias,
+        )
+
+    def get_available_tickers_info(self) -> list[dict]:
+        """Lista de tickers disponibles con información básica (nombre/sector aún sin datos)."""
+        tickers = self.proveedor_tickers_disponibles() if self.proveedor_tickers_disponibles else []
+        return [{'symbol': t, 'name': t, 'sector': None, 'market_cap': None} for t in tickers]
+
+    def _get_prices_matrix(self, tickers: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """Matriz de precios ajustados (vacía si no hay datos)."""
+        if self.cargador_precios is None:
+            raise RuntimeError("AssetSelectionService necesita un cargador_precios para cargar datos")
+        return construir_matriz_precios(tickers, start_date, end_date, self._cargar_ohlcv, estricto=False)
+
+    def _get_returns_matrix(
+        self,
+        tickers: list[str],
+        start_date: str,
+        end_date: str,
+        tipo_retorno: Literal["log", "simple"] | None = None,
+    ) -> pd.DataFrame:
+        """Matriz de retornos diarios limpia (ProcesadorDatos, 90 % de datos válidos mínimo)."""
+        tipo = tipo_retorno or self.tipo_retorno
+        precios = self._get_prices_matrix(tickers, start_date, end_date)
+        return calcular_matriz_retornos(precios, tipo_retorno=tipo, ratio_minimo_validos=0.90, estricto=False)
+
+    def _calcular_retornos_ticker(self, prices: pd.Series) -> pd.Series:
+        """Retornos de un ticker con el tipo configurado (log o simple)."""
+        if self.tipo_retorno == "log":
+            returns = np.log(prices / prices.shift(1))
+        else:
+            returns = prices.pct_change()
+        return returns.dropna()
+
+    def _anualizar_media(self, media_retornos: float) -> float:
+        """Log: media * 252 (aditiva). Simple: (1 + media)^252 - 1 (compuesta)."""
+        if self.tipo_retorno == "log":
+            return media_retornos * DiasTrading.ANUAL
+        return (1 + media_retornos) ** DiasTrading.ANUAL - 1
+
+    def _anualizar_volatilidad(self, volatilidad: float) -> float:
+        """Volatilidad diaria * sqrt(252)."""
+        return volatilidad * np.sqrt(DiasTrading.ANUAL)
+
+    def _precios_ticker(self, ticker: str, start_date: str, end_date: str, min_filas: int = 1) -> pd.Series | None:
+        """Serie de precios ajustados de un ticker, o None si no hay al menos `min_filas`."""
+        ohlcv = self._cargar_ohlcv(ticker, start_date, end_date)
+        if ohlcv is None or ohlcv.empty or len(ohlcv) < min_filas:
+            return None
+        return extraer_serie_precios(ohlcv, ticker, avisar=False)
+
+    # ------------------------------------------------------------------
+    # Screening básico
+    # ------------------------------------------------------------------
+
+    def screen_by_momentum(
+        self,
+        tickers: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        top_n: int = 10,
+        lookback_days: int = 252,
+        index_name: str | None = None,
+        avoid_survivorship_bias: bool = True,
+    ) -> list[dict]:
+        """
+        Activos con mejor momentum (retorno total / volatilidad anualizada).
+
+        Returns:
+            [{ticker, total_return, annualized_volatility, sharpe_ratio, momentum_score}]
+            ordenada por momentum_score descendente (top_n). sharpe_ratio aquí es sin r_f.
+        """
+        tickers = self._resolver_universo(tickers, start_date, end_date, index_name, avoid_survivorship_bias)
+        datos = []
+        for ticker in tickers:
+            try:
+                prices = self._precios_ticker(ticker, start_date, end_date, min_filas=lookback_days)
+                if prices is None:
+                    continue
+                total_return = (prices.iloc[-1] / prices.iloc[0]) - 1
+                returns = self._calcular_retornos_ticker(prices)
+                volatility = self._anualizar_volatilidad(returns.std())
+                mean_return = self._anualizar_media(returns.mean())
+                datos.append({
+                    'ticker': ticker,
+                    'total_return': float(total_return),
+                    'annualized_volatility': float(volatility),
+                    'sharpe_ratio': float(mean_return / volatility) if volatility > 0 else 0,
+                    'momentum_score': float(total_return / volatility) if volatility > 0 else 0,
+                })
+            except Exception as exc:  # noqa: BLE001 — un ticker defectuoso no debe abortar el lote
+                logger.debug(f"Error calculando momentum de {ticker}: {exc}")
+        datos.sort(key=lambda x: x['momentum_score'], reverse=True)
+        return datos[:top_n]
+
+    def screen_by_sharpe(
+        self,
+        tickers: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        top_n: int = 10,
+        risk_free_rate: float | None = None,
+        index_name: str | None = None,
+        avoid_survivorship_bias: bool = True,
+    ) -> list[dict]:
+        """
+        Activos por Sharpe histórico ((media anual − r_f) / volatilidad anual).
+
+        Returns:
+            [{ticker, sharpe_ratio, annualized_return, annualized_volatility}] (top_n).
+        """
+        tickers = self._resolver_universo(tickers, start_date, end_date, index_name, avoid_survivorship_bias)
+        if risk_free_rate is None:
+            risk_free_rate = 0.02  # Valor conservador por defecto
+        datos = []
+        for ticker in tickers:
+            try:
+                prices = self._precios_ticker(ticker, start_date, end_date)
+                if prices is None:
+                    continue
+                returns = self._calcular_retornos_ticker(prices)
+                mean_return = self._anualizar_media(returns.mean())
+                volatility = self._anualizar_volatilidad(returns.std())
+                datos.append({
+                    'ticker': ticker,
+                    'sharpe_ratio': float((mean_return - risk_free_rate) / volatility) if volatility > 0 else 0.0,
+                    'annualized_return': float(mean_return),
+                    'annualized_volatility': float(volatility),
+                })
+            except Exception as exc:  # noqa: BLE001 — un ticker defectuoso no debe abortar el lote
+                logger.debug(f"Error calculando Sharpe de {ticker}: {exc}")
+        datos.sort(key=lambda x: x['sharpe_ratio'], reverse=True)
+        return datos[:top_n]
+
+    def screen_by_volatility(
+        self,
+        tickers: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        top_n: int = 10,
+        prefer_low: bool = True,
+        index_name: str | None = None,
+        avoid_survivorship_bias: bool = True,
+    ) -> list[dict]:
+        """
+        Activos por volatilidad anualizada (baja si prefer_low, alta si no).
+
+        Returns:
+            [{ticker, annualized_volatility, annualized_return}] (top_n).
+        """
+        tickers = self._resolver_universo(tickers, start_date, end_date, index_name, avoid_survivorship_bias)
+        datos = []
+        for ticker in tickers:
+            try:
+                prices = self._precios_ticker(ticker, start_date, end_date)
+                if prices is None:
+                    continue
+                returns = self._calcular_retornos_ticker(prices)
+                datos.append({
+                    'ticker': ticker,
+                    'annualized_volatility': float(self._anualizar_volatilidad(returns.std())),
+                    'annualized_return': float(self._anualizar_media(returns.mean())),
+                })
+            except Exception as exc:  # noqa: BLE001 — un ticker defectuoso no debe abortar el lote
+                logger.debug(f"Error calculando volatilidad de {ticker}: {exc}")
+        datos.sort(key=lambda x: x['annualized_volatility'], reverse=not prefer_low)
+        return datos[:top_n]
+
+    # ------------------------------------------------------------------
+    # Diversificación por correlación (cargan retornos y delegan en las funciones puras)
+    # ------------------------------------------------------------------
+
+    def diversify_greedy(
+        self,
+        tickers: list[str],
+        start_date: str,
+        end_date: str,
+        max_correlation: float = 0.7,
+        max_assets: int | None = None,
+    ) -> list[str]:
+        """Método 1 (greedy): añade activos con |correlación| < max_correlation con los elegidos."""
+        retornos = self._get_returns_matrix(tickers, start_date, end_date)
+        return diversify_greedy(retornos, max_correlacion=max_correlation, max_activos=max_assets)
+
+    def diversify_clustering(
+        self,
+        tickers: list[str],
+        start_date: str,
+        end_date: str,
+        n_clusters: int = 5,
+        method: str = 'average',
+    ) -> list[str]:
+        """Método 2 (clustering jerárquico): un representante por cluster."""
+        retornos = self._get_returns_matrix(tickers, start_date, end_date)
+        return diversify_clustering(retornos, n_clusters=n_clusters, method=method)
+
+    def diversify_distance(
+        self,
+        tickers: list[str],
+        start_date: str,
+        end_date: str,
+        n_assets: int = 10,
+        iterations: int = 100,
+    ) -> list[str]:
+        """Método 3 (máxima distancia media 1 − |ρ|) por muestreo aleatorio con semilla 42."""
+        retornos = self._get_returns_matrix(tickers, start_date, end_date)
+        return diversify_distance(retornos, n_activos=n_assets, iteraciones=iterations, semilla=42)
+
+    def diversify_mixed(
+        self,
+        tickers: list[str],
+        scores: dict[str, float],
+        start_date: str,
+        end_date: str,
+        max_correlation: float = 0.7,
+        top_n: int = 10,
+    ) -> list[str]:
+        """Método 4 (score + greedy): greedy sobre los 3·top_n tickers de mayor score."""
+        ordenados = sorted([t for t in tickers if t in scores], key=lambda t: scores[t], reverse=True)
+        return self.diversify_greedy(
+            tickers=ordenados[:top_n * 3],
+            start_date=start_date,
+            end_date=end_date,
+            max_correlation=max_correlation,
+            max_assets=top_n,
+        )
+
+    def calculate_correlation_matrix(self, tickers: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """Matriz de correlación de los retornos (vacía si no hay datos)."""
+        return calcular_matriz_correlacion(self._get_returns_matrix(tickers, start_date, end_date))
+
+    # ------------------------------------------------------------------
+    # Screening personalizado y por filtros
+    # ------------------------------------------------------------------
+
+    def screen_custom(
+        self,
+        tickers: list[str],
+        start_date: str,
+        end_date: str,
+        criteria: dict[str, Any],
+    ) -> list[dict]:
+        """
+        Screening con criterios min_return, max_volatility, min_sharpe y max_correlation
+        (este último aplica diversify_greedy al final). Retornos simples, r_f = 2 %.
+
+        Returns:
+            [{ticker, annualized_return, annualized_volatility, sharpe_ratio}] que cumplen.
+        """
+        resultados = []
+        for ticker in tickers:
+            try:
+                prices = self._precios_ticker(ticker, start_date, end_date)
+                if prices is None:
+                    continue
+                returns = prices.pct_change().dropna()
+                mean_return = returns.mean() * 252
+                volatility = returns.std() * np.sqrt(252)
+                sharpe = (mean_return - 0.02) / volatility if volatility > 0 else 0
+
+                cumple = True
+                if 'min_return' in criteria and mean_return < criteria['min_return']:
+                    cumple = False
+                if 'max_volatility' in criteria and volatility > criteria['max_volatility']:
+                    cumple = False
+                if 'min_sharpe' in criteria and sharpe < criteria['min_sharpe']:
+                    cumple = False
+                if cumple:
+                    resultados.append({
+                        'ticker': ticker,
+                        'annualized_return': float(mean_return),
+                        'annualized_volatility': float(volatility),
+                        'sharpe_ratio': float(sharpe),
+                    })
+            except Exception as exc:  # noqa: BLE001 — un ticker defectuoso no debe abortar el lote
+                logger.warning(f"Error en screening de {ticker}: {exc}")
+
+        if 'max_correlation' in criteria and resultados:
+            diversificados = self.diversify_greedy(
+                [r['ticker'] for r in resultados], start_date, end_date, criteria['max_correlation']
+            )
+            resultados = [r for r in resultados if r['ticker'] in diversificados]
+        return resultados
+
+    def screen_by_filters(
+        self,
+        tickers: list[str],
+        start_date: str,
+        end_date: str,
+        filters: dict[str, Any],
+        top_n: int | None = None,
+        apply_correlation_filter: bool = False,
+        max_correlation: float = 0.7,
+        risk_free_rate: float = 0.02,
+    ) -> list[dict]:
+        """
+        Screening por filtros técnicos (sharpe/sortino/calmar mín., retorno y volatilidad
+        mín./máx., max_drawdown_max, beta_min/max) y fundamentales (market_cap, pe_ratio,
+        dividend_yield, profit_margin, return_on_equity, debt_to_equity). Los fundamentales
+        solo se piden si hay algún filtro fundamental y hay `proveedor_fundamentales`.
+
+        Returns:
+            Activos que pasan, ordenados por Sharpe desc., limitados a top_n y, si se pide,
+            diversificados por correlación.
+        """
+        resultados = []
+        logger.info(f"Screening {len(tickers)} tickers con {len(filters)} filtros activos...")
+        pide_fundamentales = any(k.startswith(_PREFIJOS_FUNDAMENTALES) for k in filters)
+
+        for ticker in tickers:
+            try:
+                prices = self._precios_ticker(ticker, start_date, end_date, min_filas=30)
+                if prices is None:
+                    continue
+                returns = prices.pct_change().dropna()
+                if len(returns) < 30:
+                    continue
+
+                mean_return = returns.mean() * 252
+                volatility = returns.std() * np.sqrt(252)
+                sharpe_ratio = (mean_return - risk_free_rate) / volatility if volatility > 0 else 0
+
+                downside = returns[returns < 0]
+                downside_std = downside.std() * np.sqrt(252) if len(downside) > 0 else volatility
+                sortino_ratio = (mean_return - risk_free_rate) / downside_std if downside_std > 0 else 0
+
+                acumulado = (1 + returns).cumprod()
+                drawdown = (acumulado - acumulado.cummax()) / acumulado.cummax()
+                max_drawdown = float(drawdown.min())
+                calmar_ratio = mean_return / abs(max_drawdown) if max_drawdown != 0 else 0
+                beta = None  # Pendiente: beta frente al índice de referencia
+
+                metricas = {
+                    'ticker': ticker,
+                    'annualized_return': float(mean_return),
+                    'annualized_volatility': float(volatility),
+                    'sharpe_ratio': float(sharpe_ratio),
+                    'sortino_ratio': float(sortino_ratio),
+                    'calmar_ratio': float(calmar_ratio),
+                    'max_drawdown': float(max_drawdown),
+                    'beta': beta,
+                }
+
+                fundamentales: dict[str, Any] = {}
+                if pide_fundamentales and self.proveedor_fundamentales is not None:
+                    datos_fund = self.proveedor_fundamentales(ticker)
+                    if datos_fund:
+                        fundamentales = {
+                            clave: datos_fund.get(clave)
+                            for clave in ('market_cap', 'pe_ratio', 'dividend_yield', 'profit_margin',
+                                          'return_on_equity', 'return_on_assets', 'debt_to_equity',
+                                          'price_to_book', 'peg_ratio')
+                        }
+                metricas.update(fundamentales)
+
+                if _pasa_filtros(filters, metricas, fundamentales):
+                    resultados.append(metricas)
+            except Exception as exc:  # noqa: BLE001 — un ticker defectuoso no debe abortar el lote
+                logger.warning(f"Error en screening de {ticker}: {exc}")
+
+        resultados.sort(key=lambda x: x.get('sharpe_ratio', -999), reverse=True)
+        if top_n and len(resultados) > top_n:
+            resultados = resultados[:top_n]
+
+        if apply_correlation_filter and len(resultados) > 1:
+            diversificados = self.diversify_greedy(
+                [r['ticker'] for r in resultados], start_date, end_date, max_correlation
+            )
+            resultados = [r for r in resultados if r['ticker'] in diversificados]
+
+        logger.info(f"Screening completado: {len(resultados)} activos seleccionados")
+        return resultados
+
+    def get_screening_presets(self) -> dict[str, dict]:
+        """Presets de screening predefinidos (los que ofrece la API de GrowSave)."""
+        return {
+            'momentum_growth': {
+                'name': 'Momentum & Growth',
+                'description': 'Activos con alto momentum y crecimiento',
+                'method': 'momentum',
+                'params': {'top_n': 10, 'lookback_days': 252},
+            },
+            'low_volatility': {
+                'name': 'Low Volatility',
+                'description': 'Activos con baja volatilidad',
+                'method': 'volatility',
+                'params': {'top_n': 10, 'prefer_low': True},
+            },
+            'high_sharpe': {
+                'name': 'High Sharpe Ratio',
+                'description': 'Mejor relación riesgo-retorno',
+                'method': 'sharpe',
+                'params': {'top_n': 10, 'risk_free_rate': 0.02},
+            },
+            'balanced': {
+                'name': 'Balanced',
+                'description': 'Balance entre retorno, riesgo y diversificación',
+                'method': 'custom',
+                'params': {'min_return': 0.05, 'max_volatility': 0.30, 'min_sharpe': 0.3, 'max_correlation': 0.7},
+            },
+        }
+
+
+def _pasa_filtros(filtros: dict[str, Any], metricas: dict[str, Any], fundamentales: dict[str, Any]) -> bool:
+    """
+    Aplica los filtros de screen_by_filters. Los fundamentales sin dato (None) no descartan.
+
+    Clave de filtro '<métrica>_min' exige métrica >= valor; '<métrica>_max', métrica <= valor.
+    max_drawdown_max: el drawdown (negativo) debe ser >= el valor (p. ej. -0.25).
+    """
+    tecnicos = {
+        'sharpe_ratio_min': ('sharpe_ratio', 'min'),
+        'sortino_ratio_min': ('sortino_ratio', 'min'),
+        'calmar_ratio_min': ('calmar_ratio', 'min'),
+        'annualized_return_min': ('annualized_return', 'min'),
+        'annualized_return_max': ('annualized_return', 'max'),
+        'annualized_volatility_min': ('annualized_volatility', 'min'),
+        'annualized_volatility_max': ('annualized_volatility', 'max'),
+        'max_drawdown_max': ('max_drawdown', 'min'),
+        'beta_min': ('beta', 'min'),
+        'beta_max': ('beta', 'max'),
+    }
+    fundamentales_filtros = {
+        'market_cap_min': ('market_cap', 'min'),
+        'market_cap_max': ('market_cap', 'max'),
+        'pe_ratio_min': ('pe_ratio', 'min'),
+        'pe_ratio_max': ('pe_ratio', 'max'),
+        'dividend_yield_min': ('dividend_yield', 'min'),
+        'profit_margin_min': ('profit_margin', 'min'),
+        'return_on_equity_min': ('return_on_equity', 'min'),
+        'debt_to_equity_max': ('debt_to_equity', 'max'),
+    }
+    for nombre, (clave, sentido) in {**tecnicos, **fundamentales_filtros}.items():
+        if nombre not in filtros:
+            continue
+        origen = fundamentales if nombre in fundamentales_filtros else metricas
+        valor = origen.get(clave)
+        if valor is None:
+            continue
+        if sentido == 'min' and valor < filtros[nombre]:
+            return False
+        if sentido == 'max' and valor > filtros[nombre]:
+            return False
+    return True
