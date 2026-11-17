@@ -1,0 +1,8 @@
+{
+  "nombre": "tecnica_ejemplo",
+  "tickers": ["AAPL", "MSFT", "NVDA"],
+  "config_senales": {"generators": [{"name": "technical", "weight": 1.0}]},
+  "config_riesgo": {"max_position_pct": 0.10, "initial_capital": 100000.0},
+  "frecuencia_rebalanceo": "daily",
+  "umbral_senal": 0.3
+}
