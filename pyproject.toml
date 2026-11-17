@@ -33,6 +33,15 @@ dependencies = [
 ml = ["tensorflow>=2.15"]
 tracking = ["mlflow>=2.10"]
 fast = ["vectorbt>=0.26"]
+# Paper trading (pipelines/paper_trading + ypyquant.execution.nautilus). Opcional para que GrowSave no lo arrastre.
+# nautilus_trader: GrowSave fija >=1.190; con Python 3.11 la última publicada compatible es 1.221.0 (2025-10-26).
+# alpaca-py: <0.45 porque 0.45.0 (2026-11-05) tiene menos de 2 semanas.
+trading = [
+    "nautilus_trader>=1.190",
+    "alpaca-py>=0.38,<0.45",
+    "python-dotenv",
+    "yfinance>=0.2",
+]
 
 # Dependencias del entorno (no de la librería): solo para trabajar en este repo
 [dependency-groups]
