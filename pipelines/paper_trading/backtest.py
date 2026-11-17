@@ -22,7 +22,7 @@ from ypyquant.execution.nautilus.constructor_senales import construir_combinador
 
 logger = logging.getLogger(__name__)
 
-METRICAS = ["sharpe_ratio", "sortino_ratio", "cagr", "max_drawdown", "total_return", "win_rate"]
+METRICAS = ["sharpe_ratio", "sortino_ratio", "total_return_pct", "max_drawdown_pct", "win_rate"]
 
 
 def pesos_desde_senales(senales, fecha) -> dict[str, float]:
@@ -67,7 +67,7 @@ def ejecutar_backtest(estrategia: ConfiguracionEstrategia):
     datos = {t: precios[[t]].rename(columns={t: "close"}) for t in estrategia.tickers if t in precios.columns}
     resultado = BacktestEngine(config=configuracion).run_backtest(
         strategy_func=lambda fecha, _datos: pesos_desde_senales(senales, fecha),
-        historical_data=datos,
+        tickers=datos,
     )
 
     logger.info("RESULTADOS DEL BACKTEST")
