@@ -89,6 +89,24 @@ ypyquant/
 
 ---
 
+## Paper trading
+
+CLI en `pipelines/paper_trading/` (cuenta **paper** de Alpaca; no opera con dinero real). La librería está en `src/ypyquant/execution/nautilus/`. Las dependencias (`nautilus_trader`, `alpaca-py`, `python-dotenv`, `yfinance`) son el extra opcional `trading`, para que GrowSave no las arrastre.
+
+```bash
+uv sync --extra trading                       # instala el extra
+cp .env.example .env                          # y rellena ALPACA_API_KEY / ALPACA_SECRET_KEY (claves paper)
+
+uv run python -m pipelines.paper_trading --backtest          # backtest de las señales (sin claves de Alpaca)
+uv run python -m pipelines.paper_trading --una-vez           # una iteración en vivo contra Alpaca paper
+uv run python -m pipelines.paper_trading                     # bucle continuo (Ctrl+C para parar)
+uv run python -m pipelines.paper_trading --config pipelines/paper_trading/estrategia_ejemplo.json
+```
+
+La estrategia (tickers, generadores de señales, umbral, riesgo) se define en un JSON (ver `estrategia_ejemplo.json`). Las órdenes son de mercado DAY y solo se envían con el mercado abierto. Los fills se guardan en `data/paper_trading/fills.jsonl`. Variables opcionales: `NAUTILUS_POLL_INTERVAL` (segundos entre iteraciones) y `NAUTILUS_LOOKBACK_DAYS`.
+
+---
+
 ## Próximas sesiones (Fase 3+4)
 
 Orden de ejecución:
