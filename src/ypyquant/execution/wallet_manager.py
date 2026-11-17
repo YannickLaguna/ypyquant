@@ -10,7 +10,6 @@ Responsabilidades:
 """
 
 import logging
-from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -34,7 +33,7 @@ class WalletManager:
         initial_capital: float,
         tradable_balance_ratio: float = 0.99,
         max_open_trades: int = 10,
-        stake_amount: Optional[float] = None,
+        stake_amount: float | None = None,
         reserve_amount: float = 0.0,
         max_position_size: float = 1.0,
     ):
@@ -79,7 +78,7 @@ class WalletManager:
     def get_trade_stake_amount(
         self,
         current_open_trades: int = 0,
-        custom_stake: Optional[float] = None,
+        custom_stake: float | None = None,
     ) -> float:
         if custom_stake is not None:
             stake = custom_stake
@@ -98,7 +97,7 @@ class WalletManager:
         stake_amount: float,
         min_stake: float = 10.0,
         current_open_trades: int = 0,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if stake_amount < min_stake:
             return False, f"Stake ${stake_amount:.2f} menor al mínimo ${min_stake:.2f}"
 
@@ -132,7 +131,7 @@ class WalletManager:
         stake_amount: float,
         price: float,
         commission_rate: float = 0.001,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         if price <= 0:
             raise ValueError("El precio debe ser mayor a 0")
         commission = stake_amount * commission_rate
@@ -148,7 +147,7 @@ class WalletManager:
         available = max(0, max_allowed - current_position_value)
         return min(available, self.get_tradable_balance())
 
-    def estimate_max_trades(self, avg_stake_per_trade: Optional[float] = None) -> int:
+    def estimate_max_trades(self, avg_stake_per_trade: float | None = None) -> int:
         tradable = self.get_tradable_balance()
         if avg_stake_per_trade is None:
             avg_stake_per_trade = (
@@ -160,7 +159,7 @@ class WalletManager:
             return 0
         return min(int(tradable / avg_stake_per_trade), self.max_open_trades)
 
-    def get_portfolio_allocation(self) -> Dict:
+    def get_portfolio_allocation(self) -> dict:
         balance = self.get_balance()
         tradable = self.get_tradable_balance()
         return {
@@ -174,7 +173,7 @@ class WalletManager:
             "max_position_value": balance.total * self.max_position_size,
         }
 
-    def check_sufficient_funds(self, required_amount: float, operation: str = "operación") -> Tuple[bool, str]:
+    def check_sufficient_funds(self, required_amount: float, operation: str = "operación") -> tuple[bool, str]:
         tradable = self.get_tradable_balance()
         if required_amount <= tradable:
             return True, f"Fondos suficientes para {operation}"

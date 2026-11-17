@@ -10,21 +10,20 @@ Relacionado con:
   - portfolio/bond_pricing.py (usa CurvaRendimientoTesoro para pricing con curva de mercado)
 """
 
-from typing import Dict, Optional, Tuple
-from datetime import datetime, date, timedelta
-import pandas as pd
-import numpy as np
 import warnings
+from datetime import date, datetime, timedelta
+
+import numpy as np
+import pandas as pd
 
 from ypyquant.data.quantlib_utils import (
-    tiene_quantlib,
+    configurar_fecha_evaluacion,
     convertir_fecha_a_ql,
-    convertir_ql_a_fecha,
     crear_calendario_usa,
-    obtener_day_count_convention,
     crear_quote_handle,
+    obtener_day_count_convention,
     obtener_periodo,
-    configurar_fecha_evaluacion
+    tiene_quantlib,
 )
 
 
@@ -73,7 +72,7 @@ class CurvaRendimientoTesoro:
     def construir_desde_mercado(
         self,
         fecha: str | datetime | date | None = None,
-        tasas_manuales: Optional[Dict[str, float]] = None
+        tasas_manuales: dict[str, float] | None = None
     ) -> 'CurvaRendimientoTesoro':
         """
         Construye la curva de rendimiento mediante bootstrap desde datos de mercado.
@@ -193,7 +192,7 @@ class CurvaRendimientoTesoro:
     def descargar_tasas_tesoro(
         self,
         fecha: str | datetime | date
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Descarga tasas del Tesoro USA desde Yahoo Finance.
 
@@ -266,7 +265,7 @@ class CurvaRendimientoTesoro:
         # Si no se descargó nada, usar todos los fallbacks
         if not tasas:
             print("   [WARNING] No se pudieron descargar tasas. Usando todos los fallbacks.")
-            for plazo in simbolos_yahoo.keys():
+            for plazo in simbolos_yahoo:
                 tasas[plazo] = self._fallback_tasa(plazo)
 
         return tasas
@@ -454,7 +453,7 @@ class CurvaRendimientoTesoro:
 
         return float(df)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """
         Serializa la información de la curva a diccionario.
 

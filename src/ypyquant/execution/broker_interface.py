@@ -4,7 +4,6 @@ Define los métodos que cualquier implementación de broker debe cumplir.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -41,7 +40,7 @@ class BrokerInterface(ABC):
     Implementaciones concretas: PaperBroker (simulación), AlpacaBroker, IBBroker.
     """
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: dict):
         self.config = config
         self.connected = False
 
@@ -52,7 +51,7 @@ class BrokerInterface(ABC):
     def disconnect(self) -> bool: ...
 
     @abstractmethod
-    def get_account_info(self) -> Dict:
+    def get_account_info(self) -> dict:
         """
         Returns:
             {'account_id', 'cash', 'equity', 'buying_power', 'currency'}
@@ -60,7 +59,7 @@ class BrokerInterface(ABC):
         ...
 
     @abstractmethod
-    def get_positions(self) -> List[Dict]:
+    def get_positions(self) -> list[dict]:
         """
         Returns:
             [{'ticker', 'quantity', 'avg_entry_price', 'current_price', 'market_value', 'unrealized_pnl'}, ...]
@@ -74,9 +73,9 @@ class BrokerInterface(ABC):
         quantity: float,
         side: OrderSide,
         order_type: OrderType = OrderType.MARKET,
-        limit_price: Optional[float] = None,
-        stop_price: Optional[float] = None,
-    ) -> Dict:
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> dict:
         """
         Returns:
             {'order_id', 'status', 'ticker', 'quantity', 'side', 'order_type',
@@ -85,13 +84,13 @@ class BrokerInterface(ABC):
         ...
 
     @abstractmethod
-    def get_order_status(self, order_id: str) -> Dict: ...
+    def get_order_status(self, order_id: str) -> dict: ...
 
     @abstractmethod
     def cancel_order(self, order_id: str) -> bool: ...
 
     @abstractmethod
-    def get_current_price(self, ticker: str) -> Optional[float]: ...
+    def get_current_price(self, ticker: str) -> float | None: ...
 
     def is_market_open(self) -> bool:
         """Verifica si el mercado NYSE está abierto (9:30–16:00 ET, L–V)."""

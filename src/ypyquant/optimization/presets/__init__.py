@@ -22,12 +22,14 @@ Uso:
     modelo = obtener_preset('markowitz')
 """
 
-from typing import Dict, Callable, Any
+from collections.abc import Callable
+from typing import Any, Dict
+
 from ypyquant.optimization.portfolio_models import PortfolioOptimizationModel
 
 # Diccionario central de presets registrados
 # Formato: {nombre_preset: funcion_factory}
-PRESETS_REGISTRADOS: Dict[str, Callable] = {}
+PRESETS_REGISTRADOS: dict[str, Callable] = {}
 
 
 def registrar_preset(nombre: str):
@@ -69,7 +71,7 @@ def obtener_preset(nombre_preset: str, risk_free_rate: float = 0.02):
     return PRESETS_REGISTRADOS[nombre_preset](risk_free_rate=risk_free_rate)
 
 
-def listar_presets() -> Dict[str, str]:
+def listar_presets() -> dict[str, str]:
     """
     Lista todos los presets disponibles con descripciones.
 
@@ -92,7 +94,7 @@ def listar_presets() -> Dict[str, str]:
     return info_presets
 
 
-def obtener_detalles_preset(nombre_preset: str, risk_free_rate: float = 0.02) -> Dict:
+def obtener_detalles_preset(nombre_preset: str, risk_free_rate: float = 0.02) -> dict:
     """
     Obtiene detalles completos de un preset.
 
@@ -126,9 +128,7 @@ def obtener_detalles_preset(nombre_preset: str, risk_free_rate: float = 0.02) ->
 # ============================================================================
 
 # Importar presets de cada módulo (esto los registra automáticamente)
-from ypyquant.optimization.presets import tradicionales
-from ypyquant.optimization.presets import factor_models
-from ypyquant.optimization.presets import pmpt
+from ypyquant.optimization.presets import factor_models, pmpt, tradicionales
 
 # Los presets ML avanzados se importan condicionalmente
 try:

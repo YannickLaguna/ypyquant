@@ -7,7 +7,6 @@ TFM implementa esta interfaz usando SQLAlchemy (ver app/services/quant_bridge.py
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, List, Optional
 
 
 class StorageInterface(ABC):
@@ -19,7 +18,7 @@ class StorageInterface(ABC):
     """
 
     @abstractmethod
-    def load_portafolio(self, portafolio_id: int) -> Dict:
+    def load_portafolio(self, portafolio_id: int) -> dict:
         """
         Carga un portafolio por ID.
 
@@ -36,7 +35,7 @@ class StorageInterface(ABC):
         ...
 
     @abstractmethod
-    def save_operation(self, portafolio_id: int, order_info: Dict) -> int:
+    def save_operation(self, portafolio_id: int, order_info: dict) -> int:
         """
         Persiste una operación ejecutada.
 
@@ -50,7 +49,7 @@ class StorageInterface(ABC):
         ...
 
     @abstractmethod
-    def sync_positions(self, portafolio_id: int, positions: List[Dict]):
+    def sync_positions(self, portafolio_id: int, positions: list[dict]):
         """
         Sincroniza posiciones en BD.
         Elimina posiciones antiguas del portafolio e inserta las nuevas.
@@ -65,9 +64,9 @@ class StorageInterface(ABC):
     def get_operations(
         self,
         portafolio_id: int,
-        ticker: Optional[str] = None,
+        ticker: str | None = None,
         limit: int = 0,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Obtiene operaciones de un portafolio.
 
@@ -77,7 +76,7 @@ class StorageInterface(ABC):
         ...
 
     @abstractmethod
-    def get_posicion(self, portafolio_id: int, ticker: str) -> Optional[Dict]:
+    def get_posicion(self, portafolio_id: int, ticker: str) -> dict | None:
         """
         Obtiene una posición específica.
 

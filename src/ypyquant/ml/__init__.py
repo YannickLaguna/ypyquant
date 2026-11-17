@@ -9,13 +9,13 @@ Incluye:
 """
 
 from .asset_clustering import AssetClusteringService
-from .pca_risk import PCARiskService
-from .market_regime import MarketRegimeClassifier
 from .lstm_predictor import LSTMReturnsPredictor
+from .market_regime import MarketRegimeClassifier
+from .pca_risk import PCARiskService
 
 __all__ = [
     'AssetClusteringService',
-    'PCARiskService',
-    'MarketRegimeClassifier',
     'LSTMReturnsPredictor',
+    'MarketRegimeClassifier',
+    'PCARiskService',
 ]

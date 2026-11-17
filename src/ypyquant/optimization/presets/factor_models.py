@@ -10,15 +10,15 @@ Modelos que usan factores de riesgo para explicar retornos:
 Estos modelos incorporan teoría financiera sobre factores de riesgo sistemático.
 """
 
+
 from ypyquant.optimization.portfolio_models import (
-    PortfolioOptimizationModel,
-    CAPMReturnsModel,
     BlackLittermanReturnsModel,
+    CAPMReturnsModel,
     LedoitWolfShrinkageModel,
-    MarkowitzOptimizer
+    MarkowitzOptimizer,
+    PortfolioOptimizationModel,
 )
 from ypyquant.optimization.presets import registrar_preset
-from typing import Dict
 
 
 @registrar_preset('capm')
@@ -100,7 +100,7 @@ def crear_black_litterman_mejorado(risk_free_rate: float = 0.02) -> PortfolioOpt
 
 
 @registrar_preset('fama_french_4')
-def crear_fama_french_4_factores(risk_free_rate: float = 0.02) -> Dict:
+def crear_fama_french_4_factores(risk_free_rate: float = 0.02) -> dict:
     """
     Modelo Fama-French 4 factores con datos REALES y Ledoit-Wolf Shrinkage.
 

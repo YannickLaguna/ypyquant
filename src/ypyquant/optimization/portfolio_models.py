@@ -13,13 +13,13 @@ Relacionado con: walk_forward.py (consume optimizadores), factor_models.py (prov
 black_litterman.py (posterior BL), data_preprocessing.py (valida retornos).
 """
 
+import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
-import pandas as pd
-import numpy as np
 from datetime import datetime
 from enum import Enum
-import logging
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -114,13 +114,12 @@ class ExpectedReturnsModel(ABC):
         Returns:
             Series con rendimientos esperados anualizados por ticker
         """
-        pass
 
     def validate_returns(self, returns_df: pd.DataFrame) -> None:
         """Validación común de datos — delega a _validar_retornos centralizado."""
         _validar_retornos(returns_df)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa configuración del modelo"""
         return {
             'name': self.name,
@@ -156,13 +155,12 @@ class RiskModel(ABC):
         Returns:
             DataFrame con matriz de covarianza anualizada
         """
-        pass
 
     def validate_returns(self, returns_df: pd.DataFrame) -> None:
         """Validación común — delega a _validar_retornos centralizado."""
         _validar_retornos(returns_df)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa configuración del modelo"""
         return {
             'name': self.name,
@@ -191,9 +189,9 @@ class PortfolioOptimizer(ABC):
         self,
         expected_returns: pd.Series,
         risk_matrix: pd.DataFrame,
-        constraints: Optional[Dict] = None,
+        constraints: dict | None = None,
         **kwargs
-    ) -> Dict:
+    ) -> dict:
         """
         Optimiza el portafolio y retorna pesos y métricas.
 
@@ -206,7 +204,6 @@ class PortfolioOptimizer(ABC):
         Returns:
             Dict con weights, expected_return, volatility, sharpe_ratio, etc.
         """
-        pass
 
     def validate_inputs(
         self,
@@ -227,7 +224,7 @@ class PortfolioOptimizer(ABC):
         expected_returns: pd.Series,
         risk_matrix: pd.DataFrame,
         risk_free_rate: float = 0.02
-    ) -> Dict:
+    ) -> dict:
         """Calcula métricas estándar del portafolio"""
         portfolio_return = np.sum(expected_returns * weights)
         portfolio_vol = np.sqrt(np.dot(weights.T, np.dot(risk_matrix, weights)))
@@ -239,7 +236,7 @@ class PortfolioOptimizer(ABC):
             'sharpe_ratio': float(sharpe)
         }
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa configuración del optimizador"""
         return {
             'name': self.name,
@@ -322,7 +319,7 @@ class CAPMReturnsModel(ExpectedReturnsModel):
     def calculate(
         self,
         returns_df: pd.DataFrame,
-        market_returns: Optional[pd.Series] = None,
+        market_returns: pd.Series | None = None,
         **kwargs
     ) -> pd.Series:
         self.validate_returns(returns_df)
@@ -372,7 +369,7 @@ class BlackLittermanReturnsModel(ExpectedReturnsModel):
         self,
         risk_aversion: float = 2.5,
         tau: float = 0.025,
-        market_caps: Optional[Dict[str, float]] = None
+        market_caps: dict[str, float] | None = None
     ):
         super().__init__(name="black_litterman")
         self.risk_aversion = risk_aversion
@@ -387,9 +384,9 @@ class BlackLittermanReturnsModel(ExpectedReturnsModel):
     def calculate(
         self,
         returns_df: pd.DataFrame,
-        cov_matrix: Optional[pd.DataFrame] = None,
-        views: Optional[Dict[str, float]] = None,
-        view_confidences: Optional[List[float]] = None,
+        cov_matrix: pd.DataFrame | None = None,
+        views: dict[str, float] | None = None,
+        view_confidences: list[float] | None = None,
         **kwargs
     ) -> pd.Series:
         self.validate_returns(returns_df)
@@ -714,9 +711,9 @@ class MarkowitzOptimizer(PortfolioOptimizer):
         self,
         expected_returns: pd.Series,
         risk_matrix: pd.DataFrame,
-        constraints: Optional[Dict] = None,
+        constraints: dict | None = None,
         **kwargs
-    ) -> Dict:
+    ) -> dict:
         self.validate_inputs(expected_returns, risk_matrix)
 
         max_weight = constraints.get('max_weight', 1.0) if constraints else 1.0
@@ -807,9 +804,9 @@ class RiskParityOptimizer(PortfolioOptimizer):
         self,
         expected_returns: pd.Series,
         risk_matrix: pd.DataFrame,
-        constraints: Optional[Dict] = None,
+        constraints: dict | None = None,
         **kwargs
-    ) -> Dict:
+    ) -> dict:
         self.validate_inputs(expected_returns, risk_matrix)
 
         from scipy.optimize import minimize
@@ -883,9 +880,9 @@ class PortfolioOptimizationModel:
     def optimize(
         self,
         returns_df: pd.DataFrame,
-        constraints: Optional[Dict] = None,
+        constraints: dict | None = None,
         **kwargs
-    ) -> Dict:
+    ) -> dict:
         """
         Ejecuta optimización completa: calcula returns, risk y optimiza.
 
@@ -924,7 +921,7 @@ class PortfolioOptimizationModel:
 
         return result
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa configuración completa del modelo"""
         return {
             'name': self.name,
@@ -1034,7 +1031,7 @@ class LSTMReturnsModel(ExpectedReturnsModel):
         forecast_horizon: int = 5,
         lstm_units: int = 50,
         dropout: float = 0.2,
-        pretrained_models_path: Optional[str] = None
+        pretrained_models_path: str | None = None
     ):
         super().__init__(name="lstm_predictor")
         self.sequence_length = sequence_length
@@ -1137,9 +1134,9 @@ class PMPTMinCVaROptimizer(PortfolioOptimizer):
         self,
         expected_returns: pd.Series,
         risk_matrix: pd.DataFrame,
-        constraints: Optional[Dict] = None,
+        constraints: dict | None = None,
         **kwargs
-    ) -> Dict:
+    ) -> dict:
         """
         Minimiza el CVaR empírico del portafolio.
 
@@ -1255,9 +1252,9 @@ class PMPTMaxSortinoOptimizer(PortfolioOptimizer):
         self,
         expected_returns: pd.Series,
         risk_matrix: pd.DataFrame,
-        constraints: Optional[Dict] = None,
+        constraints: dict | None = None,
         **kwargs
-    ) -> Dict:
+    ) -> dict:
         """
         Maximiza el Sortino ratio: max (μ'w - rf) / sqrt(w' Σ^down w).
 

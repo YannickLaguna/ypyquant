@@ -10,11 +10,11 @@ Estos presets usan técnicas establecidas y probadas por décadas.
 """
 
 from ypyquant.optimization.portfolio_models import (
-    PortfolioOptimizationModel,
     HistoricalReturnsModel,
     LedoitWolfShrinkageModel,
     MarkowitzOptimizer,
-    RiskParityOptimizer
+    PortfolioOptimizationModel,
+    RiskParityOptimizer,
 )
 from ypyquant.optimization.presets import registrar_preset
 

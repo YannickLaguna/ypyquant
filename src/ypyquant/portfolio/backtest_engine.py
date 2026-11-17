@@ -30,11 +30,12 @@ TODO (costes avanzados):
 """
 
 import logging
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
-from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +69,13 @@ class BacktestTrade:
     """Representa un trade individual ejecutado durante el backtest."""
     ticker: str
     fecha_entrada: datetime
-    fecha_salida: Optional[datetime]
+    fecha_salida: datetime | None
     precio_entrada: float
-    precio_salida: Optional[float]
+    precio_salida: float | None
     cantidad: float
     lado: str            # 'buy' o 'sell'
-    pnl: Optional[float] = None
-    pnl_pct: Optional[float] = None
+    pnl: float | None = None
+    pnl_pct: float | None = None
     comision: float = 0.0
 
 
@@ -110,7 +111,7 @@ class BacktestResult:
 
     # Series temporales
     equity_curve: pd.DataFrame    # columnas: equity, cash, returns, drawdown, drawdown_pct
-    trades: List[BacktestTrade]
+    trades: list[BacktestTrade]
 
     # Costes
     total_fees: float
@@ -138,17 +139,17 @@ class BacktestEngine:
         """Reinicia el estado interno para permitir reusar el engine."""
         self.valor_portfolio = self.config.capital_inicial
         self.cash = self.config.capital_inicial
-        self.posiciones: Dict[str, Dict] = {}   # {ticker: {quantity, avg_price}}
-        self.equity_curve: List[Dict] = []
-        self.trades: List[BacktestTrade] = []
+        self.posiciones: dict[str, dict] = {}   # {ticker: {quantity, avg_price}}
+        self.equity_curve: list[dict] = []
+        self.trades: list[BacktestTrade] = []
         self.total_aportaciones = 0.0
-        self.pesos_objetivo: Dict[str, float] = {}
+        self.pesos_objetivo: dict[str, float] = {}
         self.fecha_actual = None
 
     def run_backtest(
         self,
-        strategy_func: Callable[[datetime, Dict[str, pd.DataFrame]], Dict[str, float]],
-        historical_data: Dict[str, pd.DataFrame]
+        strategy_func: Callable[[datetime, dict[str, pd.DataFrame]], dict[str, float]],
+        historical_data: dict[str, pd.DataFrame]
     ) -> BacktestResult:
         """
         Ejecuta el backtest completo.
@@ -240,7 +241,7 @@ class BacktestEngine:
     # Metodos de simulacion (logica pura, sin IO)
     # ------------------------------------------------------------------
 
-    def _calcular_fechas_rebalanceo(self) -> List[datetime]:
+    def _calcular_fechas_rebalanceo(self) -> list[datetime]:
         """Genera la lista de fechas de rebalanceo segun la frecuencia configurada."""
         freq_map = {
             'daily': 'D',
@@ -258,9 +259,9 @@ class BacktestEngine:
 
     def _obtener_precios(
         self,
-        historical_data: Dict[str, pd.DataFrame],
+        historical_data: dict[str, pd.DataFrame],
         fecha: datetime
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Extrae los precios de cierre para una fecha concreta."""
         precios = {}
         for ticker, df in historical_data.items():
@@ -275,7 +276,7 @@ class BacktestEngine:
                 pass
         return precios
 
-    def _actualizar_valor(self, precios: Dict[str, float]):
+    def _actualizar_valor(self, precios: dict[str, float]):
         """Recalcula el valor del portafolio con los precios actuales."""
         valor_posiciones = sum(
             pos['cantidad'] * precios[ticker]
@@ -296,7 +297,7 @@ class BacktestEngine:
         self,
         fecha: datetime,
         fechas_aportacion: set,
-        todas_fechas: List[datetime]
+        todas_fechas: list[datetime]
     ) -> bool:
         """Determina si en esta fecha corresponde procesar una aportacion DCA."""
         if fecha in fechas_aportacion:
@@ -310,7 +311,7 @@ class BacktestEngine:
                         return True
         return False
 
-    def _ejecutar_aportacion(self, precios: Dict[str, float], fecha: datetime):
+    def _ejecutar_aportacion(self, precios: dict[str, float], fecha: datetime):
         """
         Ejecuta una aportacion mensual distribuyendola hacia activos infrarepresentados
         (DCA con rebalanceo natural, sin necesidad de vender).
@@ -351,8 +352,8 @@ class BacktestEngine:
 
     def _ejecutar_rebalanceo(
         self,
-        pesos_objetivo: Dict[str, float],
-        precios: Dict[str, float],
+        pesos_objetivo: dict[str, float],
+        precios: dict[str, float],
         fecha: datetime
     ):
         """Rebalancea el portafolio hacia los pesos objetivo."""
@@ -450,7 +451,7 @@ class BacktestEngine:
             comision=comision,
         ))
 
-    def _cerrar_posicion(self, ticker: str, precio: Optional[float], fecha: datetime):
+    def _cerrar_posicion(self, ticker: str, precio: float | None, fecha: datetime):
         """Cierra completamente una posicion."""
         if ticker not in self.posiciones or precio is None:
             return

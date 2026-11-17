@@ -3,10 +3,10 @@ Predictor de retornos esperados usando LSTM (Long Short-Term Memory).
 Usa secuencias temporales para predecir retornos futuros.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Optional, Dict
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class LSTMReturnsPredictor:
         data: np.ndarray,
         seq_length: int,
         forecast_horizon: int
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Crea secuencias de training para LSTM.
 
@@ -111,9 +111,8 @@ class LSTMReturnsPredictor:
         if not self._check_dependencies():
             raise ImportError("TensorFlow requerido para LSTM. Ejecuta: pip install tensorflow")
 
-        import tensorflow as tf
-        from tensorflow import keras
         from sklearn.preprocessing import StandardScaler
+        from tensorflow import keras
 
         logger.info(
             f"[LSTM] Iniciando entrenamiento para {len(returns_df.columns)} activos\n"
@@ -224,7 +223,6 @@ class LSTMReturnsPredictor:
         if not self.is_trained:
             raise ValueError("Modelos no entrenados. Llama a train() primero.")
 
-        import tensorflow as tf
 
         expected_returns = {}
 
@@ -344,6 +342,7 @@ class LSTMReturnsPredictor:
         """
         import os
         import pickle
+
         from tensorflow import keras
 
         # Cargar metadata
@@ -370,7 +369,7 @@ class LSTMReturnsPredictor:
         self.is_trained = True
         logger.info(f"[LSTM] ✓ Modelos cargados desde {directory}/ ({len(self.models)} tickers)")
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa información del predictor"""
         result = {
             'sequence_length': self.sequence_length,

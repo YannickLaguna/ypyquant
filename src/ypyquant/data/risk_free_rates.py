@@ -11,13 +11,14 @@ Relacionado con:
   - optimization/portfolio_models.py (usa TasaLibreRiesgoDinamica)
 """
 
-from typing import Dict, Optional, Literal
-from datetime import datetime, date
 import warnings
+from datetime import date, datetime
+from typing import Literal
+
 import pandas as pd
 
-from ypyquant.data.yield_curves import CurvaRendimientoTesoro
 from ypyquant.data.quantlib_utils import tiene_quantlib
+from ypyquant.data.yield_curves import CurvaRendimientoTesoro
 
 
 class TasaLibreRiesgoDinamica:
@@ -46,7 +47,7 @@ class TasaLibreRiesgoDinamica:
     def __init__(
         self,
         actualizar_curva: bool = True,
-        fecha: Optional[str | datetime | date] = None
+        fecha: str | datetime | date | None = None
     ):
         """
         Inicializa el servicio de tasas libres de riesgo.
@@ -71,8 +72,8 @@ class TasaLibreRiesgoDinamica:
 
     def actualizar_curva(
         self,
-        fecha: Optional[str | datetime | date] = None,
-        tasas_manuales: Optional[Dict[str, float]] = None
+        fecha: str | datetime | date | None = None,
+        tasas_manuales: dict[str, float] | None = None
     ) -> 'TasaLibreRiesgoDinamica':
         """
         Actualiza la curva de rendimiento con datos de mercado recientes.
@@ -162,8 +163,8 @@ class TasaLibreRiesgoDinamica:
     def obtener_tasa_para_activo(
         self,
         ticker: str,
-        beta: Optional[float] = None,
-        tipo_activo: Optional[Literal['value', 'growth', 'neutral']] = None
+        beta: float | None = None,
+        tipo_activo: Literal['value', 'growth', 'neutral'] | None = None
     ) -> float:
         """
         Obtiene la tasa libre de riesgo apropiada según las características
@@ -208,7 +209,7 @@ class TasaLibreRiesgoDinamica:
     def _inferir_tipo_activo(
         self,
         ticker: str,
-        beta: Optional[float]
+        beta: float | None
     ) -> Literal['value', 'growth', 'neutral']:
         """
         Infiere el tipo de activo basándose en el ticker y beta.
@@ -253,7 +254,7 @@ class TasaLibreRiesgoDinamica:
 
     def obtener_curva_completa(
         self,
-        plazos: Optional[list[float]] = None
+        plazos: list[float] | None = None
     ) -> pd.DataFrame:
         """
         Obtiene tasas para múltiples plazos (útil para análisis).
@@ -288,8 +289,8 @@ class TasaLibreRiesgoDinamica:
     def obtener_tasa_promedio_portafolio(
         self,
         tickers: list[str],
-        pesos: Optional[Dict[str, float]] = None,
-        betas: Optional[Dict[str, float]] = None
+        pesos: dict[str, float] | None = None,
+        betas: dict[str, float] | None = None
     ) -> float:
         """
         Calcula una tasa libre de riesgo ponderada para un portafolio.
@@ -334,7 +335,7 @@ class TasaLibreRiesgoDinamica:
     def obtener_tasa_o_fallback(
         self,
         años: float,
-        fallback: Optional[float] = None
+        fallback: float | None = None
     ) -> float:
         """
         Obtiene tasa por plazo con fallback personalizado si hay error.
@@ -364,7 +365,7 @@ class TasaLibreRiesgoDinamica:
             self.fecha_actualizacion is not None
         )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """
         Serializa información del servicio a diccionario.
 

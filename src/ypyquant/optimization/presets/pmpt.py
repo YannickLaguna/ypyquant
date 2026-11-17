@@ -14,10 +14,10 @@ no la volatilidad al alza.
 """
 
 from ypyquant.optimization.portfolio_models import (
-    PortfolioOptimizationModel,
     HistoricalReturnsModel,
+    MarkowitzOptimizer,
+    PortfolioOptimizationModel,
     SemiCovarianceModel,
-    MarkowitzOptimizer
 )
 from ypyquant.optimization.presets import registrar_preset
 

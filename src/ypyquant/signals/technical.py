@@ -14,7 +14,6 @@ Combinación interna: media aritmética de las 4 señales, clip final a [-1, 1].
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -39,7 +38,7 @@ class TechnicalSignalGenerator(BaseSignalGenerator):
     def generate(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]] = None,
+        tickers: list[str] | None = None,
         rsi_window: int = 14,
         bb_window: int = 20,
         macd_fast: int = 12,

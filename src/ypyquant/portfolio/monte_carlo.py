@@ -16,10 +16,8 @@ Relacionado con:
   - portfolio/performance_metrics.py  (calculate_var_quantlib lo usa como backend)
 """
 
-from typing import Dict, List, Optional, Tuple
-from datetime import date, datetime
-import warnings
 import logging
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -59,7 +57,7 @@ class MonteCarloRiesgo:
         horizonte_dias: int,
         num_simulaciones: int,
         pasos_por_dia: int = 1,
-        seed: Optional[int] = None
+        seed: int | None = None
     ) -> np.ndarray:
         """
         GBM para un único activo: dS/S = μ dt + σ dW.
@@ -144,16 +142,16 @@ class MonteCarloRiesgo:
 
     def calcular_var_cvar(
         self,
-        portafolio: Dict[str, float],
-        retornos_esperados: Dict[str, float],
-        volatilidades: Dict[str, float],
+        portafolio: dict[str, float],
+        retornos_esperados: dict[str, float],
+        volatilidades: dict[str, float],
         horizonte_dias: int = 252,
         num_simulaciones: int = 10000,
         nivel_confianza: float = 0.95,
-        matriz_correlacion: Optional[pd.DataFrame] = None,
+        matriz_correlacion: pd.DataFrame | None = None,
         valor_inicial: float = 1.0,
-        seed: Optional[int] = None
-    ) -> Dict:
+        seed: int | None = None
+    ) -> dict:
         """
         VaR y CVaR del portafolio completo con correlaciones.
 
@@ -284,13 +282,13 @@ class MonteCarloRiesgo:
 
     def stress_test(
         self,
-        portafolio: Dict[str, float],
-        retornos_esperados: Dict[str, float],
-        volatilidades: Dict[str, float],
-        escenarios: List[Dict[str, float]],
+        portafolio: dict[str, float],
+        retornos_esperados: dict[str, float],
+        volatilidades: dict[str, float],
+        escenarios: list[dict[str, float]],
         horizonte_dias: int = 252,
         num_simulaciones: int = 1000
-    ) -> Dict:
+    ) -> dict:
         """
         Realiza stress testing del portafolio bajo diferentes escenarios.
 

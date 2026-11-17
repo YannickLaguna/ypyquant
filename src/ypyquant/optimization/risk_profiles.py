@@ -12,8 +12,8 @@ Cada perfil tiene configuraciones específicas para:
 - Restricciones adicionales
 """
 
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -44,9 +44,9 @@ class RiskProfile:
     cash_allocation_recommended: bool
     diversification_level: str
     risk_aversion_coefficient: float
-    constraints: Dict[str, Any] = field(default_factory=dict)
+    constraints: dict[str, Any] = field(default_factory=dict)
 
-    def get_optimizer_config(self, risk_free_rate: float = 0.02) -> Dict[str, Any]:
+    def get_optimizer_config(self, risk_free_rate: float = 0.02) -> dict[str, Any]:
         """
         Genera configuración del optimizador según el perfil.
 
@@ -67,7 +67,7 @@ class RiskProfile:
 
         return config
 
-    def get_constraints(self, user_constraints: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def get_constraints(self, user_constraints: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Combina constraints del perfil con constraints personalizados del usuario.
 
@@ -90,7 +90,7 @@ class RiskProfile:
 
         return final_constraints
 
-    def get_target_volatility(self, frontier_volatility: float) -> Optional[float]:
+    def get_target_volatility(self, frontier_volatility: float) -> float | None:
         """
         Calcula volatilidad objetivo según el perfil y la frontera eficiente.
 
@@ -175,7 +175,7 @@ AGGRESSIVE_PROFILE = RiskProfile(
 
 
 # Registro de perfiles disponibles
-RISK_PROFILES: Dict[str, RiskProfile] = {
+RISK_PROFILES: dict[str, RiskProfile] = {
     "conservative": CONSERVATIVE_PROFILE,
     "moderate": MODERATE_PROFILE,
     "aggressive": AGGRESSIVE_PROFILE
@@ -214,7 +214,7 @@ class RiskProfileService:
         return profile
 
     @staticmethod
-    def get_all_profiles() -> Dict[str, RiskProfile]:
+    def get_all_profiles() -> dict[str, RiskProfile]:
         """
         Obtiene todos los perfiles disponibles.
 
@@ -224,7 +224,7 @@ class RiskProfileService:
         return RISK_PROFILES
 
     @staticmethod
-    def get_profile_summary(risk_tolerance: str) -> Dict[str, Any]:
+    def get_profile_summary(risk_tolerance: str) -> dict[str, Any]:
         """
         Obtiene un resumen del perfil en formato JSON-serializable.
 
@@ -254,10 +254,10 @@ class RiskProfileService:
     @staticmethod
     def apply_profile_to_optimization(
         risk_tolerance: str,
-        base_config: Dict[str, Any],
-        user_constraints: Optional[Dict[str, Any]] = None,
+        base_config: dict[str, Any],
+        user_constraints: dict[str, Any] | None = None,
         risk_free_rate: float = 0.02
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Aplica configuración de perfil de riesgo a parámetros de optimización.
 
@@ -304,7 +304,7 @@ class RiskProfileService:
         risk_tolerance: str,
         portfolio_volatility: float,
         risk_free_rate: float = 0.02
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Recomienda si incluir cash y qué volatilidad objetivo según perfil.
 
@@ -348,7 +348,7 @@ class RiskProfileService:
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_risk_profile_for_user(user_risk_tolerance: Optional[str] = None) -> RiskProfile:
+def get_risk_profile_for_user(user_risk_tolerance: str | None = None) -> RiskProfile:
     """
     Obtiene el perfil de riesgo de un usuario (con fallback a moderado).
 

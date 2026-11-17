@@ -9,14 +9,13 @@ Relacionado con: french_data_fetcher.py (provee datos FF), portfolio_models.py
 (consume μ), walk_forward.py (orquesta fit + calculate).
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple, Any
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import statsmodels.api as sm
 import json
 import logging
+from abc import ABC, abstractmethod
+
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +27,8 @@ logger = logging.getLogger(__name__)
 def _fit_ols_regresion(
     y_excess: np.ndarray,
     X: np.ndarray,
-    nombres_factores: List[str],
-) -> Dict:
+    nombres_factores: list[str],
+) -> dict:
     """
     OLS con errores HC3 compartido por CAPMModel y FamaFrenchModel.
 
@@ -63,7 +62,7 @@ class Factor(ABC):
     @abstractmethod
     def calculate(
         self,
-        tickers: List[str],
+        tickers: list[str],
         start_date: str,
         end_date: str,
         **kwargs
@@ -74,9 +73,8 @@ class Factor(ABC):
         Returns:
             DataFrame con índice = fechas, columnas = tickers
         """
-        pass
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa configuración del factor"""
         return {
             'name': self.name,
@@ -107,7 +105,7 @@ class CAPMModel:
     def __init__(
         self,
         market_ticker: str = "^GSPC",
-        risk_free_rate: Optional[float] = None,
+        risk_free_rate: float | None = None,
         frequency: int = 252,
         usar_tasas_dinamicas: bool = True,
         horizonte_inversion_años: float = 5.0
@@ -132,11 +130,11 @@ class CAPMModel:
         self.market_premium = 0.0
 
         # Atributos de inferencia (se rellenan en fit())
-        self.r_squared_adj: Dict[str, float] = {}
-        self.betas_se: Dict[str, float] = {}
-        self.alphas_se: Dict[str, float] = {}
-        self.pvalues_beta: Dict[str, float] = {}
-        self.pvalues_alpha: Dict[str, float] = {}
+        self.r_squared_adj: dict[str, float] = {}
+        self.betas_se: dict[str, float] = {}
+        self.alphas_se: dict[str, float] = {}
+        self.pvalues_beta: dict[str, float] = {}
+        self.pvalues_alpha: dict[str, float] = {}
 
         # Configurar tasa libre de riesgo
         self._servicio_tasas = None
@@ -245,7 +243,7 @@ class CAPMModel:
 
         return pd.Series(expected_returns)
 
-    def get_security_market_line(self, beta_range: Optional[Tuple[float, float]] = None) -> pd.DataFrame:
+    def get_security_market_line(self, beta_range: tuple[float, float] | None = None) -> pd.DataFrame:
         """
         Calcula la Security Market Line (SML).
 
@@ -268,7 +266,7 @@ class CAPMModel:
             'expected_return': expected_returns
         })
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa el modelo incluyendo parámetros de inferencia HC3."""
         return {
             'type': 'CAPM',
@@ -290,7 +288,7 @@ class CAPMModel:
         return json.dumps(self.to_dict(), indent=2)
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'CAPMModel':
+    def from_dict(cls, data: dict) -> 'CAPMModel':
         """Carga desde diccionario, compatible con versiones previas sin HC3."""
         model = cls(
             market_ticker=data['market_ticker'],
@@ -337,9 +335,9 @@ class FamaFrenchModel:
 
     def __init__(
         self,
-        factores: Optional[List[str]] = None,
+        factores: list[str] | None = None,
         data_source: str = "manual",
-        risk_free_rate: Optional[float] = None,
+        risk_free_rate: float | None = None,
         frequency: int = 252
     ):
         """
@@ -359,17 +357,17 @@ class FamaFrenchModel:
         self.frequency = frequency
 
         # Resultados de la regresión
-        self.factor_loadings: Dict[str, Dict[str, float]] = {}
-        self.alphas: Dict[str, float] = {}
-        self.r_squared: Dict[str, float] = {}
-        self.factor_premiums: Dict[str, float] = {}
+        self.factor_loadings: dict[str, dict[str, float]] = {}
+        self.alphas: dict[str, float] = {}
+        self.r_squared: dict[str, float] = {}
+        self.factor_premiums: dict[str, float] = {}
 
         # Atributos de inferencia estadística (se rellenan en fit())
-        self.r_squared_adj: Dict[str, float] = {}
-        self.alphas_se: Dict[str, float] = {}
-        self.pvalues_alpha: Dict[str, float] = {}
-        self.factor_loadings_se: Dict[str, Dict[str, float]] = {}
-        self.pvalues_loadings: Dict[str, Dict[str, float]] = {}
+        self.r_squared_adj: dict[str, float] = {}
+        self.alphas_se: dict[str, float] = {}
+        self.pvalues_alpha: dict[str, float] = {}
+        self.factor_loadings_se: dict[str, dict[str, float]] = {}
+        self.pvalues_loadings: dict[str, dict[str, float]] = {}
 
     def fit(
         self,
@@ -488,8 +486,8 @@ class FamaFrenchModel:
 
     def calculate_factor_attribution(
         self,
-        weights: Dict[str, float]
-    ) -> Dict[str, float]:
+        weights: dict[str, float]
+    ) -> dict[str, float]:
         """
         Calcula la atribución de retorno a cada factor para un portafolio dado.
 
@@ -515,7 +513,7 @@ class FamaFrenchModel:
 
         return atribucion
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa el modelo a diccionario incluyendo parámetros de inferencia HC3."""
         return {
             'type': 'FamaFrenchModel',
@@ -538,7 +536,7 @@ class FamaFrenchModel:
         return json.dumps(self.to_dict(), indent=2)
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'FamaFrenchModel':
+    def from_dict(cls, data: dict) -> 'FamaFrenchModel':
         """Reconstruye el modelo desde un diccionario serializado"""
         modelo = cls(
             factores=data.get('factores', FACTORES_FF5_MOM),
@@ -569,8 +567,8 @@ FamaFrench4FactorModel = FamaFrenchModel
 
 def load_fama_french_data_from_csv(
     csv_path: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    start_date: str | None = None,
+    end_date: str | None = None
 ) -> pd.DataFrame:
     """
     Carga datos de Fama-French desde archivo CSV.

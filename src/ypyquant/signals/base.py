@@ -15,7 +15,6 @@ VectorBT, backtest_engine y walk_forward consumen este formato directamente.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -38,7 +37,7 @@ class BaseSignalGenerator(ABC):
     def generate(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]] = None,
+        tickers: list[str] | None = None,
         **kwargs,
     ) -> pd.DataFrame:
         """
@@ -70,8 +69,8 @@ class BaseSignalGenerator(ABC):
     def _select_tickers(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]],
-    ) -> List[str]:
+        tickers: list[str] | None,
+    ) -> list[str]:
         """Resuelve lista de tickers a procesar."""
         if tickers is None:
             return list(prices.columns)

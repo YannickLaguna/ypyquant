@@ -11,9 +11,8 @@ Responsabilidades:
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -40,12 +39,12 @@ class ProtectionConfig:
     protection_type: ProtectionType
     enabled: bool = True
 
-    max_drawdown_pct: Optional[float] = None
-    daily_loss_limit: Optional[float] = None
-    max_consecutive_losses: Optional[int] = None
-    cooldown_minutes: Optional[int] = None
-    max_positions: Optional[int] = None
-    max_volatility_pct: Optional[float] = None
+    max_drawdown_pct: float | None = None
+    daily_loss_limit: float | None = None
+    max_consecutive_losses: int | None = None
+    cooldown_minutes: int | None = None
+    max_positions: int | None = None
+    max_volatility_pct: float | None = None
 
 
 @dataclass
@@ -53,8 +52,8 @@ class ProtectionEvent:
     protection_type: ProtectionType
     triggered_at: datetime
     reason: str
-    expires_at: Optional[datetime] = None
-    data: Optional[Dict] = None
+    expires_at: datetime | None = None
+    data: dict | None = None
 
 
 class ProtectionManager:
@@ -63,12 +62,12 @@ class ProtectionManager:
     Previene operaciones riesgosas y detiene el trading cuando se alcanzan límites de riesgo.
     """
 
-    def __init__(self, protections: List[ProtectionConfig]):
+    def __init__(self, protections: list[ProtectionConfig]):
         self.protections = {p.protection_type: p for p in protections if p.enabled}
-        self.active_protections: List[ProtectionEvent] = []
+        self.active_protections: list[ProtectionEvent] = []
 
         self._peak_equity = 0.0
-        self._daily_loss_tracker: Dict = {}
+        self._daily_loss_tracker: dict = {}
         self._consecutive_losses = 0
         self._last_trade_timestamp = None
 
@@ -78,8 +77,8 @@ class ProtectionManager:
         self,
         current_equity: float,
         current_positions: int,
-        ticker: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str]]:
+        ticker: str | None = None,
+    ) -> tuple[bool, str | None]:
         self._cleanup_expired_protections()
 
         if self.active_protections:
@@ -114,11 +113,10 @@ class ProtectionManager:
 
         return True, None
 
-    def _check_max_drawdown(self, current_equity, config) -> Tuple[bool, Optional[str]]:
+    def _check_max_drawdown(self, current_equity, config) -> tuple[bool, str | None]:
         if config.max_drawdown_pct is None:
             return True, None
-        if current_equity > self._peak_equity:
-            self._peak_equity = current_equity
+        self._peak_equity = max(self._peak_equity, current_equity)
         if self._peak_equity > 0:
             drawdown = (self._peak_equity - current_equity) / self._peak_equity
             if drawdown >= config.max_drawdown_pct:
@@ -133,7 +131,7 @@ class ProtectionManager:
                 return False, reason
         return True, None
 
-    def _check_daily_loss_limit(self, config) -> Tuple[bool, Optional[str]]:
+    def _check_daily_loss_limit(self, config) -> tuple[bool, str | None]:
         if config.daily_loss_limit is None:
             return True, None
         today = datetime.now().date()
@@ -150,7 +148,7 @@ class ProtectionManager:
             return False, reason
         return True, None
 
-    def _check_consecutive_losses(self, config) -> Tuple[bool, Optional[str]]:
+    def _check_consecutive_losses(self, config) -> tuple[bool, str | None]:
         if config.max_consecutive_losses is None:
             return True, None
         if self._consecutive_losses >= config.max_consecutive_losses:
@@ -166,7 +164,7 @@ class ProtectionManager:
             return False, reason
         return True, None
 
-    def _check_cooldown_period(self, config) -> Tuple[bool, Optional[str]]:
+    def _check_cooldown_period(self, config) -> tuple[bool, str | None]:
         if config.cooldown_minutes is None or self._last_trade_timestamp is None:
             return True, None
         time_since = (datetime.now() - self._last_trade_timestamp).total_seconds() / 60
@@ -175,7 +173,7 @@ class ProtectionManager:
             return False, f"Período de enfriamiento: {remaining:.1f} minutos restantes"
         return True, None
 
-    def _check_position_limit(self, current_positions, config) -> Tuple[bool, Optional[str]]:
+    def _check_position_limit(self, current_positions, config) -> tuple[bool, str | None]:
         if config.max_positions is None:
             return True, None
         if current_positions >= config.max_positions:
@@ -205,8 +203,7 @@ class ProtectionManager:
         ]
 
     def update_equity(self, current_equity: float):
-        if current_equity > self._peak_equity:
-            self._peak_equity = current_equity
+        self._peak_equity = max(self._peak_equity, current_equity)
 
     def record_trade_result(self, pnl: float):
         today = datetime.now().date()
@@ -221,7 +218,7 @@ class ProtectionManager:
         self._consecutive_losses = self._consecutive_losses + 1 if pnl < 0 else 0
         self._last_trade_timestamp = datetime.now()
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         self._cleanup_expired_protections()
         today = datetime.now().date()
         return {
@@ -258,7 +255,7 @@ class ProtectionManager:
         logger.warning(f"Protección {protection_type.value} sobrescrita manualmente")
 
 
-def create_conservative_protections() -> List[ProtectionConfig]:
+def create_conservative_protections() -> list[ProtectionConfig]:
     return [
         ProtectionConfig(ProtectionType.MAX_DRAWDOWN, max_drawdown_pct=0.10),
         ProtectionConfig(ProtectionType.DAILY_LOSS_LIMIT, daily_loss_limit=500.0),
@@ -268,7 +265,7 @@ def create_conservative_protections() -> List[ProtectionConfig]:
     ]
 
 
-def create_moderate_protections() -> List[ProtectionConfig]:
+def create_moderate_protections() -> list[ProtectionConfig]:
     return [
         ProtectionConfig(ProtectionType.MAX_DRAWDOWN, max_drawdown_pct=0.20),
         ProtectionConfig(ProtectionType.DAILY_LOSS_LIMIT, daily_loss_limit=1000.0),
@@ -277,7 +274,7 @@ def create_moderate_protections() -> List[ProtectionConfig]:
     ]
 
 
-def create_aggressive_protections() -> List[ProtectionConfig]:
+def create_aggressive_protections() -> list[ProtectionConfig]:
     return [
         ProtectionConfig(ProtectionType.MAX_DRAWDOWN, max_drawdown_pct=0.30),
         ProtectionConfig(ProtectionType.DAILY_LOSS_LIMIT, daily_loss_limit=2000.0),

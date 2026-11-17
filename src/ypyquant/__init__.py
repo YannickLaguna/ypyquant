@@ -19,69 +19,69 @@ __version__ = "0.2.0"
 # ---------------------------------------------------------------------------
 # Portfolio — backtesting y métricas
 # ---------------------------------------------------------------------------
-from ypyquant.portfolio.backtest_engine import (
-    BacktestEngine,
-    BacktestConfig,
-    BacktestResult,
-    BacktestTrade,
+from ypyquant.data.french_data_fetcher import FrenchDataFetcher
+
+# ---------------------------------------------------------------------------
+# Data — tasas RF y factores
+# ---------------------------------------------------------------------------
+from ypyquant.data.risk_free_rates import TasaLibreRiesgoDinamica
+
+# ---------------------------------------------------------------------------
+# Execution — ejecución de trading (Fase 3+4)
+# ---------------------------------------------------------------------------
+from ypyquant.execution import (
+    BotExecutor,
+    BrokerInterface,
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    PaperBroker,
+    ProtectionManager,
+    StorageInterface,
+    TradeAnalytics,
+    WalletManager,
 )
-from ypyquant.portfolio.performance_metrics import (
-    PerformanceMetrics,
-    PerformanceAnalyzer,
+
+# ---------------------------------------------------------------------------
+# Factors — CAPM y Fama-French
+# ---------------------------------------------------------------------------
+from ypyquant.factors.factor_models import CAPMModel, FamaFrenchModel
+from ypyquant.optimization.black_litterman import (
+    BlackLittermanQuantLib,
+    View,
 )
 
 # ---------------------------------------------------------------------------
 # Optimization — modelos y walk-forward
 # ---------------------------------------------------------------------------
 from ypyquant.optimization.portfolio_models import PortfolioOptimizationModel
+from ypyquant.optimization.presets import listar_presets, obtener_preset
 from ypyquant.optimization.walk_forward import (
-    WalkForwardEngine,
     ConfigWalkForward,
+    WalkForwardEngine,
 )
-from ypyquant.optimization.black_litterman import (
-    BlackLittermanQuantLib,
-    View,
+from ypyquant.portfolio.backtest_engine import (
+    BacktestConfig,
+    BacktestEngine,
+    BacktestResult,
+    BacktestTrade,
 )
-from ypyquant.optimization.presets import obtener_preset, listar_presets
-
-# ---------------------------------------------------------------------------
-# Factors — CAPM y Fama-French
-# ---------------------------------------------------------------------------
-from ypyquant.factors.factor_models import CAPMModel, FamaFrenchModel
-
-# ---------------------------------------------------------------------------
-# Data — tasas RF y factores
-# ---------------------------------------------------------------------------
-from ypyquant.data.risk_free_rates import TasaLibreRiesgoDinamica
-from ypyquant.data.french_data_fetcher import FrenchDataFetcher
+from ypyquant.portfolio.performance_metrics import (
+    PerformanceAnalyzer,
+    PerformanceMetrics,
+)
 
 # ---------------------------------------------------------------------------
 # Signals — generación de señales (Fase 2)
 # ---------------------------------------------------------------------------
 from ypyquant.signals import (
     BaseSignalGenerator,
-    SignalFrame,
-    TechnicalSignalGenerator,
+    FactorSignalGenerator,
     MLSignalGenerator,
     RegimeSignalGenerator,
-    FactorSignalGenerator,
     SignalCombiner,
-)
-
-# ---------------------------------------------------------------------------
-# Execution — ejecución de trading (Fase 3+4)
-# ---------------------------------------------------------------------------
-from ypyquant.execution import (
-    BrokerInterface,
-    PaperBroker,
-    BotExecutor,
-    ProtectionManager,
-    WalletManager,
-    TradeAnalytics,
-    StorageInterface,
-    OrderSide,
-    OrderType,
-    OrderStatus,
+    SignalFrame,
+    TechnicalSignalGenerator,
 )
 
 # ---------------------------------------------------------------------------

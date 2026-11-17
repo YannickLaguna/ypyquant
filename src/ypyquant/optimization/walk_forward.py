@@ -25,7 +25,6 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -110,7 +109,7 @@ class ConfigWalkForward:
     tipo_retorno: str = "log"            # "log" o "simple"
     peso_maximo: float = 0.10            # Peso máximo por activo
     nivel_confianza_cvar: float = 0.95
-    directorio_checkpoints: Optional[str] = None
+    directorio_checkpoints: str | None = None
     semilla: int = 42
 
 
@@ -136,9 +135,9 @@ class ResultadoVentana:
     fecha_fin_train: pd.Timestamp
     fecha_inicio_oos: pd.Timestamp
     fecha_fin_oos: pd.Timestamp
-    pesos: Dict[str, float]
+    pesos: dict[str, float]
     retorno_oos: float
-    tickers_seleccionados: List[str]
+    tickers_seleccionados: list[str]
     optimizacion_convergente: bool = True
     ventana_fallida: bool = False
     tiempo_segundos: float = 0.0
@@ -148,14 +147,14 @@ class ResultadoVentana:
 class ResultadoExperimento:
     """Resultado completo de un experimento walk-forward."""
     config: ConfigExperimento
-    ventanas: List[ResultadoVentana] = field(default_factory=list)
-    retornos_oos_mensuales: Optional[pd.Series] = None
-    curva_equity: Optional[pd.Series] = None
-    pesos_historicos: Optional[pd.DataFrame] = None
-    metricas: Dict = field(default_factory=dict)
-    alpha_jensen: Optional[float] = None
-    alpha_tstat: Optional[float] = None
-    alpha_pvalue: Optional[float] = None
+    ventanas: list[ResultadoVentana] = field(default_factory=list)
+    retornos_oos_mensuales: pd.Series | None = None
+    curva_equity: pd.Series | None = None
+    pesos_historicos: pd.DataFrame | None = None
+    metricas: dict = field(default_factory=dict)
+    alpha_jensen: float | None = None
+    alpha_tstat: float | None = None
+    alpha_pvalue: float | None = None
 
 
 # ============================================================================
@@ -181,7 +180,7 @@ class WalkForwardEngine:
         db_session=None,
         mlflow_enabled: bool = False,
         mlflow_experiment_name: str = "walk_forward_factorial",
-        mlflow_tracking_uri: Optional[str] = None,
+        mlflow_tracking_uri: str | None = None,
     ):
         """
         Args:
@@ -210,8 +209,8 @@ class WalkForwardEngine:
         self,
         config_exp: ConfigExperimento,
         precios_universo: pd.DataFrame,
-        factores_ff: Optional[pd.DataFrame] = None,
-        retornos_mercado: Optional[pd.Series] = None
+        factores_ff: pd.DataFrame | None = None,
+        retornos_mercado: pd.Series | None = None
     ) -> ResultadoExperimento:
         """
         Ejecuta un experimento walk-forward completo.
@@ -325,9 +324,9 @@ class WalkForwardEngine:
         train_end: pd.Timestamp,
         oos_start: pd.Timestamp,
         oos_end: pd.Timestamp,
-        factores_ff: Optional[pd.DataFrame],
-        serie_rf: Optional[pd.Series],
-        retornos_mercado: Optional[pd.Series]
+        factores_ff: pd.DataFrame | None,
+        serie_rf: pd.Series | None,
+        retornos_mercado: pd.Series | None
     ) -> ResultadoVentana:
         """Procesa una única ventana: screening → estimación → optimización → retorno OOS."""
 
@@ -395,7 +394,7 @@ class WalkForwardEngine:
 
     def _procesar_ventana_sp500(
         self,
-        retornos_mercado: Optional[pd.Series],
+        retornos_mercado: pd.Series | None,
         oos_start: pd.Timestamp,
         oos_end: pd.Timestamp,
         train_start: pd.Timestamp,
@@ -451,9 +450,9 @@ class WalkForwardEngine:
 
     def _generar_ventanas(
         self,
-        fecha_min_datos: Optional[pd.Timestamp] = None,
-        fecha_max_datos: Optional[pd.Timestamp] = None
-    ) -> List[Tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp, pd.Timestamp]]:
+        fecha_min_datos: pd.Timestamp | None = None,
+        fecha_max_datos: pd.Timestamp | None = None
+    ) -> list[tuple[pd.Timestamp, pd.Timestamp, pd.Timestamp, pd.Timestamp]]:
         """
         Genera tuplas (train_start, train_end, oos_start, oos_end) para cada paso.
 
@@ -518,7 +517,7 @@ class WalkForwardEngine:
         precios: pd.DataFrame,
         fecha_inicio_train: pd.Timestamp,
         fecha_fin_train: pd.Timestamp
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Filtra y rankea activos para la ventana de entrenamiento.
 
@@ -569,7 +568,7 @@ class WalkForwardEngine:
         # 3. Selección distribuida por cuartiles
         return self._seleccionar_por_cuartiles(sharpe)
 
-    def _seleccionar_por_cuartiles(self, sharpe_ranking: pd.Series) -> List[str]:
+    def _seleccionar_por_cuartiles(self, sharpe_ranking: pd.Series) -> list[str]:
         """
         Selecciona activos distribuidos por cuartiles de Sharpe.
 
@@ -639,9 +638,7 @@ class WalkForwardEngine:
         Returns:
             DataFrame con la matriz de covarianza anualizada
         """
-        from ypyquant.optimization.portfolio_models import (
-            SampleCovarianceModel, LedoitWolfShrinkageModel
-        )
+        from ypyquant.optimization.portfolio_models import LedoitWolfShrinkageModel, SampleCovarianceModel
 
         if config_exp.metodo_sigma == MetodoEstimacionSigma.MUESTRA:
             return SampleCovarianceModel(frequency=252).calculate(retornos_train)
@@ -656,12 +653,12 @@ class WalkForwardEngine:
         self,
         config_exp: ConfigExperimento,
         retornos_train: pd.DataFrame,
-        factores_ff: Optional[pd.DataFrame],
-        retornos_mercado: Optional[pd.Series],
+        factores_ff: pd.DataFrame | None,
+        retornos_mercado: pd.Series | None,
         sigma: pd.DataFrame,
-        tickers: List[str],
+        tickers: list[str],
         rf: float
-    ) -> Optional[pd.Series]:
+    ) -> pd.Series | None:
         """
         Estima retornos esperados según el método configurado.
 
@@ -711,7 +708,7 @@ class WalkForwardEngine:
         elif config_exp.metodo_mu == MetodoEstimacionMu.FF5_MOM:
             if factores_ff is None:
                 raise ValueError("Factores FF requeridos para metodo_mu=FF5_MOM")
-            from ypyquant.factors.factor_models import FamaFrenchModel, FACTORES_FF5_MOM
+            from ypyquant.factors.factor_models import FACTORES_FF5_MOM, FamaFrenchModel
             modelo_ff = FamaFrenchModel(
                 factores=FACTORES_FF5_MOM,
                 risk_free_rate=rf,
@@ -747,9 +744,9 @@ class WalkForwardEngine:
         mu_views: pd.Series,
         sigma: pd.DataFrame,
         retornos_train: pd.DataFrame,
-        factores_ff: Optional[pd.DataFrame],
-        retornos_mercado: Optional[pd.Series],
-        tickers: List[str],
+        factores_ff: pd.DataFrame | None,
+        retornos_mercado: pd.Series | None,
+        tickers: list[str],
         rf: float
     ) -> pd.Series:
         """
@@ -891,12 +888,12 @@ class WalkForwardEngine:
     def _optimizar(
         self,
         config_exp: ConfigExperimento,
-        mu: Optional[pd.Series],
+        mu: pd.Series | None,
         sigma: pd.DataFrame,
-        tickers: List[str],
+        tickers: list[str],
         retornos_train: pd.DataFrame,
         rf: float
-    ) -> Dict:
+    ) -> dict:
         """
         Ejecuta la optimización de portafolio según el método de riesgo configurado.
 
@@ -912,7 +909,9 @@ class WalkForwardEngine:
             Dict con 'weights' y metadata del optimizador
         """
         from ypyquant.optimization.portfolio_models import (
-            MarkowitzOptimizer, PMPTMinCVaROptimizer, PMPTMaxSortinoOptimizer
+            MarkowitzOptimizer,
+            PMPTMaxSortinoOptimizer,
+            PMPTMinCVaROptimizer,
         )
 
         restricciones = {'max_weight': self.config.peso_maximo}
@@ -1004,11 +1003,11 @@ class WalkForwardEngine:
         config_exp: ConfigExperimento,
         mu: pd.Series,
         sigma: pd.DataFrame,
-        tickers: List[str],
+        tickers: list[str],
         retornos_train: pd.DataFrame,
         rf: float,
         n_simulaciones: int = 100
-    ) -> Dict:
+    ) -> dict:
         """
         Regularización por Resampled Efficiency (Michaud & Michaud, 1998).
 
@@ -1157,7 +1156,7 @@ class WalkForwardEngine:
     # ------------------------------------------------------------------
 
     def _calcular_retorno_oos(
-        self, pesos: Dict[str, float], retornos_oos: pd.DataFrame
+        self, pesos: dict[str, float], retornos_oos: pd.DataFrame
     ) -> float:
         """
         Calcula el retorno out-of-sample del portafolio para un mes.
@@ -1201,8 +1200,8 @@ class WalkForwardEngine:
     def _agregar_resultados(
         self,
         resultado: ResultadoExperimento,
-        retornos_mercado: Optional[pd.Series],
-        serie_rf: Optional[pd.Series]
+        retornos_mercado: pd.Series | None,
+        serie_rf: pd.Series | None
     ) -> ResultadoExperimento:
         """
         Calcula métricas agregadas: serie OOS, curva de equity, Jensen's alpha.
@@ -1318,8 +1317,8 @@ class WalkForwardEngine:
     def _calcular_alpha_jensen(
         self,
         resultado: ResultadoExperimento,
-        retornos_mercado: Optional[pd.Series],
-        serie_rf: Optional[pd.Series]
+        retornos_mercado: pd.Series | None,
+        serie_rf: pd.Series | None
     ) -> None:
         """
         Calcula Jensen's alpha: α = R_p - RF - β(R_m - RF).
@@ -1442,8 +1441,8 @@ class WalkForwardEngine:
             )
 
     def _extraer_risk_free_rate(
-        self, factores_ff: Optional[pd.DataFrame]
-    ) -> Optional[pd.Series]:
+        self, factores_ff: pd.DataFrame | None
+    ) -> pd.Series | None:
         """
         Extrae la serie RF de los datos Fama-French.
 
@@ -1454,7 +1453,7 @@ class WalkForwardEngine:
         return None
 
     def _obtener_rf_periodo(
-        self, serie_rf: Optional[pd.Series],
+        self, serie_rf: pd.Series | None,
         fecha_inicio: pd.Timestamp,
         fecha_fin: pd.Timestamp
     ) -> float:
@@ -1492,7 +1491,7 @@ class WalkForwardEngine:
         except Exception as e:
             logger.warning(f"[WF] Error guardando checkpoint: {e}")
 
-    def _cargar_checkpoint(self, id_exp: str) -> Optional[ResultadoExperimento]:
+    def _cargar_checkpoint(self, id_exp: str) -> ResultadoExperimento | None:
         """Carga estado parcial desde disco si existe."""
         if self.config.directorio_checkpoints is None:
             return None
@@ -1516,11 +1515,11 @@ class WalkForwardEngine:
 
     def ejecutar_todos(
         self,
-        experimentos: List[ConfigExperimento],
+        experimentos: list[ConfigExperimento],
         precios_universo: pd.DataFrame,
-        factores_ff: Optional[pd.DataFrame] = None,
-        retornos_mercado: Optional[pd.Series] = None
-    ) -> Dict[str, ResultadoExperimento]:
+        factores_ff: pd.DataFrame | None = None,
+        retornos_mercado: pd.Series | None = None
+    ) -> dict[str, ResultadoExperimento]:
         """
         Ejecuta todos los experimentos secuencialmente.
 
@@ -1549,7 +1548,7 @@ class WalkForwardEngine:
 
     @staticmethod
     def generar_tabla_comparativa(
-        resultados: Dict[str, ResultadoExperimento]
+        resultados: dict[str, ResultadoExperimento]
     ) -> pd.DataFrame:
         """
         Genera tabla resumen comparando todos los experimentos.
@@ -1593,7 +1592,7 @@ class FabricaExperimentos:
     """
 
     @staticmethod
-    def crear_todos() -> List[ConfigExperimento]:
+    def crear_todos() -> list[ConfigExperimento]:
         """
         Genera la lista completa de configuraciones experimentales.
 

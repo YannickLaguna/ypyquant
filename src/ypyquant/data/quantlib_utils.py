@@ -11,9 +11,8 @@ Relacionado con:
   - portfolio/bond_pricing.py (usa convertir_fecha_a_ql, crear_calendario_usa, etc.)
 """
 
-from typing import Optional
-from datetime import datetime, date
 import warnings
+from datetime import date, datetime
 
 
 def tiene_quantlib() -> bool:

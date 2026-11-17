@@ -14,7 +14,6 @@ Convenciones:
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -46,8 +45,8 @@ class SignalCombiner:
 
     def __init__(
         self,
-        generators: List[BaseSignalGenerator],
-        weights: Optional[List[float]] = None,
+        generators: list[BaseSignalGenerator],
+        weights: list[float] | None = None,
         combination_method: str = "weighted_mean",
         fillna_value: float = 0.0,
     ):
@@ -97,7 +96,7 @@ class SignalCombiner:
     def generate(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]] = None,
+        tickers: list[str] | None = None,
         **kwargs,
     ) -> SignalFrame:
         """
@@ -112,7 +111,7 @@ class SignalCombiner:
             SignalFrame combinado ∈ [-1, +1].
         """
         cols = tickers if tickers else list(prices.columns)
-        señales_individuales: List[pd.DataFrame] = []
+        señales_individuales: list[pd.DataFrame] = []
 
         for i, gen in enumerate(self.generators):
             try:
@@ -138,9 +137,9 @@ class SignalCombiner:
 
     def _combinar(
         self,
-        señales: List[pd.DataFrame],
+        señales: list[pd.DataFrame],
         index: pd.DatetimeIndex,
-        columns: List[str],
+        columns: list[str],
     ) -> SignalFrame:
         if not señales:
             return pd.DataFrame(0.0, index=index, columns=columns)
@@ -168,6 +167,6 @@ class SignalCombiner:
 
         return combined.clip(-1.0, 1.0)
 
-    def get_weights_summary(self) -> Dict[str, float]:
+    def get_weights_summary(self) -> dict[str, float]:
         """Devuelve dict {nombre_generador: peso} para logging/debugging."""
         return {g.name: w for g, w in zip(self.generators, self.weights)}

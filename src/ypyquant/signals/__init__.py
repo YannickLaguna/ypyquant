@@ -22,18 +22,18 @@ SignalFrame (alias de pd.DataFrame):
 """
 
 from ypyquant.signals.base import BaseSignalGenerator, SignalFrame
-from ypyquant.signals.technical import TechnicalSignalGenerator
+from ypyquant.signals.combiner import SignalCombiner
+from ypyquant.signals.factor_signal import FactorSignalGenerator
 from ypyquant.signals.ml_signal import MLSignalGenerator
 from ypyquant.signals.regime_signal import RegimeSignalGenerator
-from ypyquant.signals.factor_signal import FactorSignalGenerator
-from ypyquant.signals.combiner import SignalCombiner
+from ypyquant.signals.technical import TechnicalSignalGenerator
 
 __all__ = [
     "BaseSignalGenerator",
-    "SignalFrame",
-    "TechnicalSignalGenerator",
+    "FactorSignalGenerator",
     "MLSignalGenerator",
     "RegimeSignalGenerator",
-    "FactorSignalGenerator",
     "SignalCombiner",
+    "SignalFrame",
+    "TechnicalSignalGenerator",
 ]

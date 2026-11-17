@@ -9,17 +9,16 @@ Relacionado con:
   - data/yield_curves.py    (CurvaRendimientoTesoro — usado en price_treasury_from_yield_curve)
 """
 
-from typing import Optional, Dict, Literal
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
+
 import pandas as pd
-import warnings
 
 from ypyquant.data.quantlib_utils import (
-    tiene_quantlib,
+    configurar_fecha_evaluacion,
     convertir_fecha_a_ql,
     crear_calendario_usa,
     obtener_day_count_convention,
-    configurar_fecha_evaluacion
+    tiene_quantlib,
 )
 
 
@@ -47,8 +46,8 @@ class BondPricer:
         vencimiento: str | date,
         tasa_descuento: float,
         valor_nominal: float = 100.0,
-        fecha_valoracion: Optional[str | date] = None
-    ) -> Dict:
+        fecha_valoracion: str | date | None = None
+    ) -> dict:
         """
         Calcula el precio de un T-Bill (bono de descuento sin cupón).
 
@@ -69,7 +68,6 @@ class BondPricer:
             >>> print(f"Precio: ${resultado['precio']:.2f}")
             Precio: $97.50
         """
-        import QuantLib as ql
 
         # Configurar fecha de evaluación
         if fecha_valoracion is None:
@@ -110,11 +108,11 @@ class BondPricer:
         vencimiento: str | date,
         cupon_anual: float,
         frecuencia_cupon: int = 2,
-        ytm: Optional[float] = None,
-        precio: Optional[float] = None,
+        ytm: float | None = None,
+        precio: float | None = None,
         valor_nominal: float = 100.0,
-        fecha_valoracion: Optional[str | date] = None
-    ) -> Dict:
+        fecha_valoracion: str | date | None = None
+    ) -> dict:
         """
         Calcula precio o YTM de un bono con cupón (T-Note o T-Bond).
 
@@ -289,8 +287,8 @@ class BondPricer:
         cupon_anual: float,
         frecuencia_cupon: int = 2,
         valor_nominal: float = 100.0,
-        fecha_valoracion: Optional[str | date] = None
-    ) -> Dict:
+        fecha_valoracion: str | date | None = None
+    ) -> dict:
         """
         Calcula precio de un bono usando la curva de rendimiento actual.
 
@@ -361,9 +359,9 @@ class BondPricer:
 
     def calcular_metricas_portafolio_bonos(
         self,
-        bonos: list[Dict],
-        pesos: Optional[list[float]] = None
-    ) -> Dict:
+        bonos: list[dict],
+        pesos: list[float] | None = None
+    ) -> dict:
         """
         Calcula métricas agregadas de un portafolio de bonos.
 
@@ -432,7 +430,7 @@ class BondPricer:
             'pesos': pesos_norm
         }
 
-    def to_dataframe(self, resultados: list[Dict]) -> pd.DataFrame:
+    def to_dataframe(self, resultados: list[dict]) -> pd.DataFrame:
         """
         Convierte lista de resultados de pricing a DataFrame.
 

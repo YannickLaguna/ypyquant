@@ -23,15 +23,14 @@ Algoritmos de diversificacion:
 """
 
 import logging
+from typing import Literal
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Literal
 from sklearn.cluster import AgglomerativeClustering
 
 from ypyquant.optimization.data_preprocessing import (
     DiasTrading,
-    anualizar_retorno_medio,
-    anualizar_volatilidad,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,7 @@ def calcular_metricas_ticker(
     precios: pd.Series,
     tipo_retorno: Literal["log", "simple"] = "log",
     risk_free_rate: float = 0.02,
-) -> Dict:
+) -> dict:
     """
     Calcula metricas de screening para un ticker a partir de su serie de precios.
 
@@ -98,7 +97,7 @@ def screen_by_sharpe(
     top_n: int = 10,
     tipo_retorno: Literal["log", "simple"] = "log",
     risk_free_rate: float = 0.02,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Ordena tickers por Sharpe Ratio historico y devuelve los top_n.
 
@@ -127,7 +126,7 @@ def screen_by_momentum(
     precios_df: pd.DataFrame,
     top_n: int = 10,
     tipo_retorno: Literal["log", "simple"] = "log",
-) -> List[Dict]:
+) -> list[dict]:
     """
     Ordena tickers por momentum score (retorno_total / volatilidad) y devuelve top_n.
 
@@ -154,7 +153,7 @@ def screen_by_volatility(
     top_n: int = 10,
     tipo_retorno: Literal["log", "simple"] = "log",
     prefer_low: bool = True,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Ordena tickers por volatilidad anualizada.
 
@@ -185,8 +184,8 @@ def screen_by_volatility(
 def diversify_greedy(
     retornos_df: pd.DataFrame,
     max_correlacion: float = 0.7,
-    max_activos: Optional[int] = None,
-) -> List[str]:
+    max_activos: int | None = None,
+) -> list[str]:
     """
     Algoritmo Greedy: selecciona activos secuencialmente evitando alta correlacion.
 
@@ -221,7 +220,7 @@ def diversify_clustering(
     retornos_df: pd.DataFrame,
     n_clusters: int = 5,
     method: str = 'average',
-) -> List[str]:
+) -> list[str]:
     """
     Clustering Jerarquico: agrupa tickers por correlacion y devuelve un
     representante por cluster (el de menor correlacion media con su cluster).
@@ -268,7 +267,7 @@ def diversify_distance(
     n_activos: int = 10,
     iteraciones: int = 100,
     semilla: int = 42,
-) -> List[str]:
+) -> list[str]:
     """
     Maximizacion de Distancia: selecciona el subconjunto de tickers que maximiza
     la distancia promedio en el espacio de correlaciones mediante muestreo aleatorio.
@@ -290,7 +289,7 @@ def diversify_distance(
     tickers = retornos_df.columns.tolist()
     rng = np.random.default_rng(semilla)
 
-    mejor_seleccion: List[str] = []
+    mejor_seleccion: list[str] = []
     mejor_distancia = -1.0
 
     for _ in range(iteraciones):
@@ -308,10 +307,10 @@ def diversify_distance(
 
 def diversify_mixed(
     retornos_df: pd.DataFrame,
-    scores: Dict[str, float],
+    scores: dict[str, float],
     max_correlacion: float = 0.7,
     top_n: int = 10,
-) -> List[str]:
+) -> list[str]:
     """
     Score + Diversificacion: combina scores externos (Sharpe, factor scores, etc.)
     con el algoritmo greedy de correlacion.

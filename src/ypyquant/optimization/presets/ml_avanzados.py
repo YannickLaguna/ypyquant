@@ -12,12 +12,12 @@ NOTA: Estos presets requieren dependencias adicionales:
 - tensorflow (LSTM)
 """
 
+
 from ypyquant.optimization.presets import registrar_preset
-from typing import Dict
 
 
 @registrar_preset('ml_enhanced')
-def crear_ml_enhanced_markowitz(risk_free_rate: float = 0.02) -> Dict:
+def crear_ml_enhanced_markowitz(risk_free_rate: float = 0.02) -> dict:
     """
     Markowitz mejorado con Machine Learning y Ledoit-Wolf Shrinkage.
 
@@ -73,7 +73,7 @@ def crear_ml_enhanced_markowitz(risk_free_rate: float = 0.02) -> Dict:
 
 
 @registrar_preset('regime_aware')
-def crear_regime_aware_adaptive(risk_free_rate: float = 0.02) -> Dict:
+def crear_regime_aware_adaptive(risk_free_rate: float = 0.02) -> dict:
     """
     Portfolio adaptativo según régimen de mercado detectado con SVM.
 
@@ -130,7 +130,7 @@ def crear_regime_aware_adaptive(risk_free_rate: float = 0.02) -> Dict:
 
 
 @registrar_preset('lstm_predictivo')
-def crear_lstm_predictive_portfolio(risk_free_rate: float = 0.02) -> Dict:
+def crear_lstm_predictive_portfolio(risk_free_rate: float = 0.02) -> dict:
     """
     Portfolio con predicciones de retornos usando LSTM.
 

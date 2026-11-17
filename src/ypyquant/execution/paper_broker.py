@@ -5,15 +5,14 @@ Migrado de tfm/app/services/trading/paper_broker.py
 """
 
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime, timezone
 import uuid
+from datetime import UTC, datetime
 
 from ypyquant.execution.broker_interface import (
     BrokerInterface,
-    OrderType,
     OrderSide,
     OrderStatus,
+    OrderType,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,7 @@ class PaperBroker(BrokerInterface):
     Mantiene un estado virtual de cuenta, posiciones y órdenes.
     """
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: dict):
         """
         Args:
             config: {
@@ -40,9 +39,9 @@ class PaperBroker(BrokerInterface):
         self.currency = config.get("currency", "USD")
         self.commission_rate = config.get("commission", 0.001)
 
-        self.positions: Dict[str, Dict] = {}
-        self.orders: Dict[str, Dict] = {}
-        self.order_history: List[Dict] = []
+        self.positions: dict[str, dict] = {}
+        self.orders: dict[str, dict] = {}
+        self.order_history: list[dict] = []
 
         logger.info(f"PaperBroker inicializado con ${self.cash:.2f} {self.currency}")
 
@@ -56,7 +55,7 @@ class PaperBroker(BrokerInterface):
         logger.info("PaperBroker: Desconectado")
         return True
 
-    def get_account_info(self) -> Dict:
+    def get_account_info(self) -> dict:
         equity = self.cash
         for ticker, position in self.positions.items():
             current_price = self.get_current_price(ticker)
@@ -74,7 +73,7 @@ class PaperBroker(BrokerInterface):
             "total_return": ((equity - self.initial_cash) / self.initial_cash) * 100,
         }
 
-    def get_positions(self) -> List[Dict]:
+    def get_positions(self) -> list[dict]:
         positions_list = []
         for ticker, position in self.positions.items():
             current_price = self.get_current_price(ticker) or position["avg_price"]
@@ -100,9 +99,9 @@ class PaperBroker(BrokerInterface):
         quantity: float,
         side: OrderSide,
         order_type: OrderType = OrderType.MARKET,
-        limit_price: Optional[float] = None,
-        stop_price: Optional[float] = None,
-    ) -> Dict:
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> dict:
         if not self.connected:
             raise RuntimeError("PaperBroker no está conectado")
 
@@ -119,7 +118,7 @@ class PaperBroker(BrokerInterface):
                 "side": side.value,
                 "order_type": order_type.value,
                 "error": "Could not fetch current price",
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             }
 
         if order_type != OrderType.MARKET:
@@ -144,8 +143,8 @@ class PaperBroker(BrokerInterface):
                 "filled_quantity": quantity,
                 "filled_price": filled_price,
                 "commission": commission,
-                "created_at": datetime.now(timezone.utc),
-                "filled_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
+                "filled_at": datetime.now(UTC),
             }
 
             self.orders[order_id] = order_info
@@ -166,7 +165,7 @@ class PaperBroker(BrokerInterface):
                 "side": side.value,
                 "order_type": order_type.value,
                 "error": str(e),
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             }
 
     def _execute_buy(self, ticker: str, quantity: float, price: float, commission: float):
@@ -204,7 +203,7 @@ class PaperBroker(BrokerInterface):
             del self.positions[ticker]
             logger.info(f"Posición en {ticker} cerrada completamente")
 
-    def get_order_status(self, order_id: str) -> Dict:
+    def get_order_status(self, order_id: str) -> dict:
         return self.orders.get(
             order_id,
             {"order_id": order_id, "status": OrderStatus.REJECTED, "error": "Order not found"},
@@ -216,7 +215,7 @@ class PaperBroker(BrokerInterface):
             return False
         return True
 
-    def get_current_price(self, ticker: str) -> Optional[float]:
+    def get_current_price(self, ticker: str) -> float | None:
         try:
             import yfinance as yf
             data = yf.Ticker(ticker).history(period="1d")
@@ -227,7 +226,7 @@ class PaperBroker(BrokerInterface):
             logger.error(f"Error obteniendo precio de {ticker}: {e}")
             return None
 
-    def get_order_history(self) -> List[Dict]:
+    def get_order_history(self) -> list[dict]:
         return self.order_history.copy()
 
     def reset(self):

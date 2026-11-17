@@ -12,14 +12,14 @@ walk_forward.py (extrae RF de la columna RF).
 """
 
 import io
-import time
-import zipfile
-import urllib.request
-import pandas as pd
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional
 import logging
+import time
+import urllib.request
+import zipfile
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -156,8 +156,8 @@ class FrenchDataFetcher:
 
     def get_ff5_factors(
         self,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> pd.DataFrame:
         """
         Descarga Fama-French 5 factores + Momentum diarios.

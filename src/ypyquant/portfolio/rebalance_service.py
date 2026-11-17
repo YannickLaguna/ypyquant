@@ -5,7 +5,7 @@ Diseñado como microservicio independiente sin dependencias del broker.
 """
 
 import logging
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -63,7 +63,7 @@ class RebalanceService:
         rebalance_threshold: float = 0.05,  # 5% por defecto
         min_trade_value: float = 100.0,     # Mínimo $100 por operación
         commission_rate: float = 0.001,     # 0.1% comisión
-        price_fetcher: Optional[Callable[[List[str]], Dict[str, float]]] = None
+        price_fetcher: Callable[[list[str]], dict[str, float]] | None = None
     ):
         """
         Inicializa el servicio de rebalanceo.
@@ -88,11 +88,11 @@ class RebalanceService:
 
     def calculate_rebalance(
         self,
-        current_positions: List[Position],
-        target_weights: Dict[str, float],
+        current_positions: list[Position],
+        target_weights: dict[str, float],
         available_cash: float = 0.0,
-        current_prices: Optional[Dict[str, float]] = None
-    ) -> Dict:
+        current_prices: dict[str, float] | None = None
+    ) -> dict:
         """
         Calcula las operaciones necesarias para rebalancear la cartera.
 
@@ -160,7 +160,7 @@ class RebalanceService:
             'total_portfolio_value': total_portfolio_value
         }
 
-    def _validate_target_weights(self, target_weights: Dict[str, float]) -> bool:
+    def _validate_target_weights(self, target_weights: dict[str, float]) -> bool:
         """Valida que los pesos objetivo sumen 1.0 (con tolerancia)."""
         if not target_weights:
             return False
@@ -179,16 +179,16 @@ class RebalanceService:
 
         return True
 
-    def _calculate_total_value(self, positions: List[Position], cash: float) -> float:
+    def _calculate_total_value(self, positions: list[Position], cash: float) -> float:
         """Calcula el valor total del portafolio."""
         positions_value = sum(pos.market_value for pos in positions)
         return positions_value + cash
 
     def _calculate_current_weights(
         self,
-        positions: List[Position],
+        positions: list[Position],
         total_value: float
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calcula los pesos actuales de la cartera."""
         if total_value == 0:
             return {}
@@ -201,10 +201,10 @@ class RebalanceService:
 
     def _resolve_prices(
         self,
-        target_weights: Dict[str, float],
-        positions_map: Dict[str, Position],
-        current_prices: Optional[Dict[str, float]]
-    ) -> Dict[str, float]:
+        target_weights: dict[str, float],
+        positions_map: dict[str, Position],
+        current_prices: dict[str, float] | None
+    ) -> dict[str, float]:
         """
         Resuelve precios actuales combinando entradas, posiciones y un fetcher opcional.
 
@@ -227,7 +227,7 @@ class RebalanceService:
         ValueError
             Si faltan precios y no se pueden obtener mediante price_fetcher.
         """
-        prices: Dict[str, float] = {}
+        prices: dict[str, float] = {}
 
         # Empezar con precios provistos o de las posiciones
         if current_prices:
@@ -250,12 +250,12 @@ class RebalanceService:
 
     def _calculate_operations(
         self,
-        target_weights: Dict[str, float],
-        current_weights: Dict[str, float],
+        target_weights: dict[str, float],
+        current_weights: dict[str, float],
         total_value: float,
-        positions_map: Dict[str, Position],
-        current_prices: Dict[str, float]
-    ) -> List[RebalanceOperation]:
+        positions_map: dict[str, Position],
+        current_prices: dict[str, float]
+    ) -> list[RebalanceOperation]:
         """Calcula las operaciones necesarias para rebalancear."""
         operations = []
 
@@ -343,11 +343,11 @@ class RebalanceService:
 
     def _generate_summary(
         self,
-        operations: List[RebalanceOperation],
-        current_weights: Dict[str, float],
-        target_weights: Dict[str, float],
+        operations: list[RebalanceOperation],
+        current_weights: dict[str, float],
+        target_weights: dict[str, float],
         total_value: float
-    ) -> Dict:
+    ) -> dict:
         """Genera un resumen del rebalanceo."""
         buy_operations = [op for op in operations if op.operation_type == OperationType.BUY]
         sell_operations = [op for op in operations if op.operation_type == OperationType.SELL]
@@ -404,7 +404,7 @@ class RebalanceService:
             }
         }
 
-    def _format_weights(self, weights: Dict[str, float]) -> str:
+    def _format_weights(self, weights: dict[str, float]) -> str:
         """Formatea pesos para logging."""
         if not weights:
             return "{}"
@@ -414,10 +414,10 @@ class RebalanceService:
 
     def validate_operations_feasibility(
         self,
-        operations: List[RebalanceOperation],
+        operations: list[RebalanceOperation],
         available_cash: float,
-        current_positions: List[Position]
-    ) -> Dict:
+        current_positions: list[Position]
+    ) -> dict:
         """
         Valida que las operaciones sean factibles con el cash y posiciones disponibles.
 

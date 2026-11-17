@@ -7,19 +7,18 @@ Compatible con cualquier backend de persistencia (TFM PostgreSQL, etc.)
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
 from ypyquant.execution.broker_interface import BrokerInterface, OrderSide, OrderStatus, OrderType
 from ypyquant.execution.paper_broker import PaperBroker
-from ypyquant.execution.wallet_manager import WalletManager
-from ypyquant.execution.trade_analytics import TradeAnalytics
 from ypyquant.execution.storage_interface import StorageInterface
+from ypyquant.execution.trade_analytics import TradeAnalytics
+from ypyquant.execution.wallet_manager import WalletManager
 from ypyquant.portfolio.rebalance_service import (
-    RebalanceService,
+    OperationType,
     Position,
     RebalanceOperation,
-    OperationType,
+    RebalanceService,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,8 +40,8 @@ class BotExecutor:
         self,
         storage: StorageInterface,
         portafolio_id: int,
-        broker: Optional[BrokerInterface] = None,
-        broker_config: Optional[Dict] = None,
+        broker: BrokerInterface | None = None,
+        broker_config: dict | None = None,
         rebalance_threshold: float = 0.05,
     ):
         """
@@ -98,7 +97,7 @@ class BotExecutor:
             f"'{self.portafolio.get('nombre')}' (ID: {self.portafolio_id})"
         )
 
-    def _load_portafolio(self) -> Dict:
+    def _load_portafolio(self) -> dict:
         """Carga el portafolio via StorageInterface."""
         portafolio = self.storage.load_portafolio(self.portafolio_id)
         if portafolio.get("type") != "real":
@@ -110,9 +109,9 @@ class BotExecutor:
 
     def execute_rebalance(
         self,
-        target_weights: Optional[Dict[str, float]] = None,
+        target_weights: dict[str, float] | None = None,
         dry_run: bool = False,
-    ) -> Dict:
+    ) -> dict:
         """
         Ejecuta un rebalanceo del portafolio.
 
@@ -215,7 +214,7 @@ class BotExecutor:
             "feasibility": feasibility,
         }
 
-    def _execute_operations(self, operations: List[RebalanceOperation]) -> Dict:
+    def _execute_operations(self, operations: list[RebalanceOperation]) -> dict:
         executed_operations = []
         errors = []
 
@@ -274,7 +273,7 @@ class BotExecutor:
         self.storage.sync_positions(self.portafolio_id, broker_positions)
         logger.info(f"Sincronizadas {len(broker_positions)} posiciones en BD")
 
-    def get_portfolio_status(self) -> Dict:
+    def get_portfolio_status(self) -> dict:
         account_info = self.broker.get_account_info()
         positions = self.broker.get_positions()
 
@@ -294,7 +293,7 @@ class BotExecutor:
             "needs_rebalance": self._check_if_needs_rebalance(current_weights),
         }
 
-    def _check_if_needs_rebalance(self, current_weights: Dict[str, float]) -> bool:
+    def _check_if_needs_rebalance(self, current_weights: dict[str, float]) -> bool:
         target_weights = self.portafolio.get("target_weights") or {}
         threshold = self.portafolio.get("rebalance_threshold") or 0.05
         all_tickers = set(target_weights) | set(current_weights)
@@ -303,10 +302,10 @@ class BotExecutor:
             for t in all_tickers
         )
 
-    def get_operation_history(self, limit: int = 50) -> List[Dict]:
+    def get_operation_history(self, limit: int = 50) -> list[dict]:
         return self.storage.get_operations(self.portafolio_id, limit=limit)
 
-    def get_portfolio_metrics(self) -> Dict:
+    def get_portfolio_metrics(self) -> dict:
         positions = self.broker.get_positions()
         current_prices = {pos["ticker"]: pos["current_price"] for pos in positions}
         metrics = self.trade_analytics.calculate_portfolio_metrics(
@@ -332,7 +331,7 @@ class BotExecutor:
             "summary": self.trade_analytics.format_portfolio_summary(metrics),
         }
 
-    def get_wallet_status(self) -> Dict:
+    def get_wallet_status(self) -> dict:
         account_info = self.broker.get_account_info()
         positions = self.broker.get_positions()
         used_capital = sum(pos["market_value"] for pos in positions)
@@ -372,7 +371,7 @@ class BotExecutor:
         ticker: str,
         stake_amount: float,
         min_stake: float = 10.0,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         account_info = self.broker.get_account_info()
         positions = self.broker.get_positions()
         used_capital = sum(pos["market_value"] for pos in positions)
@@ -386,7 +385,7 @@ class BotExecutor:
             current_open_trades=len(positions),
         )
 
-    def get_position_analytics(self, ticker: str) -> Optional[Dict]:
+    def get_position_analytics(self, ticker: str) -> dict | None:
         posicion = self.storage.get_posicion(self.portafolio_id, ticker)
         if not posicion:
             return None

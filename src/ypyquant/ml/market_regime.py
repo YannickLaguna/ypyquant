@@ -3,12 +3,12 @@ Clasificador de régimen de mercado usando SVM o Random Forest.
 Detecta: Bull/Bear/Lateral/High Volatility y ajusta parámetros de optimización.
 """
 
-from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
-import pandas as pd
-import numpy as np
-from typing import Dict, Tuple, Optional
 import logging
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ class MarketRegimeClassifier:
 
         logger.info(f"[MarketRegime] ✓ Modelo entrenado con {len(X)} muestras")
         logger.info(f"[MarketRegime] Accuracy en training: {train_accuracy:.2%}")
-        logger.info(f"[MarketRegime] Distribución de regímenes:")
+        logger.info("[MarketRegime] Distribución de regímenes:")
 
         regime_dist = y.value_counts(normalize=True).sort_index()
         for regime_id, pct in regime_dist.items():
@@ -225,7 +225,7 @@ class MarketRegimeClassifier:
             logger.info(f"  {regime_name}: {pct:.1%}")
 
         if self.feature_importance is not None:
-            logger.info(f"[MarketRegime] Top 3 features más importantes:")
+            logger.info("[MarketRegime] Top 3 features más importantes:")
             for feature, importance in self.feature_importance.head(3).items():
                 logger.info(f"  {feature}: {importance:.3f}")
 
@@ -233,7 +233,7 @@ class MarketRegimeClassifier:
         self,
         market_returns: pd.Series,
         lookback: int = 60
-    ) -> Tuple[int, Dict[int, float]]:
+    ) -> tuple[int, dict[int, float]]:
         """
         Predice el régimen actual del mercado.
 
@@ -279,7 +279,7 @@ class MarketRegimeClassifier:
         return MarketRegimeClassifier.REGIME_NAMES.get(regime_id, 'Unknown')
 
     @staticmethod
-    def get_optimization_params_for_regime(regime_id: int, risk_free_rate: float = 0.02) -> Dict:
+    def get_optimization_params_for_regime(regime_id: int, risk_free_rate: float = 0.02) -> dict:
         """
         Retorna parámetros de optimización recomendados por régimen.
 
@@ -330,7 +330,7 @@ class MarketRegimeClassifier:
                 'description': 'Risk parity para alta volatilidad'
             }
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serializa información del modelo"""
         result = {
             'model_type': self.model_type,

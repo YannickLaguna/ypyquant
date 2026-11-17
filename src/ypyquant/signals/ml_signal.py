@@ -15,7 +15,6 @@ apropiado para señales batch en research. No persiste modelos entre calls.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -47,7 +46,7 @@ class MLSignalGenerator(BaseSignalGenerator):
     def generate(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]] = None,
+        tickers: list[str] | None = None,
         train_window: int = 252,
         forecast_horizon: int = 5,
         **kwargs,
@@ -63,8 +62,9 @@ class MLSignalGenerator(BaseSignalGenerator):
             SignalFrame: 2*P(up) - 1, valores ∈ [-1, +1].
         """
         try:
-            from ypyquant.ml.ml_predictor import MLPredictor, ModelType
             from sklearn.ensemble import RandomForestClassifier
+
+            from ypyquant.ml.ml_predictor import MLPredictor, ModelType
         except ImportError as e:
             logger.warning(f"[MLSignal] Dependencia no disponible: {e}. Retornando señal cero.")
             cols = self._select_tickers(prices, tickers)

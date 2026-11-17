@@ -3,11 +3,11 @@ Servicio de clustering de activos para pre-filtrado del universo.
 Reduce el número de activos seleccionando representantes de cada cluster.
 """
 
-from sklearn.cluster import AgglomerativeClustering, KMeans
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Optional
 import logging
+
+import numpy as np
+import pandas as pd
+from sklearn.cluster import AgglomerativeClustering, KMeans
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class AssetClusteringService:
         returns_df: pd.DataFrame,
         n_clusters: int = 5,
         selection_method: str = 'max_sharpe'
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Selecciona activos representativos de cada cluster.
 
@@ -146,7 +146,7 @@ class AssetClusteringService:
 
         return selected
 
-    def get_cluster_summary(self) -> Dict:
+    def get_cluster_summary(self) -> dict:
         """
         Retorna resumen de los clusters formados.
 
@@ -168,7 +168,7 @@ class AssetClusteringService:
     def visualize_clusters(
         self,
         returns_df: pd.DataFrame,
-        save_path: Optional[str] = None
+        save_path: str | None = None
     ):
         """
         Visualiza los clusters formados (requiere matplotlib).

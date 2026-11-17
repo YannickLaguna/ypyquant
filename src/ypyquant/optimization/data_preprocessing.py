@@ -22,13 +22,14 @@ IMPORTANTE - Consistencia de Retornos:
     - NUNCA mezclar tipos de retornos en el mismo análisis
 """
 
-import pandas as pd
-import numpy as np
-from typing import Optional, Literal, Dict, Any, Tuple, NamedTuple
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import logging
+from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class Periodo(str, Enum):
 
 
 # Mapeo de período a días de trading
-DIAS_POR_PERIODO: Dict[Periodo, int] = {
+DIAS_POR_PERIODO: dict[Periodo, int] = {
     Periodo.DIARIO: DiasTrading.DIARIO,
     Periodo.SEMANAL: DiasTrading.SEMANAL,
     Periodo.MENSUAL: DiasTrading.MENSUAL,
@@ -73,7 +74,7 @@ DIAS_POR_PERIODO: Dict[Periodo, int] = {
 }
 
 # Factor de anualización por período (cuántos períodos hay en un año)
-FACTOR_ANUALIZACION: Dict[Periodo, float] = {
+FACTOR_ANUALIZACION: dict[Periodo, float] = {
     Periodo.DIARIO: DiasTrading.ANUAL,           # 252 días/año
     Periodo.SEMANAL: DiasTrading.ANUAL / DiasTrading.SEMANAL,    # ~50.4 semanas/año
     Periodo.MENSUAL: DiasTrading.ANUAL / DiasTrading.MENSUAL,    # 12 meses/año
@@ -115,7 +116,7 @@ class RetornosMultiPeriodo:
     mensual: pd.DataFrame
     semestral: pd.DataFrame
     precios_originales: pd.DataFrame
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def obtener_retornos(self, periodo: Periodo) -> pd.DataFrame:
         """
@@ -207,7 +208,7 @@ class RetornosMultiPeriodo:
     def calcular_estadisticas_anualizadas(
         self,
         periodo: Periodo = Periodo.DIARIO
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Calcula estadísticas anualizadas completas para un período.
 
@@ -310,7 +311,7 @@ class ProcesadorDatos:
         self,
         precios_df: pd.DataFrame,
         validar: bool = True
-    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """
         Procesa datos de precios y retorna matriz de retornos DIARIOS limpia.
 
@@ -372,7 +373,7 @@ class ProcesadorDatos:
         self,
         precios_df: pd.DataFrame,
         validar: bool = True,
-        periodos: Optional[list] = None
+        periodos: list | None = None
     ) -> RetornosMultiPeriodo:
         """
         Procesa datos de precios y retorna retornos para TODOS los períodos.
@@ -627,7 +628,7 @@ class ProcesadorDatos:
 
         return retornos_df
 
-    def obtener_resumen(self) -> Dict[str, Any]:
+    def obtener_resumen(self) -> dict[str, Any]:
         """Retorna resumen del preprocessing realizado."""
         return {
             'configuracion': {

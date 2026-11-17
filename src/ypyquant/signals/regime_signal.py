@@ -17,10 +17,9 @@ La señal es uniforme a todos los tickers (régimen del mercado global).
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from ypyquant.signals.base import BaseSignalGenerator, SignalFrame
 
@@ -53,8 +52,8 @@ class RegimeSignalGenerator(BaseSignalGenerator):
     def generate(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]] = None,
-        market_returns: Optional[pd.Series] = None,
+        tickers: list[str] | None = None,
+        market_returns: pd.Series | None = None,
         model_type: str = "random_forest",
         lookback: int = 60,
         **kwargs,

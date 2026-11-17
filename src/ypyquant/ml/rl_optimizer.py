@@ -7,11 +7,11 @@ se recomienda usar Stable-Baselines3, Ray RLlib, o TensorTrade.
 """
 
 import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,9 @@ class Action(Enum):
 class PortfolioState:
     """Estado del portafolio para RL"""
     cash: float
-    positions: Dict[str, float]  # {ticker: quantity}
-    prices: Dict[str, float]  # {ticker: current_price}
-    features: Dict[str, np.ndarray]  # Features adicionales
+    positions: dict[str, float]  # {ticker: quantity}
+    prices: dict[str, float]  # {ticker: current_price}
+    features: dict[str, np.ndarray]  # Features adicionales
 
     @property
     def total_value(self) -> float:
@@ -50,7 +50,7 @@ class PortfolioEnvironment:
 
     def __init__(
         self,
-        data: Dict[str, pd.DataFrame],
+        data: dict[str, pd.DataFrame],
         initial_capital: float = 10000.0,
         commission_rate: float = 0.001
     ):
@@ -84,7 +84,7 @@ class PortfolioEnvironment:
 
         return self._get_state()
 
-    def step(self, actions: Dict[str, Action]) -> Tuple[PortfolioState, float, bool, Dict]:
+    def step(self, actions: dict[str, Action]) -> tuple[PortfolioState, float, bool, dict]:
         """
         Ejecuta un paso en el environment.
 
@@ -161,7 +161,7 @@ class PortfolioEnvironment:
 
         # HOLD no hace nada
 
-    def _get_current_price(self, ticker: str) -> Optional[float]:
+    def _get_current_price(self, ticker: str) -> float | None:
         """Obtiene precio actual de un ticker."""
         if ticker not in self.data:
             return None
@@ -253,7 +253,7 @@ class RLOptimizer:
 
         logger.info(f"RLOptimizer inicializado con algoritmo: {algorithm}")
 
-    def train(self, episodes: int = 100) -> Dict:
+    def train(self, episodes: int = 100) -> dict:
         """
         Entrena el agente RL.
 
@@ -305,7 +305,7 @@ class RLOptimizer:
 
         return metrics
 
-    def _select_actions(self, state: PortfolioState) -> Dict[str, Action]:
+    def _select_actions(self, state: PortfolioState) -> dict[str, Action]:
         """
         Selecciona acciones basado en el estado.
 
@@ -327,7 +327,7 @@ class RLOptimizer:
 
         return actions
 
-    def optimize_weights(self, state: PortfolioState) -> Dict[str, float]:
+    def optimize_weights(self, state: PortfolioState) -> dict[str, float]:
         """
         Optimiza pesos del portafolio usando RL.
 
@@ -363,10 +363,10 @@ class RLOptimizer:
 
 
 def create_simple_rl_strategy(
-    tickers: List[str],
-    historical_data: Dict[str, pd.DataFrame],
+    tickers: list[str],
+    historical_data: dict[str, pd.DataFrame],
     initial_capital: float = 10000.0
-) -> Tuple[RLOptimizer, Dict]:
+) -> tuple[RLOptimizer, dict]:
     """
     Crea y entrena una estrategia RL simple.
 

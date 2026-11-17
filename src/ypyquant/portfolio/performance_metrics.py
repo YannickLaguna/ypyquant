@@ -14,10 +14,10 @@ Relacionado con: walk_forward.py (consume compare_to_benchmark), monte_carlo.py
 """
 
 import logging
-import pandas as pd
-import numpy as np
-from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ class PerformanceAnalyzer:
         portfolio_returns: pd.Series,
         benchmark_returns: pd.Series,
         risk_free_rate: float = 0.02
-    ) -> Dict:
+    ) -> dict:
         """
         Comparación portafolio vs benchmark.
 
@@ -267,13 +267,13 @@ class PerformanceAnalyzer:
 
 
 def calculate_var_quantlib(
-    portafolio: Dict[str, float],
+    portafolio: dict[str, float],
     retornos_df: pd.DataFrame,
     horizonte_dias: int = 252,
     num_simulaciones: int = 10000,
     nivel_confianza: float = 0.95,
     usar_quantlib: bool = True
-) -> Dict:
+) -> dict:
     """
     Calcula VaR y CVaR usando simulaciones Monte Carlo con QuantLib.
 

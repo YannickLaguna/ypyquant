@@ -17,7 +17,7 @@ import logging
 import math
 import os
 import tempfile
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class MLflowTracker:
         self,
         enabled: bool = False,
         experiment_name: str = "walk_forward_factorial",
-        tracking_uri: Optional[str] = None,
+        tracking_uri: str | None = None,
     ):
         """
         Args:
@@ -86,7 +86,7 @@ class MLflowTracker:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start_run(self, config_exp: "ConfigExperimento") -> None:
+    def start_run(self, config_exp: ConfigExperimento) -> None:
         """
         Inicia un run y loguea todos los campos de ConfigExperimento como params.
 
@@ -109,7 +109,7 @@ class MLflowTracker:
         except Exception as exc:
             logger.warning(f"[MLflow] start_run error: {exc}")
 
-    def log_window(self, resultado: "ResultadoVentana", step: int) -> None:
+    def log_window(self, resultado: ResultadoVentana, step: int) -> None:
         """
         Loguea métricas de una ventana OOS individual.
 
@@ -129,7 +129,7 @@ class MLflowTracker:
         except Exception as exc:
             logger.warning(f"[MLflow] log_window(step={step}) error: {exc}")
 
-    def end_run(self, resultado: "ResultadoExperimento") -> None:
+    def end_run(self, resultado: ResultadoExperimento) -> None:
         """
         Loguea métricas agregadas + equity curve como artifact CSV y cierra el run.
 

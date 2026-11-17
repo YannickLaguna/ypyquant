@@ -10,11 +10,11 @@ Soporta:
 """
 
 import logging
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class PredictionResult:
     ticker: str
     prediction: float  # Probabilidad o valor predicho
     confidence: float  # Nivel de confianza
-    features_used: List[str]
+    features_used: list[str]
     model_type: str
 
 
@@ -105,7 +105,7 @@ class FeatureEngineering:
         return rsi
 
     @staticmethod
-    def _calculate_macd(prices: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    def _calculate_macd(prices: pd.Series) -> tuple[pd.Series, pd.Series]:
         """Calcula MACD."""
         ema_12 = prices.ewm(span=12).mean()
         ema_26 = prices.ewm(span=26).mean()
@@ -119,7 +119,7 @@ class FeatureEngineering:
         prices: pd.Series,
         window: int = 20,
         num_std: int = 2
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """Calcula Bollinger Bands."""
         sma = prices.rolling(window).mean()
         std = prices.rolling(window).std()
@@ -184,7 +184,7 @@ class MLPredictor:
         df: pd.DataFrame,
         forecast_horizon: int = 5,
         test_size: float = 0.2
-    ) -> Dict:
+    ) -> dict:
         """
         Entrena el modelo.
 
@@ -327,7 +327,7 @@ class MLPredictor:
             model_type=self.model_type.value
         )
 
-    def get_feature_importance(self) -> Dict[str, float]:
+    def get_feature_importance(self) -> dict[str, float]:
         """
         Obtiene importancia de features.
 

@@ -16,16 +16,13 @@ Se relaciona con:
 from __future__ import annotations
 
 import logging
-import os
 import pickle
 from pathlib import Path
-from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
 
 from ypyquant.optimization.walk_forward import (
-    ResultadoExperimento,
     TipoExperimento,
     WalkForwardEngine,
 )
@@ -188,7 +185,7 @@ class ExportadorResultados:
         ruta_global.write_text(latex_global, encoding='utf-8')
         logger.info(f"LaTeX resumen global: {ruta_global}")
 
-    def _tabla_jensen_alpha(self) -> Optional[pd.DataFrame]:
+    def _tabla_jensen_alpha(self) -> pd.DataFrame | None:
         """Construye tabla de Jensen's alpha con significancia estadística."""
         filas = []
         for id_exp, res in self.resultados.items():

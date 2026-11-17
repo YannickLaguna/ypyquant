@@ -7,9 +7,9 @@ Los métodos @staticmethod son independientes de almacenamiento y se pueden usar
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ypyquant.execution.storage_interface import StorageInterface
@@ -22,7 +22,7 @@ class TradeMetrics:
     """Métricas de un trade individual"""
     ticker: str
     entry_price: float
-    exit_price: Optional[float]
+    exit_price: float | None
     quantity: float
 
     cost_basis: float
@@ -37,8 +37,8 @@ class TradeMetrics:
     total_fees: float
 
     entry_date: datetime
-    exit_date: Optional[datetime]
-    holding_period_days: Optional[float]
+    exit_date: datetime | None
+    holding_period_days: float | None
 
     is_open: bool
 
@@ -85,7 +85,7 @@ class TradeAnalytics:
         entry_fee: float = 0.0,
         exit_fee: float = 0.0,
         is_short: bool = False,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Calcula el P&L de un trade.
 
@@ -107,9 +107,9 @@ class TradeAnalytics:
         quantity: float,
         entry_fee: float,
         entry_date: datetime,
-        exit_price: Optional[float] = None,
-        exit_fee: Optional[float] = None,
-        exit_date: Optional[datetime] = None,
+        exit_price: float | None = None,
+        exit_fee: float | None = None,
+        exit_date: datetime | None = None,
         is_short: bool = False,
     ) -> TradeMetrics:
         """Calcula métricas completas de una posición."""
@@ -134,8 +134,8 @@ class TradeAnalytics:
         if exit_date:
             holding_period_days = (exit_date - entry_date).total_seconds() / 86400
         else:
-            now = datetime.now(timezone.utc)
-            ed = entry_date if entry_date.tzinfo else entry_date.replace(tzinfo=timezone.utc)
+            now = datetime.now(UTC)
+            ed = entry_date if entry_date.tzinfo else entry_date.replace(tzinfo=UTC)
             holding_period_days = (now - ed).total_seconds() / 86400
 
         return TradeMetrics(
@@ -158,7 +158,7 @@ class TradeAnalytics:
             is_open=exit_price is None,
         )
 
-    def get_position_metrics(self, posicion: Dict, current_price: float) -> TradeMetrics:
+    def get_position_metrics(self, posicion: dict, current_price: float) -> TradeMetrics:
         """
         Calcula métricas de una posición.
 
@@ -183,8 +183,8 @@ class TradeAnalytics:
         self,
         ticker: str,
         portafolio_id: int,
-        current_price: Optional[float] = None,
-    ) -> List[TradeMetrics]:
+        current_price: float | None = None,
+    ) -> list[TradeMetrics]:
         """
         Calcula métricas de trades completados desde operaciones de la BD.
         """
@@ -253,7 +253,7 @@ class TradeAnalytics:
     def calculate_portfolio_metrics(
         self,
         portafolio_id: int,
-        current_prices: Optional[Dict[str, float]] = None,
+        current_prices: dict[str, float] | None = None,
     ) -> PortfolioMetrics:
         """Calcula métricas agregadas del portafolio."""
         operations = self.storage.get_operations(portafolio_id)

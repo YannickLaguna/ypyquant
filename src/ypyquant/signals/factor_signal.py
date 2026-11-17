@@ -16,7 +16,6 @@ Requiere:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -49,11 +48,11 @@ class FactorSignalGenerator(BaseSignalGenerator):
     def generate(
         self,
         prices: pd.DataFrame,
-        tickers: Optional[List[str]] = None,
-        factor_data: Optional[pd.DataFrame] = None,
+        tickers: list[str] | None = None,
+        factor_data: pd.DataFrame | None = None,
         train_window_days: int = 252,
         step_days: int = 21,
-        factores: Optional[List[str]] = None,
+        factores: list[str] | None = None,
         **kwargs,
     ) -> SignalFrame:
         """
@@ -70,7 +69,7 @@ class FactorSignalGenerator(BaseSignalGenerator):
             SignalFrame con señal alpha rank ∈ [-1, +1].
         """
         try:
-            from ypyquant.factors.factor_models import FamaFrenchModel, FACTORES_FF5_MOM
+            from ypyquant.factors.factor_models import FACTORES_FF5_MOM, FamaFrenchModel
         except ImportError as e:
             logger.warning(f"[FactorSignal] Dependencia no disponible: {e}. Señal=0.")
             cols = self._select_tickers(prices, tickers)
@@ -101,7 +100,7 @@ class FactorSignalGenerator(BaseSignalGenerator):
         if not indices_reestimacion:
             return pd.DataFrame(0.0, index=prices.index, columns=cols)
 
-        ultima_señal: Optional[pd.Series] = None
+        ultima_señal: pd.Series | None = None
 
         for idx in indices_reestimacion:
             train_slice = retornos.iloc[idx - train_window_days: idx]

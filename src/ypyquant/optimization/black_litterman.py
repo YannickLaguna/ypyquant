@@ -17,12 +17,12 @@ Relacionado con:
 Ref: Black & Litterman (1992). Global Portfolio Optimization.
 """
 
+import logging
+from dataclasses import dataclass
+from typing import Literal
+
 import numpy as np
 import pandas as pd
-import warnings
-import logging
-from typing import Dict, List, Optional, Tuple, Literal
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class View:
           Ejemplo: "AAPL superará a MSFT por 5%"
     """
     tipo: Literal['absolute', 'relative']
-    activos: List[str]  # Para absolute: [ticker], para relative: [ticker1, ticker2]
+    activos: list[str]  # Para absolute: [ticker], para relative: [ticker1, ticker2]
     valor_esperado: float  # Retorno esperado o diferencia esperada
     confianza: float = 0.5  # Confianza en la view (0-1)
 
@@ -115,9 +115,9 @@ class BlackLittermanQuantLib:
 
     def construir_matrices_views(
         self,
-        views: List[View],
-        activos: List[str]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        views: list[View],
+        activos: list[str]
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Construye matrices P (pick) y Q (valores esperados) desde views.
 
@@ -158,7 +158,7 @@ class BlackLittermanQuantLib:
 
     def calcular_omega(
         self,
-        views: List[View],
+        views: list[View],
         P: np.ndarray,
         cov_matrix: pd.DataFrame
     ) -> np.ndarray:
@@ -200,8 +200,8 @@ class BlackLittermanQuantLib:
         self,
         cov_matrix: pd.DataFrame,
         market_weights: pd.Series,
-        views: Optional[List[View]] = None,
-        prior: Optional[pd.Series] = None
+        views: list[View] | None = None,
+        prior: pd.Series | None = None
     ) -> pd.Series:
         """
         Posterior Black-Litterman: μ_BL = [(τΣ)⁻¹ + P'Ω⁻¹P]⁻¹·[(τΣ)⁻¹Π + P'Ω⁻¹Q].
@@ -266,7 +266,7 @@ class BlackLittermanQuantLib:
     def calcular_posterior_cov(
         self,
         cov_matrix: pd.DataFrame,
-        views: Optional[List[View]] = None
+        views: list[View] | None = None
     ) -> pd.DataFrame:
         """
         Calcula matriz de covarianza posterior.
@@ -310,7 +310,7 @@ class BlackLittermanQuantLib:
         self,
         prior: pd.Series,
         posterior: pd.Series,
-        views: List[View]
+        views: list[View]
     ) -> pd.DataFrame:
         """
         Analiza el impacto de las views en los retornos esperados.
@@ -343,7 +343,7 @@ class BlackLittermanQuantLib:
         return cambios
 
 
-def crear_views_desde_dict(views_dict: List[Dict]) -> List[View]:
+def crear_views_desde_dict(views_dict: list[dict]) -> list[View]:
     """
     Crea objetos View desde diccionarios.
 

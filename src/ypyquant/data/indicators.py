@@ -1,8 +1,7 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import io
 import base64
+import io
+
+import matplotlib.pyplot as plt
 
 """
 Funciones para calcular indicadores técnicos.
