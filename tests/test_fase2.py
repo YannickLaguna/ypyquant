@@ -7,13 +7,11 @@ Responsabilidad:
     - Comprobar que los scripts y la configuración del pipeline existen y son válidos.
     - Comprobar los artefactos generados por el pipeline (mlflow.db, reportes); si no
       están en el checkout se saltan, porque son datos locales no versionados.
-    - `exportar_a_db` escribía en la BD Supabase (ya no existe): marcado `red`.
 
 Se relaciona con:
     - src/ypyquant/signals, src/ypyquant/optimization (código bajo prueba).
-    - tests/conftest.py (fixtures precios, fechas, rng, raiz_repo) y pyproject.toml (marcador `red`).
+    - tests/conftest.py (fixtures precios, fechas, rng, raiz_repo).
     - scripts/run_fase2.py, scripts/config_fase2.yaml, scripts/vbt_signal_scan.py.
-    - db/database.py (solo en los tests `red`).
 """
 
 import contextlib
@@ -377,65 +375,6 @@ def test_walk_forward_mlflow_integration(tmp_path):
     )
     assert hasattr(engine, "_tracker")
     assert engine._tracker.enabled
-
-
-# ── 9. ExportadorResultados.exportar_a_db ─────────────────────────────────────
-
-
-def _make_resultado_fake():
-    from ypyquant.optimization.walk_forward import FabricaExperimentos, ResultadoExperimento
-    exps = FabricaExperimentos.crear_todos()
-    cfg = exps[0]
-    return ResultadoExperimento(
-        config=cfg,
-        ventanas=[],
-        retornos_oos_mensuales=pd.Series(dtype=float),
-        metricas={"sharpe_ratio": 0.99, "cagr": 0.12, "max_drawdown": -0.15,
-                  "sortino_ratio": 1.2, "calmar_ratio": 0.8, "volatilidad": 0.14},
-        alpha_jensen=0.01,
-    )
-
-
-@pytest.mark.red
-def test_exportador_a_db_smoke(raiz_repo):
-    """Smoke test: exportar 1 resultado ficticio a Supabase."""
-    from tests._bd import SessionLocal
-    from ypyquant.optimization.exportador_resultados import ExportadorResultados
-
-    resultado = _make_resultado_fake()
-    exportador = ExportadorResultados(
-        resultados=[resultado],
-        directorio_salida=raiz_repo / "data" / "reportes" / "fase2",
-    )
-    with SessionLocal() as session:
-        ids = exportador.exportar_a_db(
-            session=session,
-            nombre_experimento="test_fase2_smoke",
-            sobrescribir=True,
-        )
-    assert isinstance(ids, list)
-    assert len(ids) == 1
-    assert isinstance(ids[0], int)
-
-
-@pytest.mark.red
-def test_exportador_idempotente(raiz_repo):
-    """Segunda llamada con sobrescribir=False debe retornar lista vacía."""
-    from tests._bd import SessionLocal
-    from ypyquant.optimization.exportador_resultados import ExportadorResultados
-
-    resultado = _make_resultado_fake()
-    exportador = ExportadorResultados(
-        resultados=[resultado],
-        directorio_salida=raiz_repo / "data" / "reportes" / "fase2",
-    )
-    with SessionLocal() as session:
-        ids = exportador.exportar_a_db(
-            session=session,
-            nombre_experimento="test_fase2_smoke",
-            sobrescribir=False,
-        )
-    assert ids == [], f"Esperado [] (idempotente), obtenido {ids}"
 
 
 # ── 10. run_fase2 imports ─────────────────────────────────────────────────────

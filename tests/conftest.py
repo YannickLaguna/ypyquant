@@ -10,11 +10,10 @@ Responsabilidad:
 Se relaciona con:
     - pyproject.toml: define el marcador `red` y `addopts = "-m 'not red'"`.
     - test_fase2.py, test_ypyquant_api.py: consumen estas fixtures.
-    - test_fase1/factors/fred/indicators/loader/sp500: tests marcados `red`
-      (necesitan red o la antigua BD Supabase); se saltan por defecto.
+    - test_fase1/sp500: tests marcados `red` (necesitan internet); se saltan por defecto.
 
 Cómo ejecutar los tests de red:
-    python -m pytest -m red          # solo los de red/BD
+    python -m pytest -m red          # solo los de red
     python -m pytest -m "red or not red"   # todo
 """
 
