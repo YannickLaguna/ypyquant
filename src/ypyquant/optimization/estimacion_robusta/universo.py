@@ -35,6 +35,7 @@ mismos activos elegidos) y tests/test_estimacion_robusta.py.
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -58,14 +59,26 @@ def _seed_ticker(ticker: str, b: int, semilla_base: int) -> int:
     return int(hashlib.sha256(clave).hexdigest(), 16) % (2**32)
 
 
-def generar_prioridad_universo(tickers, b: int, semilla_base: int = 42) -> pd.Series:
+def generar_prioridad_universo(
+    tickers, b: int, semilla_base: int = 42, metodo: Literal["hash", "posicional"] = "hash"
+) -> pd.Series:
     """
     Prioridad u_i ~ U(0,1) por ticker, fija durante toda la réplica `b` (no se regenera
     por T ni por fecha). Cada ticker usa su propio generador semillado por su NOMBRE, no
     por su posición: añadir, quitar o reordenar otros tickers no mueve la prioridad de
     ninguno. Es aleatoria (no un ranking por cobertura) para que el efecto de N no se
     confunda con un gradiente de calidad de datos.
+
+    `metodo="posicional"` reproduce el esquema ANTERIOR del TFM (un único vector
+    `default_rng(semilla_base+b).random(len(tickers))` asignado por posición a `tickers`).
+    Es frágil (cambia en cascada si cambia el conjunto u orden de tickers) pero es el que
+    generó los parquet publicados de `rejilla_v2` (corrida del 2026-08-31 01:13, previa al
+    arreglo por hash): solo sirve para paridad con esos resultados.
     """
+    if metodo == "posicional":
+        return pd.Series(np.random.default_rng(seed_para(b, semilla_base)).random(len(tickers)), index=list(tickers))
+    if metodo != "hash":
+        raise ValueError("metodo debe ser 'hash' o 'posicional'")
     return pd.Series({t: np.random.default_rng(_seed_ticker(t, b, semilla_base)).random() for t in tickers})
 
 

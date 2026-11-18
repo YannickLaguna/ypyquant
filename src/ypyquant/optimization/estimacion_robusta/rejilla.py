@@ -97,6 +97,8 @@ class ConfiguracionRejilla:
         supervivencia del TFM; por defecto False y el retorno faltante se imputa a 0 %).
     min_observaciones: filas mínimas de la ventana de estimación tras dropna.
     max_replicas_con_pesos: `pesos_oos` y `manifest_draws` solo para b < este valor.
+    metodo_prioridad: "hash" (prioridad por nombre de ticker, estable) o "posicional" (esquema
+        antiguo del TFM, solo para paridad con los parquet publicados).
     rng_global_legado: True reproduce el consumo del estado global de numpy del TFM
         (np.random.seed(semilla_base+b) por réplica); False usa un Generator por réplica.
     """
@@ -121,6 +123,7 @@ class ConfiguracionRejilla:
     peso_maximo: float = 1.0
     frecuencia: int = 12
     max_replicas_con_pesos: int = 20
+    metodo_prioridad: Literal["hash", "posicional"] = "hash"
     rng_global_legado: bool = False
 
 
@@ -265,7 +268,9 @@ def ejecutar_replica(
         rng = np.random.default_rng(seed_para(b, config.semilla_base))
 
     retornos = panel.retornos_simples_totales
-    prioridad = generar_prioridad_universo(retornos.columns, b=b, semilla_base=config.semilla_base)
+    prioridad = generar_prioridad_universo(
+        retornos.columns, b=b, semilla_base=config.semilla_base, metodo=config.metodo_prioridad
+    )
     fechas_oos = retornos.loc[config.fecha_oos_ini : config.fecha_oos_fin].index
     frec = config.frecuencia
 
@@ -415,9 +420,11 @@ def ejecutar_replica(
     return filas_resultados, filas_pesos
 
 
-def generar_manifest(b: int, tickers, semilla_base: int = 42) -> list[dict]:
+def generar_manifest(
+    b: int, tickers, semilla_base: int = 42, metodo_prioridad: Literal["hash", "posicional"] = "hash"
+) -> list[dict]:
     """Prioridad u_i completa de la réplica b ordenada: reconstruye el universo de cualquier (N, T, fecha)."""
-    prioridad = generar_prioridad_universo(tickers, b=b, semilla_base=semilla_base)
+    prioridad = generar_prioridad_universo(tickers, b=b, semilla_base=semilla_base, metodo=metodo_prioridad)
     orden = prioridad.sort_values(kind="stable")
     return [
         {"b": b, "semilla": seed_para(b, semilla_base), "rank": i, "ticker": tk, "prioridad": float(u)}
@@ -477,7 +484,10 @@ def ejecutar_rejilla(
         todas_filas.extend(filas)
         todos_pesos.extend(pesos)
         if con_pesos:
-            manifest.extend(generar_manifest(b, panel.retornos_simples_totales.columns, config.semilla_base))
+            manifest.extend(generar_manifest(
+                    b, panel.retornos_simples_totales.columns, config.semilla_base, config.metodo_prioridad
+                )
+            )
 
     return ResultadosRejilla(
         resultados_oos=pd.DataFrame(todas_filas),
