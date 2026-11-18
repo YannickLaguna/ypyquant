@@ -10,6 +10,7 @@ Responsabilidad:
 Se relaciona con:
     - precios.py: datos de entrada.
     - ypyquant.execution.nautilus.constructor_senales: señales.
+    - ypyquant.estrategias: modo registro (`estrategia_registro`).
     - ypyquant.portfolio.backtest_engine: motor (se importa al ejecutar, no al importar el módulo,
       porque ese paquete se está reescribiendo aparte; si cambia su API hay que ajustar aquí).
 """
@@ -45,6 +46,20 @@ def ejecutar_backtest(estrategia: ConfiguracionEstrategia):
     if precios.empty:
         logger.error("No hay datos para el backtest")
         return None
+
+    if estrategia.estrategia_registro:  # modo registro: los pesos los decide la Estrategia
+        from ypyquant.estrategias import obtener_estrategia
+
+        objeto = obtener_estrategia(estrategia.estrategia_registro)(estrategia.parametros_registro)
+        configuracion = BacktestConfig(
+            fecha_inicio=str(precios.index[0].date()), fecha_fin=str(precios.index[-1].date()),
+            capital_inicial=estrategia.config_riesgo.get("initial_capital", 100_000.0),
+            frecuencia_rebalanceo="monthly")
+        datos = {t: precios[[t]].rename(columns={t: "close"}) for t in precios.columns}
+        resultado = BacktestEngine(config=configuracion).run_backtest(strategy_func=objeto.como_funcion(), tickers=datos)
+        for atributo in METRICAS:
+            logger.info("  %s: %.4f", atributo, getattr(resultado, atributo))
+        return resultado
 
     try:
         senales = construir_combinador(estrategia.config_senales).generate(precios)

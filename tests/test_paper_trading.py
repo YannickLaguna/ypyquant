@@ -167,3 +167,36 @@ class TestRegistroFills:
         registro = RegistroFills(tmp_path / "fills.jsonl")
         assert registro.registrar({"id": "x", "symbol": "AAPL", "side": "sell", "filled_qty": "0"}) is None
         assert not (tmp_path / "fills.jsonl").exists()
+
+
+class TestRebalanceoPorPesos:
+    """Modo registro: de pesos objetivo a órdenes (ventas primero, sin órdenes diminutas)."""
+
+    def test_ventas_antes_que_compras(self):
+        from ypyquant.execution.nautilus.ordenes import decidir_ordenes_rebalanceo
+
+        ordenes = decidir_ordenes_rebalanceo(
+            pesos={"AAA": 0.5, "BBB": 0.5}, equity=10_000, precios={"AAA": 100.0, "BBB": 50.0, "CCC": 10.0},
+            cantidades_actuales={"CCC": 100, "BBB": 10},
+        )
+        assert [(t, d.lado, d.cantidad) for t, d in ordenes] == [
+            ("CCC", "venta", 100), ("AAA", "compra", 50), ("BBB", "compra", 90)]
+
+    def test_ignora_diferencias_pequenas_pero_cierra_posiciones(self):
+        from ypyquant.execution.nautilus.ordenes import decidir_ordenes_rebalanceo
+
+        ordenes = decidir_ordenes_rebalanceo(
+            pesos={"AAA": 0.5}, equity=10_000, precios={"AAA": 100.0, "BBB": 1.0},
+            cantidades_actuales={"AAA": 49, "BBB": 3},
+        )
+        # AAA: dif 1 acción = 1 % del equity (no menor al umbral); BBB: cerrar aunque valga 0,03 %
+        assert [(t, d.lado) for t, d in ordenes] == [("BBB", "venta"), ("AAA", "compra")]
+        sin_cambios = decidir_ordenes_rebalanceo({"AAA": 0.5}, 10_000, {"AAA": 100.0}, {"AAA": 50})
+        assert sin_cambios == []
+
+    def test_estrategia_registro_desde_json(self, tmp_path):
+        ruta = tmp_path / "e.json"
+        ruta.write_text('{"nombre": "x", "estrategia_registro": "momentum", "parametros_registro": {"top_k": 2}}',
+                        encoding="utf-8")
+        est = ConfiguracionEstrategia.desde_json(ruta)
+        assert est.estrategia_registro == "momentum" and est.parametros_registro == {"top_k": 2}

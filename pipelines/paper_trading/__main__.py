@@ -6,11 +6,14 @@ Uso (desde la raíz del repo, con el extra `trading` instalado):
     uv run python -m pipelines.paper_trading --backtest
     uv run python -m pipelines.paper_trading --una-vez
     uv run python -m pipelines.paper_trading --config pipelines/paper_trading/estrategia_ejemplo.json
+    # Estrategia del registro de ypyquant (incluidas o de estrategias_usuario/):
+    uv run python -m pipelines.paper_trading --estrategia momentum --parametros '{"top_k": 3}' --tickers AAPL,MSFT,NVDA
 
 Se relaciona con: config.py, alpaca_vivo.py, backtest.py (este fichero solo parsea argumentos y orquesta).
 """
 
 import argparse
+import json
 import logging
 import signal
 from pathlib import Path
@@ -29,6 +32,10 @@ def crear_parser() -> argparse.ArgumentParser:
                                      description="Paper trading personal con ypyquant + Alpaca (cuenta paper)")
     parser.add_argument("--config", type=Path, default=None,
                         help="JSON con la estrategia (ver estrategia_ejemplo.json); por defecto, técnica sobre 5 tickers")
+    parser.add_argument("--estrategia", default=None,
+                        help="Nombre de una estrategia del registro de ypyquant (modo pesos; ver docs/ui.md)")
+    parser.add_argument("--parametros", default=None, help="JSON con los parámetros de --estrategia")
+    parser.add_argument("--tickers", default=None, help="Tickers separados por comas (sobrescribe la configuración)")
     parser.add_argument("--backtest", action="store_true",
                         help="Backtest de las señales con el motor de ypyquant (no necesita claves de Alpaca)")
     parser.add_argument("--una-vez", action="store_true", help="Una sola iteración en vivo y salir")
@@ -45,6 +52,13 @@ def main(argv: list[str] | None = None) -> None:
 
     estrategia = (ConfiguracionEstrategia.desde_json(args.config) if args.config
                   else ConfiguracionEstrategia())
+
+    if args.estrategia:
+        estrategia.estrategia_registro = args.estrategia
+        estrategia.nombre = args.estrategia
+        estrategia.parametros_registro = json.loads(args.parametros) if args.parametros else {}
+    if args.tickers:
+        estrategia.tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
 
     if args.backtest:
         from pipelines.paper_trading.backtest import ejecutar_backtest

@@ -10,6 +10,8 @@ Se relaciona con:
     - __main__.py: construye `ConfiguracionServicio` y `ConfiguracionEstrategia`.
     - alpaca_vivo.py y backtest.py: consumen estos objetos.
     - ypyquant.execution.nautilus.constructor_senales: interpreta `config_senales`.
+    - ypyquant.estrategias (registro): si `estrategia_registro` está definida, la estrategia sale del
+      registro (incluidas y `estrategias_usuario/`) en vez de las señales técnicas.
 """
 
 import json
@@ -54,6 +56,10 @@ class ConfiguracionEstrategia:
     config_riesgo: dict = field(default_factory=lambda: {"max_position_pct": 0.10, "max_drawdown": 0.15})
     frecuencia_rebalanceo: str = "daily"  # "daily" | "weekly"
     umbral_senal: float = 0.3  # |señal| > umbral para operar
+    # Modo registro: nombre de una `ypyquant.estrategias.Estrategia` y sus parámetros. Si se define,
+    # el bucle rebalancea hacia los pesos de la estrategia (ignora config_senales y umbral_senal).
+    estrategia_registro: str | None = None
+    parametros_registro: dict = field(default_factory=dict)
 
     @classmethod
     def desde_json(cls, ruta: Path) -> "ConfiguracionEstrategia":
