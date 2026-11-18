@@ -16,7 +16,9 @@ no la volatilidad al alza.
 from ypyquant.optimization.portfolio_models import (
     HistoricalReturnsModel,
     MarkowitzOptimizer,
+    PMPTMinCVaROptimizer,
     PortfolioOptimizationModel,
+    SampleCovarianceModel,
     SemiCovarianceModel,
 )
 from ypyquant.optimization.presets import registrar_preset
@@ -68,11 +70,13 @@ def crear_pmpt_cvar(risk_free_rate: float = 0.02) -> PortfolioOptimizationModel:
     Pipeline:
     1. Retornos: Media histórica
 
-    2. Riesgo: Semi-Covarianza (proxy para CVaR)
+    2. Riesgo: Covarianza muestral (solo para las métricas del resultado; el
+       optimizador no la usa en su objetivo)
        - CVaR mide la pérdida esperada en el 5% peor de los casos
        - Más enfocado en tail risk que semi-varianza
 
-    3. Optimización: Min Volatilidad sobre downside
+    3. Optimización: PMPTMinCVaROptimizer, minimiza el CVaR empírico al 95%
+       sobre el histórico de retornos (`optimize` se lo pasa como retornos_historicos)
 
     Ventajas:
     - Protección contra eventos extremos (tail risk)
@@ -85,8 +89,8 @@ def crear_pmpt_cvar(risk_free_rate: float = 0.02) -> PortfolioOptimizationModel:
     - Cumplimiento regulatorio (Basel III)
 
     Nota:
-    - Actualmente usa Semi-Covarianza como proxy
-    - TODO: Implementar optimizador CVaR específico
+    - Hasta v0.3.0 este preset usaba semicovarianza + min_volatility (no minimizaba el CVaR);
+      desde v0.4.0 usa PMPTMinCVaROptimizer.
 
     Args:
         risk_free_rate: Tasa libre de riesgo para cálculos (default: 0.02)
@@ -94,7 +98,7 @@ def crear_pmpt_cvar(risk_free_rate: float = 0.02) -> PortfolioOptimizationModel:
     return PortfolioOptimizationModel(
         name="PMPT (CVaR 95%)",
         returns_model=HistoricalReturnsModel(method="mean", frequency=252),
-        risk_model=SemiCovarianceModel(target_return=0.0, frequency=252),
-        optimizer=MarkowitzOptimizer(objective="min_volatility", risk_free_rate=risk_free_rate),
+        risk_model=SampleCovarianceModel(frequency=252),
+        optimizer=PMPTMinCVaROptimizer(nivel_confianza=0.95, risk_free_rate=risk_free_rate),
         description="Post-Modern Portfolio Theory con CVaR (Conditional Value at Risk) al 95%"
     )
