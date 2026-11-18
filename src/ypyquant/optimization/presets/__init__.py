@@ -129,7 +129,7 @@ def obtener_detalles_preset(nombre_preset: str, risk_free_rate: float = 0.02) ->
 # ============================================================================
 
 # Importar presets de cada módulo (esto los registra automáticamente)
-from ypyquant.optimization.presets import factor_models, pmpt, tfm, tradicionales
+from ypyquant.optimization.presets import factor_models, pmpt, tfm, tradicionales  # noqa: F401 - registran los presets
 
 # Los presets ML avanzados se importan condicionalmente
 try:

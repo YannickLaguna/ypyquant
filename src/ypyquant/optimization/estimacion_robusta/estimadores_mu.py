@@ -328,7 +328,7 @@ def estimar_mu_michaud(
             exitos += 1
             if degenerate_r:
                 contingencias += 1
-        except Exception:  # noqa: S112 - una réplica fallida no invalida el promedio (como el TFM)
+        except Exception:  # noqa: BLE001, S112 - una réplica fallida no invalida el promedio (como el TFM)
             continue
 
     if exitos == 0:

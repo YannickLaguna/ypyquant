@@ -86,7 +86,7 @@ class _ProblemaQPMaxSharpe:
                 if y is not None and np.all(np.isfinite(y)) and y.sum() > 1e-8:
                     w = np.maximum(y, 0.0)
                     return w / w.sum()
-            except Exception:  # noqa: S112 - se prueba el siguiente solver
+            except Exception:  # noqa: BLE001, S112 - se prueba el siguiente solver
                 continue
         return None
 
@@ -101,7 +101,7 @@ def _obtener_qp(n: int, peso_maximo: float) -> _ProblemaQPMaxSharpe | None:
     if clave not in _CACHE_QP:
         try:
             _CACHE_QP[clave] = _ProblemaQPMaxSharpe(n, peso_maximo)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("[QP] No se pudo compilar el problema (n=%s): %s", n, exc)
             _CACHE_QP[clave] = None
     return _CACHE_QP[clave]
@@ -127,7 +127,7 @@ def optimizar_min_varianza(sigma: np.ndarray, peso_maximo: float = 1.0) -> np.nd
         if res.success and not np.any(np.isnan(res.x)):
             pesos = np.maximum(res.x, 0.0)
             return pesos / pesos.sum()
-    except Exception:  # noqa: S110
+    except Exception:  # noqa: BLE001, S110
         pass
     return np.full(n, 1.0 / n)
 
@@ -169,7 +169,7 @@ def _resolver_con_penalizacion_turnover(
                 pesos = np.maximum(w.value, 0.0)
                 if pesos.sum() > 1e-8:
                     return pesos / pesos.sum()
-        except Exception:  # noqa: S112
+        except Exception:  # noqa: BLE001, S112
             continue
     return None
 
@@ -208,7 +208,7 @@ def _max_sharpe_exacto(
             pesos = np.maximum(res.x, 0.0)
             if pesos.sum() > 1e-6:
                 return pesos / pesos.sum(), False, "slsqp"
-    except Exception:  # noqa: S110
+    except Exception:  # noqa: BLE001, S110
         pass
 
     try:
@@ -221,7 +221,7 @@ def _max_sharpe_exacto(
             pesos = np.array(list(ef.clean_weights().values()), dtype=float)
         if not np.any(np.isnan(pesos)) and pesos.sum() > 0.99:
             return pesos / pesos.sum(), False, "pypfopt"
-    except Exception:  # noqa: S110
+    except Exception:  # noqa: BLE001, S110
         pass
 
     logger.debug("[MaxSharpe] Todos los métodos fallaron, mínima varianza.")

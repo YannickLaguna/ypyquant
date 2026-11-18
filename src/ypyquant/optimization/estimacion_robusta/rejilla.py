@@ -367,7 +367,7 @@ def ejecutar_replica(
                             )
 
                         r_bruto = float((pesos * ret_oos_n).sum())
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001
                         logger.debug("[b=%s N=%s T=%s %s] %s: %s", b, n, t_meses, fecha_oos.date(), estrategia, exc)
                         pesos, degenerate, solver_status, r_bruto = None, True, "error", np.nan
 

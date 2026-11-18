@@ -150,7 +150,7 @@ def test_paridad_retornos_y_turnover_celda_n20_t12(resultado_motor):
     for col in ("r_bruto", "turnover", "tc", "r_neto", "hhi", "w_max", "dist_w_mkt", "dist_w_prev"):
         delta = (unido[f"{col}_py"] - unido[f"{col}_tfm"]).abs()
         informe[col] = float(np.nanmax(delta.to_numpy()))
-    print("\n[paridad] delta maximo por columna (N=20, T=12, b=0, %d meses):" % MESES_COMPARADOS)
+    print(f"\n[paridad] delta maximo por columna (N=20, T=12, b=0, {MESES_COMPARADOS} meses):")
     for col, delta in informe.items():
         print(f"   {col:12s} {delta:.3e}")
     deterministas = unido[unido["estrategia"] != "mpt_michaud"]
