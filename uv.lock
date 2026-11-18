@@ -6411,6 +6411,7 @@ trading = [
     { name = "yfinance" },
 ]
 ui = [
+    { name = "alpaca-py" },
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -6441,6 +6442,7 @@ entorno = [
 [package.metadata]
 requires-dist = [
     { name = "alpaca-py", marker = "extra == 'trading'", specifier = ">=0.38,<0.45" },
+    { name = "alpaca-py", marker = "extra == 'ui'", specifier = ">=0.38,<0.45" },
     { name = "cvxpy", specifier = ">=1.4" },
     { name = "duckdb", marker = "extra == 'experimentos'" },
     { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.115" },
