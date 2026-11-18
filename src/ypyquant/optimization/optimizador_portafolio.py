@@ -53,12 +53,17 @@ from ypyquant.optimization.data_preprocessing import (
     anualizar_volatilidad,
 )
 from ypyquant.optimization.portfolio_models import (
+    BayesSteinReturnsModel,
     BlackLittermanReturnsModel,
+    BLMomentumReturnsModel,
+    BLPriorReturnsModel,
     CAPMReturnsModel,
     ExponentialCovarianceModel,
     HistoricalReturnsModel,
     LedoitWolfShrinkageModel,
     MarkowitzOptimizer,
+    MaxSharpeQPOptimizer,
+    MichaudOptimizer,
     OptimizerType,
     PortfolioOptimizationModel,
     ReturnModelType,
@@ -681,6 +686,33 @@ def optimizar_pmpt(
 # ============================================================================
 
 
+# Tipos que `crear_modelo_personalizado` sabe construir (única fuente de verdad de `modelos_disponibles`).
+_RETORNOS_CONSTRUIBLES = (
+    ReturnModelType.HISTORICAL_MEAN, ReturnModelType.HISTORICAL_MEDIAN, ReturnModelType.CAPM,
+    ReturnModelType.BLACK_LITTERMAN, ReturnModelType.BAYES_STEIN, ReturnModelType.BL_PRIOR,
+    ReturnModelType.BL_MOMENTUM,
+)
+_RIESGO_CONSTRUIBLES = (
+    RiskModelType.SAMPLE_COVARIANCE, RiskModelType.LEDOIT_WOLF, RiskModelType.EXPONENTIAL_WEIGHTED,
+    RiskModelType.SEMI_COVARIANCE,
+)
+_OPTIMIZADORES_CONSTRUIBLES = (
+    OptimizerType.MAX_SHARPE, OptimizerType.MIN_VOLATILITY, OptimizerType.RISK_PARITY,
+    OptimizerType.MAX_SHARPE_QP, OptimizerType.MICHAUD,
+)
+
+# Parámetros de configuración admitidos por cada optimizador (el resto se descarta con un aviso).
+_PARAMETROS_OPTIMIZADOR = {
+    OptimizerType.MAX_SHARPE: ('risk_free_rate',),
+    OptimizerType.MIN_VOLATILITY: ('risk_free_rate',),
+    OptimizerType.RISK_PARITY: (),
+    OptimizerType.MAX_SHARPE_QP: ('risk_free_rate', 'penalizacion_turnover'),
+    OptimizerType.MICHAUD: (
+        'n_replicas', 'metodo_bootstrap', 'longitud_media_bloque', 'frequency', 'risk_free_rate', 'seed',
+    ),
+}
+
+
 def crear_modelo_personalizado(
     name: str,
     returns_model_type: str,
@@ -710,6 +742,12 @@ def crear_modelo_personalizado(
         modelo_retornos = CAPMReturnsModel(**returns_config)
     elif returns_model_type == ReturnModelType.BLACK_LITTERMAN:
         modelo_retornos = BlackLittermanReturnsModel(**returns_config)
+    elif returns_model_type == ReturnModelType.BAYES_STEIN:
+        modelo_retornos = BayesSteinReturnsModel(**returns_config)
+    elif returns_model_type == ReturnModelType.BL_PRIOR:
+        modelo_retornos = BLPriorReturnsModel(**returns_config)
+    elif returns_model_type == ReturnModelType.BL_MOMENTUM:
+        modelo_retornos = BLMomentumReturnsModel(**returns_config)
     else:
         raise ValueError(f"Unknown returns model type: {returns_model_type}")
 
@@ -724,14 +762,25 @@ def crear_modelo_personalizado(
     else:
         raise ValueError(f"Unknown risk model type: {risk_model_type}")
 
-    # MarkowitzOptimizer solo acepta risk_free_rate; RiskParityOptimizer no acepta parámetros
-    parametros = {k: v for k, v in optimizer_config.items() if k == 'risk_free_rate'}
+    # Cada optimizador admite su propio conjunto de parámetros (RiskParity ninguno)
+    try:
+        permitidos = _PARAMETROS_OPTIMIZADOR.get(OptimizerType(optimizer_type), ())
+    except ValueError:
+        permitidos = ()
+    parametros = {k: v for k, v in optimizer_config.items() if k in permitidos}
+    descartados = sorted(set(optimizer_config) - set(parametros))
+    if descartados:
+        logger.warning("[crear_modelo_personalizado] Parámetros de optimizador ignorados: %s", descartados)
     if optimizer_type == OptimizerType.MAX_SHARPE:
         optimizador = MarkowitzOptimizer(objective="max_sharpe", **parametros)
     elif optimizer_type == OptimizerType.MIN_VOLATILITY:
         optimizador = MarkowitzOptimizer(objective="min_volatility", **parametros)
     elif optimizer_type == OptimizerType.RISK_PARITY:
         optimizador = RiskParityOptimizer()
+    elif optimizer_type == OptimizerType.MAX_SHARPE_QP:
+        optimizador = MaxSharpeQPOptimizer(**parametros)
+    elif optimizer_type == OptimizerType.MICHAUD:
+        optimizador = MichaudOptimizer(**parametros)
     else:
         raise ValueError(f"Unknown optimizer type: {optimizer_type}")
 
@@ -744,9 +793,9 @@ def crear_modelo_personalizado(
 def modelos_disponibles() -> dict[str, list[str]]:
     """Tipos de modelo de retornos, de riesgo, optimizadores y modelos preconfigurados."""
     return {
-        'returns_models': [e.value for e in ReturnModelType],
-        'risk_models': [e.value for e in RiskModelType],
-        'optimizers': [e.value for e in OptimizerType],
+        'returns_models': [e.value for e in _RETORNOS_CONSTRUIBLES],
+        'risk_models': [e.value for e in _RIESGO_CONSTRUIBLES],
+        'optimizers': [e.value for e in _OPTIMIZADORES_CONSTRUIBLES],
         'preconfigured_models': ['Classic Markowitz', 'Robust Risk Parity', 'CAPM Max Sharpe'],
     }
 

@@ -8,9 +8,12 @@ Clases principales:
 - MarkowitzOptimizer — max Sharpe / min vol via pypfopt.EfficientFrontier (fallback SLSQP).
 - PMPTMinCVaROptimizer — min CVaR via pypfopt.EfficientCVaR (fallback SLSQP empírico).
 - PMPTMaxSortinoOptimizer — max Sortino via pypfopt.EfficientSemivariance (fallback SLSQP).
+- BayesSteinReturnsModel, BLPriorReturnsModel, BLMomentumReturnsModel — estimadores de µ del TFM (v0.4.0).
+- MaxSharpeQPOptimizer, MichaudOptimizer — max-Sharpe QP exacto y remuestreo eficiente de Michaud (v0.4.0).
 
 Relacionado con: walk_forward.py (consume optimizadores), factor_models.py (provee μ),
-black_litterman.py (posterior BL), data_preprocessing.py (valida retornos).
+black_litterman.py (posterior BL), data_preprocessing.py (valida retornos),
+estimacion_robusta/ (lógica pura de los estimadores del TFM que envuelven las clases de v0.4.0).
 """
 
 import logging
@@ -20,6 +23,16 @@ from enum import Enum
 
 import numpy as np
 import pandas as pd
+
+from ypyquant.optimization.estimacion_robusta.estimadores_mu import (
+    estimar_mu_bayes_stein,
+    estimar_mu_bl_momentum,
+    estimar_mu_bl_prior,
+    estimar_mu_michaud,
+)
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe
+from ypyquant.optimization.estimacion_robusta.sigma import estimar_sigma_ledoit_wolf
+from ypyquant.optimization.estimacion_robusta.w_mercado import CapitalizacionEstatica, pesos_mercado
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +75,10 @@ class ReturnModelType(str, Enum):
     BLACK_LITTERMAN = "black_litterman"
     MACHINE_LEARNING = "machine_learning"
     CUSTOM = "custom"
+    # Estimación robusta del TFM (v0.4.0)
+    BAYES_STEIN = "bayes_stein"
+    BL_PRIOR = "bl_prior"
+    BL_MOMENTUM = "bl_momentum"
 
 
 class RiskModelType(str, Enum):
@@ -86,6 +103,9 @@ class OptimizerType(str, Enum):
     BLACK_LITTERMAN = "black_litterman"
     MIN_CVAR = "min_cvar"
     MAX_SORTINO = "max_sortino"
+    # Estimación robusta del TFM (v0.4.0)
+    MAX_SHARPE_QP = "max_sharpe_qp"
+    MICHAUD = "michaud"
 
 
 # ============================================================================
@@ -898,6 +918,10 @@ class PortfolioOptimizationModel:
         Returns:
             Dict con resultados completos de optimización
         """
+        # Optimizadores que remuestrean el histórico (Michaud, CVaR) lo reciben de returns_df
+        if getattr(self.optimizer, 'requiere_historico', False):
+            kwargs.setdefault('retornos_historicos', returns_df)
+
         # 1. Calcular rendimientos esperados
         expected_returns = self.returns_model.calculate(returns_df, **kwargs)
 
@@ -911,6 +935,11 @@ class PortfolioOptimizationModel:
             constraints,
             **kwargs
         )
+
+        # Avisos del modelo de retornos (p. ej. BL sin market_caps) visibles en optimizer_metadata
+        avisos = self.returns_model.metadata.get('avisos')
+        if avisos:
+            result.setdefault('optimizer_metadata', {})['avisos'] = list(avisos)
 
         # Añadir metadata del modelo
         result['model_info'] = {
@@ -1103,6 +1132,8 @@ class PMPTMinCVaROptimizer(PortfolioOptimizer):
     T: pypfopt.EfficientCVaR.min_cvar() (fallback SLSQP sobre CVaR empírico).
     O: Pesos + métricas + 'cvar' (pérdida esperada en el peor α% de días).
     """
+
+    requiere_historico = True  # PortfolioOptimizationModel le pasa returns_df como retornos_historicos
 
     def __init__(self, nivel_confianza: float = 0.95, risk_free_rate: float = 0.02):
         """
@@ -1367,5 +1398,258 @@ class PMPTMaxSortinoOptimizer(PortfolioOptimizer):
                 'success': resultado.success,
                 'message': resultado.message,
                 'iterations': resultado.nit,
+            },
+        }
+
+
+# ============================================================================
+# ESTIMACIÓN ROBUSTA (TFM, v0.4.0): Bayes-Stein, Black-Litterman prior/momentum, Michaud
+# Lógica en ypyquant.optimization.estimacion_robusta; aquí solo los envoltorios Strategy.
+# ============================================================================
+
+
+def _covarianza_para_modelo(returns_df: pd.DataFrame, cov_matrix: pd.DataFrame | None, frecuencia: int) -> pd.DataFrame:
+    """Σ Ledoit-Wolf anualizada si el llamador no aporta `cov_matrix`."""
+    if cov_matrix is not None:
+        return cov_matrix
+    return estimar_sigma_ledoit_wolf(returns_df, frecuencia)
+
+
+class BayesSteinReturnsModel(ExpectedReturnsModel):
+    """
+    µ de Bayes-Stein (Jorion 1986): contrae la media muestral hacia el retorno de la GMV.
+
+    I: retornos (T x N) en la frecuencia `frequency` (252 diaria, 12 mensual); opcional `cov_matrix`
+       anualizada (si falta se estima Ledoit-Wolf con la misma frecuencia).
+    T: φ = (N+2)/((N+2)+T_años·d²) con d² la distancia de Mahalanobis a la GMV NO restringida.
+    O: pd.Series de µ anualizados. Si T < N+2 avisa (o lanza con `si_t_menor_n2="error"`).
+    """
+
+    def __init__(self, frequency: int = 252, si_t_menor_n2: str = "avisar"):
+        super().__init__(name="bayes_stein")
+        self.frequency = frequency
+        self.si_t_menor_n2 = si_t_menor_n2
+        self.config = {'frequency': frequency, 'si_t_menor_n2': si_t_menor_n2}
+
+    def calculate(self, returns_df: pd.DataFrame, cov_matrix: pd.DataFrame | None = None, **kwargs) -> pd.Series:
+        self.validate_returns(returns_df)
+        sigma = _covarianza_para_modelo(returns_df, cov_matrix, self.frequency)
+        mu = estimar_mu_bayes_stein(returns_df, sigma, self.frequency, self.si_t_menor_n2)
+        self.metadata['calculation_date'] = datetime.now().isoformat()
+        return pd.Series(mu, index=returns_df.columns)
+
+
+class _ModeloConPesosMercado(ExpectedReturnsModel):
+    """
+    Base de los modelos Black-Litterman del TFM: resuelve w_mkt con la cadena
+    proveedor de capitalización → `market_caps` (dict) → proxy por $-volumen → equiponderado.
+
+    kwargs de `calculate` reconocidos: `market_caps` (dict ticker→capitalización),
+    `proveedor_capitalizacion`, `precios` y `volumen` (para el proxy), `fecha`.
+    Si no se aporta capitalización real se deja un aviso en `metadata['avisos']`, que
+    `PortfolioOptimizationModel.optimize` copia a `optimizer_metadata['avisos']`.
+    """
+
+    def __init__(self, name: str, market_caps: dict[str, float] | None = None):
+        super().__init__(name=name)
+        self.market_caps = market_caps or {}
+
+    def _resolver_pesos_mercado(self, returns_df: pd.DataFrame, **kwargs) -> np.ndarray:
+        proveedor = kwargs.get('proveedor_capitalizacion')
+        capitalizaciones = kwargs.get('market_caps') or self.market_caps
+        if proveedor is None and capitalizaciones:
+            proveedor = CapitalizacionEstatica(capitalizaciones)
+        fecha = kwargs.get('fecha')
+        fecha = returns_df.index[-1] if fecha is None and isinstance(returns_df.index, pd.DatetimeIndex) else fecha
+        pesos, fuente = pesos_mercado(
+            list(returns_df.columns), pd.Timestamp(fecha) if fecha is not None else pd.Timestamp.now(),
+            proveedor, kwargs.get('precios'), kwargs.get('volumen'),
+        )
+        self.metadata['w_mkt_fuente'] = fuente
+        self.metadata['avisos'] = []
+        if fuente != "capitalizacion":
+            aviso = (
+                f"market_caps no disponibles: w_mkt calculado con la fuente '{fuente}' "
+                "(el proxy por volumen no es capitalización de mercado)."
+            )
+            self.metadata['avisos'].append(aviso)
+            logger.warning("[%s] %s", self.name, aviso)
+        return pesos
+
+
+class BLPriorReturnsModel(_ModeloConPesosMercado):
+    """
+    BL-prior (sin views): µ = Π = δ·Σ·w_mkt.
+
+    Con un optimizador max-Sharpe el resultado es w = w_mkt exacto (escalar Σ por (1+τ) no
+    altera los pesos). I: retornos (para Σ y, si no hay datos de mercado, equiponderado),
+    `market_caps`/`proveedor_capitalizacion`. O: pd.Series de Π anualizado.
+    """
+
+    def __init__(self, risk_aversion: float = 2.5, frequency: int = 252, market_caps: dict[str, float] | None = None):
+        super().__init__(name="bl_prior", market_caps=market_caps)
+        self.risk_aversion = risk_aversion
+        self.frequency = frequency
+        self.config = {'risk_aversion': risk_aversion, 'frequency': frequency, 'has_market_caps': bool(market_caps)}
+
+    def calculate(self, returns_df: pd.DataFrame, cov_matrix: pd.DataFrame | None = None, **kwargs) -> pd.Series:
+        self.validate_returns(returns_df)
+        sigma = _covarianza_para_modelo(returns_df, cov_matrix, self.frequency)
+        w_mkt = self._resolver_pesos_mercado(returns_df, **kwargs)
+        self.pesos_mercado_ = pd.Series(w_mkt, index=returns_df.columns)
+        return pd.Series(estimar_mu_bl_prior(sigma, w_mkt, self.risk_aversion), index=returns_df.columns)
+
+
+class BLMomentumReturnsModel(_ModeloConPesosMercado):
+    """
+    BL-momentum: posterior de Black-Litterman con views absolutas de momentum 12-1.
+
+    La señal es la media de los retornos de las últimas `ventana_senal` filas EXCLUYENDO las
+    `omitir_ultimas` más recientes (12 y 1 por defecto: meses t-12..t-2 con datos mensuales).
+    Con datos diarios ajusta ambos parámetros a observaciones (p. ej. 252 y 21).
+    `calculate` devuelve µ posterior y deja la covarianza posterior M en `covarianza_posterior_`;
+    la TFM optimiza sobre Σ+M: usa `covarianza_predictiva(sigma)`.
+    """
+
+    def __init__(
+        self,
+        risk_aversion: float = 2.5,
+        tau: float = 0.05,
+        frequency: int = 252,
+        ventana_senal: int = 12,
+        omitir_ultimas: int = 1,
+        market_caps: dict[str, float] | None = None,
+    ):
+        super().__init__(name="bl_momentum", market_caps=market_caps)
+        self.risk_aversion = risk_aversion
+        self.tau = tau
+        self.frequency = frequency
+        self.ventana_senal = ventana_senal
+        self.omitir_ultimas = omitir_ultimas
+        self.covarianza_posterior_: pd.DataFrame | None = None
+        self.config = {
+            'risk_aversion': risk_aversion, 'tau': tau, 'frequency': frequency,
+            'ventana_senal': ventana_senal, 'omitir_ultimas': omitir_ultimas, 'has_market_caps': bool(market_caps),
+        }
+
+    def calculate(self, returns_df: pd.DataFrame, cov_matrix: pd.DataFrame | None = None, **kwargs) -> pd.Series:
+        self.validate_returns(returns_df)
+        sigma = _covarianza_para_modelo(returns_df, cov_matrix, self.frequency)
+        w_mkt = self._resolver_pesos_mercado(returns_df, **kwargs)
+        fin = len(returns_df) - self.omitir_ultimas
+        ventana = returns_df.iloc[max(fin - (self.ventana_senal - self.omitir_ultimas), 0):fin]
+        if len(ventana) < self.ventana_senal - self.omitir_ultimas:
+            self.metadata.setdefault('avisos', []).append(
+                f"histórico corto: la señal usa {len(ventana)} observaciones "
+                f"(se esperaban {self.ventana_senal - self.omitir_ultimas})."
+            )
+        mu, posterior = estimar_mu_bl_momentum(
+            ventana, sigma, w_mkt, self.risk_aversion, self.tau, self.frequency
+        )
+        self.covarianza_posterior_ = pd.DataFrame(posterior, index=returns_df.columns, columns=returns_df.columns)
+        return pd.Series(mu, index=returns_df.columns)
+
+    def covarianza_predictiva(self, sigma: pd.DataFrame) -> pd.DataFrame:
+        """Σ + M (covarianza predictiva) con la M de la última llamada a `calculate`."""
+        if self.covarianza_posterior_ is None:
+            raise RuntimeError("Llama a calculate() antes de pedir la covarianza predictiva.")
+        return sigma + self.covarianza_posterior_
+
+
+class MaxSharpeQPOptimizer(PortfolioOptimizer):
+    """
+    Max-Sharpe long-only exacto vía QP de Cornuéjols-Tütüncü, con cascada QP → SLSQP → pypfopt → GMV.
+
+    I: µ, Σ (anualizados), `constraints['max_weight']`, kwarg opcional `pesos_previos`
+       (con `penalizacion_turnover` > 0 activa la variante media-varianza con L1).
+    T: `optimizar_max_sharpe` (estimacion_robusta.max_sharpe_qp).
+    O: pesos + métricas; `optimizer_metadata` incluye `method` (estado del solver) y `degenerate`.
+    """
+
+    def __init__(self, risk_free_rate: float = 0.0, penalizacion_turnover: float = 0.0):
+        super().__init__(name="max_sharpe_qp")
+        self.risk_free_rate = risk_free_rate
+        self.penalizacion_turnover = penalizacion_turnover
+        self.config = {'risk_free_rate': risk_free_rate, 'penalizacion_turnover': penalizacion_turnover}
+
+    def optimize(
+        self, expected_returns: pd.Series, risk_matrix: pd.DataFrame, constraints: dict | None = None, **kwargs
+    ) -> dict:
+        self.validate_inputs(expected_returns, risk_matrix)
+        peso_maximo = constraints.get('max_weight', 1.0) if constraints else 1.0
+        pesos, degenerate, estado = optimizar_max_sharpe(
+            expected_returns.values, risk_matrix.values, rf=self.risk_free_rate, peso_maximo=peso_maximo,
+            pesos_previos=kwargs.get('pesos_previos'), penalizacion_turnover=self.penalizacion_turnover,
+        )
+        metricas = self.calculate_metrics(pesos, expected_returns, risk_matrix, self.risk_free_rate)
+        return {
+            'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
+            **metricas,
+            'optimizer_metadata': {'method': estado, 'degenerate': bool(degenerate), 'success': True},
+        }
+
+
+class MichaudOptimizer(PortfolioOptimizer):
+    """
+    Remuestreo eficiente de Michaud: bootstrap de la ventana histórica, refit de µ y Σ_LW por
+    réplica, max-Sharpe QP en cada una y promedio de pesos.
+
+    I: kwarg `retornos_historicos` (DataFrame T x N, en la frecuencia `frequency`); si se usa vía
+       `PortfolioOptimizationModel` se rellena solo con `returns_df`. µ y Σ recibidos solo
+       sirven para calcular las métricas del resultado (Michaud reestima los suyos).
+    T: `estimar_mu_michaud` con `metodo_bootstrap` "iid" o "bloques" (Politis-Romano).
+    O: pesos promedio + métricas + `optimizer_metadata` con `frac_contingencia` y `degenerate`
+       (mayoría de réplicas en contingencia GMV).
+    """
+
+    requiere_historico = True
+
+    def __init__(
+        self,
+        n_replicas: int = 50,
+        metodo_bootstrap: str = "iid",
+        longitud_media_bloque: float = 6.0,
+        frequency: int = 252,
+        risk_free_rate: float = 0.0,
+        seed: int | None = None,
+    ):
+        super().__init__(name="michaud")
+        self.n_replicas = n_replicas
+        self.metodo_bootstrap = metodo_bootstrap
+        self.longitud_media_bloque = longitud_media_bloque
+        self.frequency = frequency
+        self.risk_free_rate = risk_free_rate
+        self.seed = seed
+        self.config = {
+            'n_replicas': n_replicas, 'metodo_bootstrap': metodo_bootstrap,
+            'longitud_media_bloque': longitud_media_bloque, 'frequency': frequency,
+            'risk_free_rate': risk_free_rate, 'seed': seed,
+        }
+
+    def optimize(
+        self, expected_returns: pd.Series, risk_matrix: pd.DataFrame, constraints: dict | None = None, **kwargs
+    ) -> dict:
+        historico = kwargs.get('retornos_historicos')
+        if historico is None:
+            raise ValueError("MichaudOptimizer requiere 'retornos_historicos' como kwarg.")
+        self.validate_inputs(expected_returns, risk_matrix)
+        historico = historico[list(expected_returns.index)]
+        peso_maximo = constraints.get('max_weight', 1.0) if constraints else 1.0
+
+        pesos, frac_contingencia = estimar_mu_michaud(
+            historico, n_replicas=self.n_replicas, rf=self.risk_free_rate / self.frequency,
+            peso_maximo=peso_maximo, devolver_diagnostico=True, metodo_bootstrap=self.metodo_bootstrap,
+            longitud_media_bloque=self.longitud_media_bloque,
+            rng=np.random.default_rng(self.seed) if self.seed is not None else None, frecuencia=self.frequency,
+        )
+        metricas = self.calculate_metrics(pesos, expected_returns, risk_matrix, self.risk_free_rate)
+        degenerate = bool(frac_contingencia > 0.5) if np.isfinite(frac_contingencia) else False
+        return {
+            'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
+            **metricas,
+            'optimizer_metadata': {
+                'method': 'michaud_bootstrap', 'success': True, 'n_replicas': self.n_replicas,
+                'metodo_bootstrap': self.metodo_bootstrap, 'frac_contingencia': float(frac_contingencia),
+                'degenerate': degenerate,
             },
         }
