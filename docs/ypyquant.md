@@ -37,6 +37,9 @@ acceden a ninguna BD: reciben un `cargador_precios(ticker, inicio, fin) -> OHLCV
 divisa no es USD, un servicio de tipos de cambio. Migración de GrowSave:
 `docs/migracion-growsave-v0.3.0.md`.
 
+Desde v0.4.0 incluye `ypyquant.optimization.estimacion_robusta` (estimadores robustos de µ, max-Sharpe QP, universo
+point-in-time y motor de rejilla del TFM). Guía: `docs/migracion-v0.4.0.md`.
+
 > `ypyquant.quantlib` está deprecated y existe solo como shim de retrocompatibilidad.
 > Importar directamente desde `ypyquant.optimization`, `ypyquant.portfolio` o `ypyquant.data`.
 
