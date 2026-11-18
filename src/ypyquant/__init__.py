@@ -15,7 +15,7 @@ Importaciones directas disponibles:
     from ypyquant import SignalCombiner, TechnicalSignalGenerator, BaseSignalGenerator, SignalFrame
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # ---------------------------------------------------------------------------
 # Portfolio — backtesting y métricas

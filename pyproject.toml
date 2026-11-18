@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ypyquant"
-version = "0.3.0"
+version = "0.4.0"
 description = "Librería de lógica cuantitativa: optimización de portafolios, modelos de factores, backtesting, señales, ML financiero y ejecución"
 readme = "docs/ypyquant.md"
 requires-python = ">=3.11"
@@ -26,6 +26,7 @@ dependencies = [
     "matplotlib>=3.9",
     "seaborn>=0.13",
     "PyPortfolioOpt",
+    "cvxpy>=1.4",
     "QuantLib>=1.40",
 ]
 
@@ -55,7 +56,6 @@ entorno = [
     "python-dotenv",
     "sqlalchemy>=2.0",
     "psycopg2-binary",
-    "cvxpy",
 ]
 dev = [
     "pytest>=8",
@@ -70,10 +70,11 @@ include = ["ypyquant*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 # Por defecto se saltan los tests que necesitan red o la antigua BD Supabase.
-# Ejecutarlos: python -m pytest -m red
-addopts = "-m 'not red'"
+# Ejecutarlos: python -m pytest -m red   (o -m datos para la paridad con el TFM)
+addopts = "-m 'not red and not datos'"
 markers = [
     "red: necesita red (yfinance, FRED, Wikipedia, Kenneth French) o la BD Supabase (ya inexistente); se salta por defecto",
+    "datos: necesita datos locales del TFM (TFM.db y parquet de rejilla_v2); se salta por defecto. Ejecutar: pytest -m datos",
 ]
 
 [tool.ruff]

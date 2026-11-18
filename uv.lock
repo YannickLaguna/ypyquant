@@ -6340,9 +6340,10 @@ wheels = [
 
 [[package]]
 name = "ypyquant"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cvxpy" },
     { name = "matplotlib" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -6382,7 +6383,6 @@ dev = [
     { name = "ruff" },
 ]
 entorno = [
-    { name = "cvxpy" },
     { name = "duckdb" },
     { name = "lxml" },
     { name = "psycopg2-binary" },
@@ -6397,6 +6397,7 @@ entorno = [
 [package.metadata]
 requires-dist = [
     { name = "alpaca-py", marker = "extra == 'trading'", specifier = ">=0.38,<0.45" },
+    { name = "cvxpy", specifier = ">=1.4" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "mlflow", marker = "extra == 'tracking'", specifier = ">=2.10" },
     { name = "nautilus-trader", marker = "extra == 'trading'", specifier = ">=1.190" },
@@ -6421,7 +6422,6 @@ dev = [
     { name = "ruff" },
 ]
 entorno = [
-    { name = "cvxpy" },
     { name = "duckdb" },
     { name = "lxml" },
     { name = "psycopg2-binary" },
