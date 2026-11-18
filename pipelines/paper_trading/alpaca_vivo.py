@@ -138,7 +138,7 @@ def rebalancear_con_estrategia_registro(cliente, estrategia_registrada, precios,
             logger.info("ORDEN %s: %d %s (objetivo %d)", decision.lado.upper(), decision.cantidad, ticker,
                         decision.cantidad_objetivo)
             registro.registrar(orden_a_dict(orden))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - una orden fallida no aborta el resto
             logger.warning("No se pudo enviar la orden de %s: %s", ticker, e)
     return pesos
 
