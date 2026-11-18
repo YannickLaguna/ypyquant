@@ -1,0 +1,17 @@
+# Opcional: la UI solo para uso local. La API escucha en 127.0.0.1 del anfitrion (puerto 8010).
+# Uso: docker compose up --build   ->   http://127.0.0.1:8010 (sirve app/web/dist si se construyo antes con npm run build)
+# Los datos (data/) y las estrategias propias (estrategias_usuario/) se montan como volumenes.
+services:
+  ui:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    ports:
+      - "127.0.0.1:8010:8010"
+    env_file:
+      - path: .env
+        required: false
+    command: >
+      sh -c "uv sync --extra ui --no-dev &&
+             uv run --extra ui uvicorn app.api.main:app --host 0.0.0.0 --port 8010"

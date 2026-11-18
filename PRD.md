@@ -7,6 +7,8 @@
 >
 > **Objetivo (resumen de la nota):** entorno propio, sin lock-in, que va de la investigación a la ejecución: datos → generación de estrategias → backtest → contraste de hipótesis → paper trading → real tras aprobación.
 >
+> **Interfaz (2026-11):** la UI del trading vive en este repo (`app/api` + `app/web`, ver `docs/ui.md`), no en GrowSave. Núcleo de estrategias y experimentos en `src/ypyquant/estrategias/`.
+>
 > ⚠️ Las fases y la arquitectura de abajo son de 2026-03 y están desfasadas: Supabase ya no existe, el VPS es Contabo (no Hetzner) y GrowSave deja de ser la interfaz del trading. Se reescribirán según la bitácora del 2026-11-16.
 
 ---

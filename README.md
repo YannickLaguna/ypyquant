@@ -89,6 +89,16 @@ ypyquant/
 
 ---
 
+## Interfaz (UI) y experimentos
+
+Interfaz local (API FastAPI + React) para lanzar, comparar y monitorizar sistemas: **Estrategias**, **Experimentos**, **Comparar** y **Paper trading**. Las estrategias se escriben en Python en `estrategias_usuario/` (descubrimiento automático) sobre `ypyquant.estrategias`. Detalle, endpoints y cómo escribir una estrategia en 5 pasos: [`docs/ui.md`](docs/ui.md).
+
+```bash
+uv sync --extra ui --group dev --group entorno
+uv run --extra ui uvicorn app.api.main:app --port 8010      # API en 127.0.0.1
+cd app/web && npm install && npm run dev                     # http://127.0.0.1:5173 (proxy a la API)
+```
+
 ## Paper trading
 
 CLI en `pipelines/paper_trading/` (cuenta **paper** de Alpaca; no opera con dinero real). La librería está en `src/ypyquant/execution/nautilus/`. Las dependencias (`nautilus_trader`, `alpaca-py`, `python-dotenv`, `yfinance`) son el extra opcional `trading`, para que GrowSave no las arrastre.
