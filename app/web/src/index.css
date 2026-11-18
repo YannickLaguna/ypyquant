@@ -1,0 +1,104 @@
+/*
+ * Estilos globales y tokens de tema.
+ * Responsabilidad: define los colores como variables CSS (oscuro por defecto, claro con
+ * data-theme="light"), el foco visible y las utilidades de componentes (.tarjeta, .boton, .campo...).
+ * Contraste AA: texto y colores semánticos verificados sobre `panel` en ambos temas.
+ * Se relaciona con: tailwind.config.js (mapea los tokens), src/lib/tema.ts (alterna el tema).
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+:root[data-theme='dark'] {
+  --fondo: 11 15 20;
+  --panel: 17 22 29;
+  --elevado: 25 32 42;
+  --borde: 42 52 66;
+  --texto: 226 232 240;
+  --suave: 148 163 184;
+  --acento: 45 212 191;
+  --pos: 52 211 153;
+  --neg: 248 113 113;
+  --aviso: 251 191 36;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --fondo: 244 246 249;
+  --panel: 255 255 255;
+  --elevado: 240 243 247;
+  --borde: 207 214 224;
+  --texto: 15 23 42;
+  --suave: 71 85 105;
+  --acento: 13 116 105;
+  --pos: 4 120 87;
+  --neg: 185 28 28;
+  --aviso: 146 84 5;
+  color-scheme: light;
+}
+
+@layer base {
+  html,
+  body,
+  #raiz {
+    height: 100%;
+  }
+  body {
+    @apply bg-fondo font-sans text-sm text-texto antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--acento));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  h1 {
+    @apply text-lg font-semibold tracking-tight;
+  }
+  h2 {
+    @apply text-sm font-semibold uppercase tracking-wide text-suave;
+  }
+  code,
+  pre {
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  .tarjeta {
+    @apply rounded-lg border border-borde bg-panel;
+  }
+  .boton {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-borde bg-elevado px-3 py-1.5 text-sm font-medium text-texto transition-colors hover:border-acento disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .boton-primario {
+    @apply border-acento bg-acento text-fondo hover:brightness-110;
+  }
+  .boton-peligro {
+    @apply hover:border-neg hover:text-neg;
+  }
+  .campo {
+    @apply w-full rounded-md border border-borde bg-fondo px-2.5 py-1.5 text-sm text-texto placeholder:text-suave/70;
+  }
+  .num {
+    @apply font-mono tabular-nums;
+  }
+  .th {
+    @apply whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-suave;
+  }
+  .td {
+    @apply whitespace-nowrap px-3 py-1.5;
+  }
+}
+
+/* Resaltado de código (highlight.js) con los tokens del tema */
+.hljs { color: rgb(var(--texto)); background: transparent; }
+.hljs-keyword, .hljs-literal, .hljs-built_in { color: rgb(var(--acento)); }
+.hljs-string, .hljs-title.function_, .hljs-title.class_ { color: rgb(var(--pos)); }
+.hljs-comment, .hljs-doctag { color: rgb(var(--suave)); font-style: italic; }
+.hljs-number, .hljs-meta { color: rgb(var(--aviso)); }
+.hljs-params, .hljs-variable { color: rgb(var(--texto)); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
