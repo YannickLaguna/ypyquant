@@ -57,6 +57,14 @@ mlruns/
 data/mlruns/
 data/mlflow.db
 data/reportes/
+data/experimentos/
+data/cache_precios/
+data/paper_trading/
 
 # Configuración local de Claude Code
 .claude/settings.local.json
+
+# Interfaz web (app/web)
+app/web/node_modules/
+app/web/dist/
+app/web/coverage/
