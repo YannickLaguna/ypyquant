@@ -247,3 +247,60 @@ def test_servicio_con_benchmark_y_gancho_de_persistencia(cargador):
     assert bool(res['comparison']['outperformed'])
     assert set(res['config']) >= {'start_date', 'initial_capital', 'user_currency'}
     assert PortfolioBacktestService._convert_numpy_types({'a': np.float64(1.5)}) == {'a': 1.5}
+
+
+# ---------------------------------------------------------------------------
+# Rebalanceo en días hábiles y rotación real (2026-11-19)
+# ---------------------------------------------------------------------------
+
+def _contar_llamadas(cargador, frecuencia, inicio='2023-01-02', fin='2025-12-31'):
+    """Ejecuta pesos iguales y devuelve (fechas en que la estrategia fue llamada, resultado)."""
+    llamadas = []
+
+    def estrategia(fecha, datos):
+        llamadas.append(pd.Timestamp(fecha))
+        return {'AAA': 0.5, 'BBB': 0.5}
+
+    cfg = BacktestConfig(start_date=inicio, end_date=fin, initial_capital=10000,
+                         rebalance_frequency=frecuencia, commission_rate=0.0,
+                         slippage_pct=0.0, user_currency='USD')
+    resultado = BacktestEngine(cfg, cargador_precios=cargador).run_backtest(estrategia, list(CRECIMIENTO))
+    return llamadas, resultado
+
+
+def test_rebalanceo_mensual_no_se_salta_meses_que_empiezan_en_festivo(cargador):
+    # 36 meses: 1 asignación inicial (2023-01-02) + 35 rebalanceos, aunque el día 1 caiga en fin de semana
+    llamadas, _ = _contar_llamadas(cargador, 'monthly')
+    assert len(llamadas) == 36
+    meses = {(f.year, f.month) for f in llamadas}
+    assert len(meses) == 36
+    # cada rebalanceo es el primer día hábil del mes
+    for f in llamadas:
+        assert f == pd.bdate_range(f.replace(day=1), periods=1)[0]
+
+
+def test_rebalanceo_trimestral_y_semanal_en_dias_habiles(cargador):
+    llamadas, _ = _contar_llamadas(cargador, 'quarterly')
+    assert len(llamadas) == 12
+    llamadas, _ = _contar_llamadas(cargador, 'weekly')
+    semanas = {f.isocalendar()[:2] for f in llamadas}
+    assert len(llamadas) == len(semanas)  # como mucho uno por semana
+    assert len(llamadas) >= 155
+
+
+def test_alinear_a_dias_de_trading_toma_el_siguiente_y_deduplica():
+    dias = list(pd.to_datetime(['2024-06-03', '2024-06-04', '2024-07-01', '2024-07-02']))
+    programadas = list(pd.to_datetime(['2024-06-01', '2024-06-02', '2024-07-01', '2024-08-01']))
+    assert BacktestEngine._alinear_a_dias_de_trading(programadas, dias) == [
+        pd.Timestamp('2024-06-03'), pd.Timestamp('2024-07-01'),
+    ]
+
+
+def test_rotacion_de_pesos_iguales_refleja_la_deriva(cargador):
+    # A dobla y B sube un 50 %: volver a 50/50 cada mes obliga a vender A y comprar B
+    _, r = _contar_llamadas(cargador, 'monthly')
+    assert len(r.rotaciones) == 36
+    fecha0, rot0 = r.rotaciones[0]
+    assert rot0 == pytest.approx(1.0, abs=0.01)  # compra inicial: todo el capital
+    rotaciones = [t for _, t in r.rotaciones[1:]]
+    assert all(0.0 < t < 0.02 for t in rotaciones)

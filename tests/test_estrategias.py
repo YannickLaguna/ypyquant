@@ -173,7 +173,14 @@ def test_ejecutar_experimento_produce_metricas_y_series(estrategia):
 def test_ejecutar_experimento_es_reproducible():
     a = ejecutar_experimento(_config(estrategia="michaud", parametros={"n_replicas": 8}, semilla=3), CargadorSintetico())
     b = ejecutar_experimento(_config(estrategia="michaud", parametros={"n_replicas": 8}, semilla=3), CargadorSintetico())
-    assert a.metricas == b.metricas
+    # Misma semilla → mismas réplicas; el solver (OSQP/BLAS multihilo) puede variar en el
+    # último bit, así que se compara con tolerancia relativa 1e-9 y no bit a bit.
+    assert a.metricas.keys() == b.metricas.keys()
+    for clave, valor in a.metricas.items():
+        if isinstance(valor, float):
+            assert b.metricas[clave] == pytest.approx(valor, rel=1e-9, abs=1e-12), clave
+        else:
+            assert b.metricas[clave] == valor, clave
 
 
 def test_michaud_cambia_con_la_semilla():

@@ -4,8 +4,10 @@ Backtest Engine — simulación de estrategias de portafolio (única fuente desd
 
 Responsabilidades:
 - `BacktestEngine`: simula día a día una estrategia de rebalanceo con comisión y slippage,
-  asignación inicial, rebalanceos periódicos, aportaciones mensuales (DCA con rebalanceo
-  implícito) y conversión de la equity a la divisa del usuario.
+  asignación inicial, rebalanceos periódicos (en el primer día de trading de cada periodo:
+  si la fecha programada cae en fin de semana o festivo se pasa al siguiente día hábil),
+  aportaciones mensuales (DCA con rebalanceo implícito), rotación real de cada rebalanceo
+  (frente a los pesos a la deriva) y conversión de la equity a la divisa del usuario.
 - `PortfolioBacktestService`: backtest + benchmark buy & hold (con el mismo DCA y la misma
   divisa), comparación, comparación de estrategias y métricas rolling.
 - Dataclasses `BacktestConfig`, `BacktestTrade`, `BacktestResult` con los nombres de campo de
@@ -33,7 +35,7 @@ Se relaciona con:
 
 import logging
 from collections.abc import Callable
-from dataclasses import InitVar, asdict, dataclass
+from dataclasses import InitVar, asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -229,6 +231,10 @@ class BacktestResult:
     total_fees: float
     total_contributions: float = 0.0
     currency: str = DIVISA_BASE
+    # Rotación de cada rebalanceo ejecutado: [(fecha, Σ|valor operado| / (2·valor cartera))].
+    # La primera es la asignación inicial (≈1). Mide lo que se opera de verdad, con los
+    # pesos a la deriva desde el rebalanceo anterior (no la diferencia entre objetivos).
+    rotaciones: list[tuple[datetime, float]] = field(default_factory=list)
 
     # Alias de la API 0.2.0
     @property
@@ -316,6 +322,7 @@ class BacktestEngine:
         self.total_contributions = 0.0       # en divisa base
         self.total_contributions_user = 0.0  # en divisa del usuario
         self.target_weights: dict[str, float] = {}
+        self.rotaciones: list[tuple[datetime, float]] = []
 
     # ------------------------------------------------------------------
     # Divisas
@@ -366,7 +373,6 @@ class BacktestEngine:
         rebalance_dates = self._get_rebalance_dates(
             self.config.start_date, self.config.end_date, self.config.rebalance_frequency
         )
-        rebalance_dates_set = set(rebalance_dates)
 
         contribution_dates_set: set = set()
         if self.config.monthly_contribution > 0:
@@ -382,6 +388,10 @@ class BacktestEngine:
             d for df in historical_data.values() for d in df.index.tolist() if inicio <= d <= fin
         })
         logger.info(f"[BacktestEngine] {len(historical_data)} tickers, {len(all_trading_dates)} días de trading")
+        # Las fechas programadas que caen en fin de semana o festivo pasan al siguiente día de
+        # trading (convención de bt `RunMonthly` y de zipline `date_rules.month_start`); antes
+        # se perdían (un mensual de 3 años hacía ~27 rebalanceos en vez de 36).
+        rebalance_dates_set = set(self._alinear_a_dias_de_trading(rebalance_dates, all_trading_dates))
 
         rebalance_count = 0
         initial_allocation_done = False
@@ -464,6 +474,19 @@ class BacktestEngine:
         if frequency not in _FRECUENCIAS:
             raise ValueError(f"Frecuencia no soportada: {frequency}")
         return [d.to_pydatetime() for d in pd.date_range(start_date, end_date, freq=_FRECUENCIAS[frequency])]
+
+    @staticmethod
+    def _alinear_a_dias_de_trading(programadas: list, dias_trading: list) -> list[pd.Timestamp]:
+        """
+        Lleva cada fecha programada al primer día de trading >= ella y quita duplicados (dos
+        fechas de calendario que caen en el mismo día hábil, p. ej. sábado y domingo con
+        frecuencia diaria). Las posteriores al último día de trading se descartan.
+        """
+        if not dias_trading:
+            return []
+        dias = pd.DatetimeIndex(dias_trading)
+        posiciones = dias.searchsorted(pd.DatetimeIndex(programadas), side='left')
+        return sorted({dias[i] for i in posiciones if i < len(dias)})
 
     @staticmethod
     def _get_prices_at_date(historical_data: dict[str, pd.DataFrame], date: datetime) -> dict[str, float]:
@@ -571,6 +594,20 @@ class BacktestEngine:
             target_weights = {t: w / total_weight for t, w in target_weights.items()}
 
         target_values = {t: self.portfolio_value * w for t, w in target_weights.items()}
+
+        # Rotación: valor que hay que operar (posiciones a la deriva → objetivo) / (2·valor)
+        valores_actuales = {
+            t: pos['quantity'] * current_prices.get(t, 0.0) for t, pos in self.positions.items()
+        }
+        operado = sum(
+            abs(target_values.get(t, 0.0) - valores_actuales.get(t, 0.0))
+            for t in set(target_values) | set(valores_actuales)
+        )
+        # Lo que quede en efectivo también cuenta (al invertir desde liquidez se opera todo)
+        efectivo_objetivo = self.portfolio_value - sum(target_values.values())
+        operado += abs(efectivo_objetivo - self.cash)
+        if self.portfolio_value > 0:
+            self.rotaciones.append((date, float(operado / (2 * self.portfolio_value))))
 
         for ticker in list(self.positions.keys()):
             if ticker not in target_weights or target_weights[ticker] == 0:
@@ -741,6 +778,7 @@ class BacktestEngine:
             total_fees=total_fees,
             total_contributions=total_contributions,
             currency=self.user_currency,
+            rotaciones=list(self.rotaciones),
         )
 
 

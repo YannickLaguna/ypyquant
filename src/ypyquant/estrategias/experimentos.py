@@ -233,12 +233,14 @@ def _limpiar(valor: Any) -> Any:
     return valor
 
 
-def _turnover(historial: list[tuple[Any, dict[str, float]]], anios: float) -> tuple[float, float]:
-    """(turnover medio por rebalanceo, turnover anual) a partir de los pesos objetivo; el 1.º (compra inicial) se excluye."""
-    cambios = []
-    for (_, previos), (_, actuales) in itertools.pairwise(historial):
-        tickers = set(previos) | set(actuales)
-        cambios.append(0.5 * sum(abs(actuales.get(t, 0.0) - previos.get(t, 0.0)) for t in tickers))
+def _turnover(rotaciones: list[tuple[Any, float]], anios: float) -> tuple[float, float]:
+    """
+    (turnover medio por rebalanceo, turnover anual) con la rotación real del motor: lo operado
+    desde los pesos a la deriva hasta el objetivo (`BacktestResult.rotaciones`). La 1.ª
+    (compra inicial) se excluye. Antes se comparaban pesos objetivo consecutivos, y una
+    estrategia de pesos fijos (p. ej. pesos iguales) salía con turnover 0 aunque operase.
+    """
+    cambios = [rotacion for _, rotacion in rotaciones[1:]]
     if not cambios:
         return 0.0, 0.0
     return float(np.mean(cambios)), float(np.sum(cambios) / anios) if anios > 0 else 0.0
@@ -249,7 +251,7 @@ def _calcular_metricas(config, resultado_bt, equity: pd.DataFrame, historial, be
     retornos = equity.set_index("fecha")["retorno"].dropna()
     base = PerformanceAnalyzer.calculate_metrics(retornos, risk_free_rate=0.0, periods_per_year=DIAS_ANIO)
     anios = max((pd.Timestamp(config.fecha_fin) - pd.Timestamp(config.fecha_inicio)).days / 365.25, 1e-9)
-    turnover_medio, turnover_anual = _turnover(historial, anios)
+    turnover_medio, turnover_anual = _turnover(resultado_bt.rotaciones, anios)
     metricas: dict[str, Any] = {
         "retorno_total": base.total_return,
         "cagr": base.annualized_return,
