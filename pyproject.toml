@@ -91,6 +91,7 @@ pythonpath = ["."]
 addopts = "-m 'not red and not datos'"
 markers = [
     "red: necesita red (yfinance, FRED, Wikipedia, Kenneth French) o la BD Supabase (ya inexistente); se salta por defecto",
+    "lenta: tests que tardan más de unos segundos (p. ej. permutación con procesos); se ejecutan por defecto (marca informativa)",
     "datos: necesita datos locales del TFM (TFM.db y parquet de rejilla_v2); se salta por defecto. Ejecutar: pytest -m datos",
 ]
 
