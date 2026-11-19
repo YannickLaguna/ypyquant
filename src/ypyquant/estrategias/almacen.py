@@ -4,7 +4,8 @@ Almacén de experimentos sobre Parquet + DuckDB.
 Responsabilidad: persistir cada experimento en `data/experimentos/<id>/`:
     config.json      configuración (reproducible; su huella da el id)
     estado.json      pendiente | en_curso | hecho | error (+ traza, fechas)
-    metricas.json    métricas finales (incluye `validacion`, vacío por ahora)
+    metricas.json    métricas finales (incluye `validacion`: salida de los validadores pedidos)
+    procedencia.json commit git, versiones, hash de los precios y fecha de ejecución
     equity.parquet   fecha, equity, benchmark, drawdown, retorno
     pesos.parquet    fecha, ticker, peso (pesos objetivo por rebalanceo)
     operaciones.parquet  fecha, ticker, lado, cantidad, precio, comision, pnl
@@ -12,7 +13,9 @@ y ofrecer `listar`, `leer`, `borrar`, `comparar` (DuckDB lee los Parquet de vari
 a la vez) y `ejecutar_sql` (vistas `equity`, `pesos`, `operaciones` con la columna `id`).
 
 Se relaciona con:
-- ypyquant.estrategias.experimentos (ConfiguracionExperimento, ResultadoExperimento).
+- ypyquant.estrategias.experimentos (ConfiguracionExperimento, ResultadoExperimento) y
+  .procedencia (qué contiene `procedencia.json`).
+- ypyquant.estrategias.barridos (`AlmacenBarridos` lee las métricas y `equity.parquet` de aquí).
 - app/api (el lanzador en segundo plano escribe el estado; las rutas leen y comparan).
 """
 
@@ -119,6 +122,7 @@ class AlmacenExperimentos:
         resultado.pesos.to_parquet(carpeta / "pesos.parquet", index=False)
         resultado.operaciones.to_parquet(carpeta / "operaciones.parquet", index=False)
         _escribir_json(carpeta / "metricas.json", {**resultado.metricas, "avisos": resultado.avisos})
+        _escribir_json(carpeta / "procedencia.json", resultado.procedencia)
         self.marcar_estado(id_experimento, "hecho")
 
     def borrar(self, id_experimento: str) -> bool:
@@ -178,7 +182,7 @@ class AlmacenExperimentos:
         return sorted(resumenes, key=lambda r: r["creado"] or "", reverse=True)
 
     def leer(self, id_experimento: str) -> dict[str, Any]:
-        """Experimento completo: resumen, configuración, estado, métricas y series (equity, pesos, operaciones)."""
+        """Experimento completo: resumen, configuración, estado, métricas, procedencia y series (equity, pesos, operaciones)."""
         carpeta = self._carpeta(id_experimento)
         resumen = self._resumen(carpeta)
         if resumen is None:
@@ -187,6 +191,7 @@ class AlmacenExperimentos:
             **resumen, "config": _leer_json(carpeta / "config.json"),
             "traza": (_leer_json(carpeta / "estado.json") or {}).get("traza"),
             "metricas_completas": _leer_json(carpeta / "metricas.json"),
+            "procedencia": _leer_json(carpeta / "procedencia.json"),
             "equity": [], "pesos": [], "operaciones": [],
         }
         for clave in ("equity", "pesos", "operaciones"):

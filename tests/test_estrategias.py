@@ -5,6 +5,7 @@ con precios sintéticos (sin red), almacén Parquet/DuckDB y barridos de rejilla
 Se relaciona con: src/ypyquant/estrategias/*, estrategias_usuario/ y tests/conftest.py.
 """
 
+import pandas as pd
 import pytest
 from pydantic import ValidationError
 
@@ -14,6 +15,8 @@ from ypyquant.estrategias.base import Estrategia, matriz_cierres, recortar_hasta
 from ypyquant.estrategias.experimentos import (
     VALIDADORES,
     ConfiguracionExperimento,
+    cargar_datos_experimento,
+    ejecutar_con_datos,
     ejecutar_experimento,
     expandir_rejilla,
     registrar_validador,
@@ -257,7 +260,8 @@ def test_almacen_ciclo_completo_y_comparacion(tmp_path):
 
     for id_exp in ids:
         assert {p.name for p in (tmp_path / id_exp).iterdir()} == {
-            "config.json", "estado.json", "metricas.json", "equity.parquet", "pesos.parquet", "operaciones.parquet"}
+            "config.json", "estado.json", "metricas.json", "procedencia.json", "equity.parquet", "pesos.parquet",
+            "operaciones.parquet"}
     listado = almacen.listar()
     assert {r["estado"] for r in listado} == {"hecho"} and listado[0]["metricas"]["sharpe"] is not None
     assert [r["id"] for r in almacen.listar(estrategia="momentum")] == [ids[1]]
@@ -332,3 +336,69 @@ def test_estrategias_tfm_con_volatilidad_objetivo(estrategia):
     assert fija.metricas["n_rebalanceos"] == base.metricas["n_rebalanceos"] > 0
     assert not fija.pesos.empty
     assert not fija.pesos["peso"].round(6).equals(base.pesos["peso"].round(6))
+
+
+# ---- carga/ejecución separadas, procedencia y métricas nuevas -----------------------
+
+
+def test_cargar_y_ejecutar_con_datos_equivale_a_ejecutar_experimento():
+    config = _config(estrategia="momentum")
+    datos = cargar_datos_experimento(config, CargadorSintetico())
+    assert set(datos.precios) == set(TICKERS) and datos.benchmark is not None
+    separado = ejecutar_con_datos(config, datos)
+    junto = ejecutar_experimento(config, CargadorSintetico())
+    assert separado.metricas == junto.metricas
+    pd.testing.assert_frame_equal(separado.equity, junto.equity)
+    # con completo=False no hay procedencia ni validadores
+    assert ejecutar_con_datos(config, datos, completo=False).procedencia == {}
+
+
+def test_procedencia_completa_y_hash_estable():
+    config = _config()
+    a, b = ejecutar_experimento(config, CargadorSintetico()), ejecutar_experimento(config, CargadorSintetico())
+    for clave in ("commit", "arbol_sucio", "version_ypyquant", "python", "numpy", "pandas", "cvxpy",
+                  "hash_precios", "ejecutado"):
+        assert clave in a.procedencia
+    assert len(a.procedencia["hash_precios"]) == 64 and a.procedencia["hash_precios"] == b.procedencia["hash_precios"]
+    otro = ejecutar_experimento(_config(universo=TICKERS[:3]), CargadorSintetico())
+    assert otro.procedencia["hash_precios"] != a.procedencia["hash_precios"]
+
+
+def test_commit_git_no_falla_fuera_de_un_repo(monkeypatch, tmp_path):
+    from ypyquant.estrategias import procedencia
+
+    monkeypatch.setattr(procedencia, "RAIZ_REPO", tmp_path)
+    procedencia.commit_git.cache_clear()
+    try:
+        assert procedencia.commit_git() == {"commit": None, "sucio": None}
+    finally:
+        procedencia.commit_git.cache_clear()
+
+
+def test_almacen_guarda_y_devuelve_la_procedencia(tmp_path):
+    almacen = AlmacenExperimentos(tmp_path)
+    config = _config().normalizada()
+    id_exp = almacen.registrar(config)
+    almacen.guardar(id_exp, ejecutar_experimento(config, CargadorSintetico()))
+    assert (tmp_path / id_exp / "procedencia.json").exists()
+    assert len(almacen.leer(id_exp)["procedencia"]["hash_precios"]) == 64
+
+
+def test_metricas_ulcer_martin_y_costes_sobre_ganancia_bruta():
+    m = ejecutar_experimento(_config(estrategia="momentum"), CargadorSintetico()).metricas
+    assert m["ulcer"] > 0 and "martin" in m
+    bruta = m["capital_final"] - 100_000.0 + m["comisiones_totales"]
+    if bruta > 0:
+        assert m["costes_sobre_ganancia_bruta"] == pytest.approx(m["comisiones_totales"] / bruta)
+    else:
+        assert m["costes_sobre_ganancia_bruta"] is None
+    # sin ganancia bruta positiva (comisión enorme sobre una cartera que opera) queda indefinido
+    caro = ejecutar_experimento(_config(estrategia="momentum", comision=0.1, slippage=0.1), CargadorSintetico()).metricas
+    assert caro["costes_sobre_ganancia_bruta"] is None or caro["costes_sobre_ganancia_bruta"] > 0.5
+
+
+def test_validadores_rachas_y_psr_vienen_registrados():
+    assert {"rachas", "psr"} <= set(VALIDADORES)
+    r = ejecutar_experimento(_config(validaciones=["rachas", "psr"]), CargadorSintetico())
+    assert r.metricas["validacion"]["rachas"]["rachas"] > 10
+    assert 0.0 <= r.metricas["validacion"]["psr"]["psr"] <= 1.0

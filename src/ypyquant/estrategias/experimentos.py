@@ -5,18 +5,28 @@ Responsabilidad:
 - `ConfiguracionExperimento` (Pydantic): estrategia + parámetros + universo + fechas + capital +
   costes + frecuencia + benchmark + semilla. `huella()` es un hash estable (misma configuración,
   mismo identificador); `normalizada()` rellena los parámetros por defecto de la estrategia.
-- `ejecutar_experimento(config, cargador_precios)`: carga precios, corre `BacktestEngine`,
-  calcula métricas con `PerformanceAnalyzer` (Sharpe, Sortino, Calmar, máx. drawdown, volatilidad,
-  turnover, alfa/beta vs benchmark...) y devuelve un `ResultadoExperimento` (no persiste nada;
-  eso lo hace `AlmacenExperimentos`).
+- `cargar_datos_experimento(config, cargador)` -> `DatosExperimento` (precios con historia previa,
+  benchmark, avisos) y `ejecutar_con_datos(config, datos)` -> `ResultadoExperimento`: carga y
+  simulación separadas, para correr muchos backtests con una sola carga (barridos, permutación).
+  `ejecutar_experimento` es su composición. La simulación usa `BacktestEngine` y calcula métricas
+  con `PerformanceAnalyzer` (Sharpe, Sortino, Calmar, máx. drawdown, volatilidad, turnover, alfa/beta
+  vs benchmark, Ulcer, Martin, `costes_sobre_ganancia_bruta`...). No persiste nada (lo hace
+  `AlmacenExperimentos`).
+- Procedencia (`ResultadoExperimento.procedencia`, ver `procedencia.py`): commit, versiones, hash de
+  los precios y fecha; no entra en la huella.
 - `expandir_rejilla(config, {param: [valores]})`: N configuraciones de un barrido de parámetros.
 - Punto de extensión de validación: `registrar_validador(nombre)` registra funciones
-  `(ResultadoExperimento) -> dict` (p. ej. CPCV, DSR, PBO en el futuro); las que pida
-  `config.validaciones` se ejecutan y su salida va a `metricas['validacion'][nombre]`.
+  `(ResultadoExperimento) -> dict`; las que pida `config.validaciones` se ejecutan y su salida va a
+  `metricas['validacion'][nombre]`. Vienen registrados `rachas` (prueba de rachas sobre los signos
+  de los retornos diarios) y `psr` (Sharpe probabilístico frente a 0). La validación de un
+  conjunto de configuraciones (DSR, PBO, permutación) vive en `validacion_barridos.py`.
 
 Se relaciona con:
 - ypyquant.estrategias.registro (obtiene la clase de estrategia) y .base (adaptador al motor).
-- ypyquant.estrategias.precios (cargadores), .almacen (persistencia Parquet + DuckDB).
+- ypyquant.estrategias.precios (cargadores), .almacen (persistencia Parquet + DuckDB),
+  .procedencia (huella de reproducibilidad), .barridos y .validacion_barridos (usan
+  `cargar_datos_experimento` y `ejecutar_con_datos`).
+- ypyquant.validacion (Ulcer, Martin, rachas y PSR para métricas y validadores).
 - ypyquant.portfolio.backtest_engine (BacktestEngine, BacktestConfig) y .performance_metrics.
 - universos/*.txt (listas de tickers por nombre).
 - app/api (lanza y consulta experimentos).
@@ -41,9 +51,12 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ypyquant.data.matriz_precios import CargadorPrecios, extraer_serie_precios
+from ypyquant.estrategias.base import recortar_hasta
+from ypyquant.estrategias.procedencia import obtener_procedencia
 from ypyquant.estrategias.registro import obtener_estrategia
 from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
 from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
+from ypyquant.validacion import indice_ulcer, prueba_rachas, ratio_martin, sharpe_probabilistico
 
 logger = logging.getLogger(__name__)
 
@@ -128,11 +141,12 @@ class ConfiguracionExperimento(BaseModel):
 @dataclass
 class ResultadoExperimento:
     """
-    Salida de `ejecutar_experimento`: todo lo que persiste el almacén.
+    Salida de `ejecutar_experimento` / `ejecutar_con_datos`: todo lo que persiste el almacén.
 
     equity: DataFrame con `fecha, equity, benchmark, drawdown, retorno` (benchmark reescalado al capital inicial).
     pesos: formato largo `fecha, ticker, peso` (pesos objetivo en cada rebalanceo).
     operaciones: `fecha, ticker, lado, cantidad, precio, comision, pnl`.
+    procedencia: commit, versiones, hash de precios y fecha de ejecución (vacío con `completo=False`).
     """
 
     config: ConfiguracionExperimento
@@ -141,10 +155,11 @@ class ResultadoExperimento:
     pesos: pd.DataFrame
     operaciones: pd.DataFrame
     avisos: list[str] = field(default_factory=list)
+    procedencia: dict[str, Any] = field(default_factory=dict)
 
 
 # ----------------------------------------------------------------------------
-# Validación: punto de extensión (CPCV / DSR / PBO se enchufarán aquí)
+# Validación por experimento: punto de extensión (rachas y PSR vienen de serie)
 # ----------------------------------------------------------------------------
 
 Validador = Callable[[ResultadoExperimento], dict[str, Any]]
@@ -159,6 +174,24 @@ def registrar_validador(nombre: str) -> Callable[[Validador], Validador]:
         return funcion
 
     return decorador
+
+
+def _retornos_diarios(resultado: ResultadoExperimento) -> np.ndarray:
+    """Retornos diarios del experimento sin NaN (insumo de los validadores)."""
+    return resultado.equity["retorno"].dropna().to_numpy(dtype=float)
+
+
+@registrar_validador("rachas")
+def _validador_rachas(resultado: ResultadoExperimento) -> dict[str, Any]:
+    """Prueba de rachas de Wald-Wolfowitz sobre los signos de los retornos diarios (Z < 0: signos agrupados)."""
+    return prueba_rachas(np.sign(_retornos_diarios(resultado)))
+
+
+@registrar_validador("psr")
+def _validador_psr(resultado: ResultadoExperimento) -> dict[str, Any]:
+    """Sharpe probabilístico: P(Sharpe verdadero > 0) corrigiendo por asimetría, curtosis y longitud."""
+    retornos = _retornos_diarios(resultado)
+    return {"psr": sharpe_probabilistico(retornos, 0.0), "n_observaciones": len(retornos)}
 
 
 # ----------------------------------------------------------------------------
@@ -247,7 +280,12 @@ def _turnover(rotaciones: list[tuple[Any, float]], anios: float) -> tuple[float,
 
 
 def _calcular_metricas(config, resultado_bt, equity: pd.DataFrame, historial, benchmark_ret) -> dict[str, Any]:
-    """Métricas del experimento: retorno/riesgo (PerformanceAnalyzer), costes, turnover y alfa/beta vs benchmark."""
+    """
+    Métricas del experimento: retorno/riesgo (PerformanceAnalyzer), Ulcer y Martin, costes, turnover y alfa/beta.
+
+    `costes_sobre_ganancia_bruta` = comisiones_totales / (capital_final - capital_inicial + comisiones_totales);
+    None si la ganancia bruta es <= 0. Un valor > 0,5 indica que los costes se comen la mitad del edge.
+    """
     retornos = equity.set_index("fecha")["retorno"].dropna()
     base = PerformanceAnalyzer.calculate_metrics(retornos, risk_free_rate=0.0, periods_per_year=DIAS_ANIO)
     anios = max((pd.Timestamp(config.fecha_fin) - pd.Timestamp(config.fecha_inicio)).days / 365.25, 1e-9)
@@ -270,7 +308,14 @@ def _calcular_metricas(config, resultado_bt, equity: pd.DataFrame, historial, be
         "comisiones_totales": float(resultado_bt.total_fees),
         "tasa_acierto": float(resultado_bt.win_rate),
         "dias": len(equity),
+        "ulcer": indice_ulcer(equity["equity"].to_numpy(dtype=float)),
+        "martin": ratio_martin(retornos.to_numpy(dtype=float), periodos_anio=DIAS_ANIO),
     }
+    # Costes sobre ganancia bruta = comisiones / (ganancia neta + comisiones). Por encima de 0,5 los costes
+    # se comen la mitad del edge; sin ganancia bruta positiva no está definido (None).
+    ganancia_bruta = metricas["capital_final"] - config.capital_inicial + metricas["comisiones_totales"]
+    metricas["costes_sobre_ganancia_bruta"] = (
+        metricas["comisiones_totales"] / ganancia_bruta if ganancia_bruta > 0 else float("nan"))
     if benchmark_ret is not None and len(benchmark_ret) > 1:
         comparacion = PerformanceAnalyzer.compare_to_benchmark(retornos, benchmark_ret, risk_free_rate=0.0)
         if "error" not in comparacion:
@@ -291,13 +336,58 @@ def _calcular_metricas(config, resultado_bt, equity: pd.DataFrame, historial, be
 # ----------------------------------------------------------------------------
 
 
-def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: CargadorPrecios) -> ResultadoExperimento:
+@dataclass
+class DatosExperimento:
     """
-    Corre el backtest de `config` y devuelve el resultado completo (sin persistir).
+    Precios ya cargados para uno o varios experimentos (separa la E/S de la simulación).
 
-    Pasos: normaliza la configuración, fija las semillas, resuelve el universo, carga precios
-    (más una ventana previa para estimar y el benchmark), simula con `BacktestEngine` y calcula
-    métricas. Lanza `RuntimeError` si la estrategia no produjo ningún rebalanceo válido.
+    precios: `{ticker: OHLCV}` del universo CON la historia previa (puede ser la unión de varios
+        universos: `ejecutar_con_datos` selecciona los tickers de cada configuración).
+    benchmark: OHLCV del `ticker_benchmark` (None si no hubo datos). Los tests de permutación
+        permutan `precios` pero dejan el benchmark intacto.
+    avisos: avisos de la carga (tickers sin datos...).
+    """
+
+    precios: dict[str, pd.DataFrame]
+    benchmark: pd.DataFrame | None
+    ticker_benchmark: str
+    avisos: list[str] = field(default_factory=list)
+
+
+def cargar_datos_experimento(config: ConfiguracionExperimento, cargador_precios: CargadorPrecios) -> DatosExperimento:
+    """
+    Carga los precios del universo (con `dias_historia_previa` antes de `fecha_inicio`) y el benchmark.
+
+    Lanza `RuntimeError` si no hay precios de ningún ticker. No simula nada: el resultado se pasa
+    a `ejecutar_con_datos` (varias veces si se quiere, p. ej. un barrido o una permutación).
+    """
+    config = config.normalizada()
+    tickers = resolver_universo(config.universo)
+    inicio_carga = (pd.Timestamp(config.fecha_inicio) - pd.Timedelta(days=config.dias_historia_previa)).strftime("%Y-%m-%d")
+    precios = _cargar_precios(tickers, inicio_carga, config.fecha_fin, cargador_precios)
+    if not precios:
+        raise RuntimeError("No hay precios para ningún ticker del universo (¿sin red y sin caché?)")
+    avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
+    datos_bench = _cargar_precios([config.benchmark], inicio_carga, config.fecha_fin, cargador_precios)
+    benchmark = datos_bench.get(config.benchmark)
+    if benchmark is None:
+        avisos.append(f"Sin datos del benchmark {config.benchmark}")
+    return DatosExperimento(precios, benchmark, config.benchmark, avisos)
+
+
+def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento,
+                       completo: bool = True) -> ResultadoExperimento:
+    """
+    Corre el backtest de `config` sobre precios ya cargados y devuelve el resultado (sin persistir).
+
+    Pasos: normaliza la configuración, fija las semillas, selecciona de `datos.precios` los
+    tickers del universo y recorta todo a `<= fecha_fin` (así un barrido cargado hasta una fecha
+    posterior no deja ver el futuro a `Estrategia.preparar`), simula con `BacktestEngine` y
+    calcula métricas. Lanza `RuntimeError` si la estrategia no produjo ningún rebalanceo válido.
+
+    Args:
+        completo: si False (tests de permutación: miles de backtests) se omiten la procedencia
+            (hash de precios, git) y los validadores de `config.validaciones`.
     """
     config = config.normalizada()
     clase = obtener_estrategia(config.estrategia)
@@ -307,18 +397,19 @@ def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: Car
     np.random.seed(config.semilla)
 
     tickers = resolver_universo(config.universo)
-    inicio_carga = (pd.Timestamp(config.fecha_inicio) - pd.Timedelta(days=config.dias_historia_previa)).strftime("%Y-%m-%d")
-    datos = _cargar_precios(tickers, inicio_carga, config.fecha_fin, cargador_precios)
-    if not datos:
+    fin = pd.Timestamp(config.fecha_fin)
+    datos_universo = {t: datos.precios[t] for t in tickers if t in datos.precios}
+    if not datos_universo:
         raise RuntimeError("No hay precios para ningún ticker del universo (¿sin red y sin caché?)")
-    avisos = [f"Sin datos para {t}" for t in tickers if t not in datos]
+    precios = recortar_hasta(datos_universo, fin)
+    avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
 
     motor = BacktestEngine(BacktestConfig(
         start_date=config.fecha_inicio, end_date=config.fecha_fin, initial_capital=config.capital_inicial,
         rebalance_frequency=config.frecuencia_rebalanceo, commission_rate=config.comision,
-        slippage_pct=config.slippage, max_positions=max(len(datos), 1), benchmark_ticker=config.benchmark,
+        slippage_pct=config.slippage, max_positions=max(len(precios), 1), benchmark_ticker=config.benchmark,
     ))
-    resultado_bt = motor.run_backtest(estrategia.como_funcion(), datos)
+    resultado_bt = motor.run_backtest(estrategia.como_funcion(), precios)
     if not estrategia.historial_pesos:
         detalle = estrategia.errores[0] if estrategia.errores else "sin pesos"
         raise RuntimeError(f"La estrategia no generó ningún rebalanceo válido ({detalle})")
@@ -330,16 +421,20 @@ def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: Car
     equity = pd.DataFrame({"fecha": curva.index, "equity": curva["equity"].values,
                            "drawdown": curva["drawdown_pct"].values, "retorno": curva["returns"].values})
     benchmark_ret = None
-    datos_bench = _cargar_precios([config.benchmark], inicio_carga, config.fecha_fin, cargador_precios)
-    serie_bench = extraer_serie_precios(datos_bench.get(config.benchmark), config.benchmark, avisar=False)
+    benchmark_usado = None
+    if datos.ticker_benchmark != config.benchmark:
+        avisos.append(f"Sin datos del benchmark {config.benchmark} (los cargados son de {datos.ticker_benchmark})")
+    elif datos.benchmark is None:
+        avisos.append(f"Sin datos del benchmark {config.benchmark}")
+    else:
+        benchmark_usado = recortar_hasta({config.benchmark: datos.benchmark}, fin).get(config.benchmark)
+    serie_bench = extraer_serie_precios(benchmark_usado, config.benchmark, avisar=False)
     if serie_bench is not None:
         alineada = serie_bench.reindex(curva.index).ffill()
         if alineada.notna().any():
             alineada = alineada.bfill()
             equity["benchmark"] = (alineada / alineada.iloc[0] * config.capital_inicial).values
             benchmark_ret = alineada.pct_change().dropna()
-    else:
-        avisos.append(f"Sin datos del benchmark {config.benchmark}")
     if "benchmark" not in equity:
         equity["benchmark"] = np.nan
 
@@ -355,10 +450,27 @@ def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: Car
 
     metricas = _calcular_metricas(config, resultado_bt, equity, estrategia.historial_pesos, benchmark_ret)
     resultado = ResultadoExperimento(config, metricas, equity, pesos, operaciones, avisos)
-    for nombre in config.validaciones:
-        if nombre not in VALIDADORES:
-            raise ValueError(f"Validador '{nombre}' no registrado. Disponibles: {sorted(VALIDADORES)}")
-        resultado.metricas["validacion"][nombre] = _limpiar(VALIDADORES[nombre](resultado))
+    if completo:
+        resultado.procedencia = obtener_procedencia(precios, benchmark_usado)
+        for nombre in config.validaciones:
+            if nombre not in VALIDADORES:
+                raise ValueError(f"Validador '{nombre}' no registrado. Disponibles: {sorted(VALIDADORES)}")
+            resultado.metricas["validacion"][nombre] = _limpiar(VALIDADORES[nombre](resultado))
+    return resultado
+
+
+def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: CargadorPrecios) -> ResultadoExperimento:
+    """
+    Corre el backtest de `config` y devuelve el resultado completo (sin persistir).
+
+    Es la composición de `cargar_datos_experimento` y `ejecutar_con_datos`; los avisos de la
+    carga (tickers sin datos, benchmark) se suman a los de la simulación. Lanza `RuntimeError`
+    si no hay precios o la estrategia no produjo ningún rebalanceo válido.
+    """
+    config = config.normalizada()
+    datos = cargar_datos_experimento(config, cargador_precios)
+    resultado = ejecutar_con_datos(config, datos)
+    resultado.avisos = list(dict.fromkeys(datos.avisos + resultado.avisos))
     return resultado
 
 
