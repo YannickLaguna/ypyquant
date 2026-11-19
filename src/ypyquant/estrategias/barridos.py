@@ -53,7 +53,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from ypyquant.estrategias.almacen import AlmacenExperimentos, _escribir_json, _leer_json
+from ypyquant.estrategias.almacen import AlmacenExperimentos, _escribir_json, _escribir_parquet, _leer_json
 from ypyquant.estrategias.experimentos import (
     MAX_COMBINACIONES_REJILLA,
     ConfiguracionExperimento,
@@ -320,7 +320,7 @@ class AlmacenBarridos:
         return _leer_json(self._carpeta(id_barrido) / f"{nombre}.json")
 
     def guardar_parquet(self, id_barrido: str, nombre: str, tabla: pd.DataFrame) -> None:
-        tabla.to_parquet(self._carpeta(id_barrido) / f"{nombre}.parquet")
+        _escribir_parquet(tabla, self._carpeta(id_barrido) / f"{nombre}.parquet", index=True)
 
     # ---- tareas largas (permutación) -------------------------------------------
 

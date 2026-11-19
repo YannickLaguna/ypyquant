@@ -25,7 +25,9 @@ import json
 import os
 import shutil
 import threading
+import time
 import traceback
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,19 +44,66 @@ from ypyquant.estrategias.experimentos import (
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "experimentos"
 ESTADOS = ("pendiente", "en_curso", "hecho", "error")
+REINTENTOS_ARCHIVO = 20  # ~2 s en total ante bloqueos transitorios de Windows
 CLAVES_RESUMEN = ("retorno_total", "cagr", "volatilidad", "sharpe", "sortino", "calmar", "max_drawdown",
                   "turnover_anual", "alfa", "beta", "n_operaciones")
 
 
+def _reintentar_en_windows(operacion: Callable[[], Any]) -> Any:
+    """
+    Ejecuta `operacion` reintentando ante `PermissionError`.
+
+    En Windows, `os.replace` falla si otro hilo tiene el destino abierto en ese instante, y
+    una lectura falla si coincide con el reemplazo (fallo intermitente de `tests/test_api.py`
+    del 2026-11-19). Son bloqueos de milisegundos: se reintenta con espera creciente.
+    """
+    for intento in range(REINTENTOS_ARCHIVO):
+        try:
+            return operacion()
+        except PermissionError:
+            if intento == REINTENTOS_ARCHIVO - 1:
+                raise
+            time.sleep(0.01 * (intento + 1))
+    return None
+
+
 def _escribir_json(ruta: Path, contenido: Any) -> None:
     """Escritura atómica (archivo temporal + reemplazo): la API puede leer mientras otro hilo escribe."""
-    temporal = ruta.with_suffix(ruta.suffix + ".tmp")
+    # Temporal único por hilo: dos hilos escribiendo el mismo archivo no comparten el .tmp
+    temporal = ruta.with_name(f"{ruta.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     temporal.write_text(json.dumps(_limpiar(contenido), ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporal, ruta)
+    _reintentar_en_windows(lambda: os.replace(temporal, ruta))
 
 
-def _leer_json(ruta: Path) -> Any:
-    return json.loads(ruta.read_text(encoding="utf-8")) if ruta.exists() else None
+def _escribir_parquet(tabla: pd.DataFrame, ruta: Path, index: bool = False) -> None:
+    """
+    Escritura atómica de un Parquet (temporal + reemplazo). Sin ella, una lectura concurrente
+    podía abrir el archivo a medio escribir: pyarrow lanza `ArrowInvalid` (un `ValueError`) y
+    la API respondía 404 (fallo intermitente de `tests/test_api.py`, 2026-11-19).
+    """
+    temporal = ruta.with_name(f"{ruta.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tabla.to_parquet(temporal, index=index)
+    _reintentar_en_windows(lambda: os.replace(temporal, ruta))
+
+
+def _leer_json(ruta: Path, reintentar_si_falta: bool = False) -> Any:
+    """
+    Lee un JSON del almacén (None si no existe).
+
+    `reintentar_si_falta`: para archivos que deben existir (p. ej. `estado.json` de un experimento
+    con `config.json`): en Windows el destino de `os.replace` puede no verse durante un instante.
+    """
+    for intento in range(REINTENTOS_ARCHIVO):
+        try:
+            return json.loads(ruta.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            if not reintentar_si_falta or intento == REINTENTOS_ARCHIVO - 1:
+                return None
+        except PermissionError:
+            if intento == REINTENTOS_ARCHIVO - 1:
+                raise
+        time.sleep(0.01 * (intento + 1))
+    return None
 
 
 def _a_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -118,9 +167,9 @@ class AlmacenExperimentos:
         """Escribe métricas y Parquet del resultado y marca el experimento como `hecho`."""
         carpeta = self._carpeta(id_experimento)
         carpeta.mkdir(parents=True, exist_ok=True)
-        resultado.equity.to_parquet(carpeta / "equity.parquet", index=False)
-        resultado.pesos.to_parquet(carpeta / "pesos.parquet", index=False)
-        resultado.operaciones.to_parquet(carpeta / "operaciones.parquet", index=False)
+        _escribir_parquet(resultado.equity, carpeta / "equity.parquet")
+        _escribir_parquet(resultado.pesos, carpeta / "pesos.parquet")
+        _escribir_parquet(resultado.operaciones, carpeta / "operaciones.parquet")
         _escribir_json(carpeta / "metricas.json", {**resultado.metricas, "avisos": resultado.avisos})
         _escribir_json(carpeta / "procedencia.json", resultado.procedencia)
         self.marcar_estado(id_experimento, "hecho")
@@ -163,7 +212,8 @@ class AlmacenExperimentos:
         return pd.read_parquet(ruta) if ruta.exists() else None
 
     def _resumen(self, carpeta: Path) -> dict[str, Any] | None:
-        config, estado = _leer_json(carpeta / "config.json"), _leer_json(carpeta / "estado.json")
+        config = _leer_json(carpeta / "config.json")
+        estado = _leer_json(carpeta / "estado.json", reintentar_si_falta=config is not None)
         if config is None or estado is None:
             return None
         metricas = _leer_json(carpeta / "metricas.json") or {}
@@ -210,7 +260,8 @@ class AlmacenExperimentos:
         }
         for clave in ("equity", "pesos", "operaciones"):
             ruta = carpeta / f"{clave}.parquet"
-            if ruta.exists():
+            # Las series solo son definitivas cuando el experimento está `hecho` (se escriben antes)
+            if resumen["estado"] == "hecho" and ruta.exists():
                 detalle[clave] = _a_registros(pd.read_parquet(ruta))
         return detalle
 
