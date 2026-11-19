@@ -950,7 +950,9 @@ class PortfolioOptimizationModel:
         # Avisos del modelo de retornos (p. ej. BL sin market_caps) visibles en optimizer_metadata
         avisos = self.returns_model.metadata.get('avisos')
         if avisos:
-            result.setdefault('optimizer_metadata', {})['avisos'] = list(avisos)
+            metadatos = result.setdefault('optimizer_metadata', {})
+            # Se suman a los del optimizador (p. ej. volatilidad objetivo inalcanzable), no los sustituyen
+            metadatos['avisos'] = list(avisos) + list(metadatos.get('avisos') or [])
 
         # Añadir metadata del modelo
         result['model_info'] = {

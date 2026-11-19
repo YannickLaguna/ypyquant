@@ -887,3 +887,12 @@ class TestVolatilidadObjetivo:
         resultado = modelo.optimize(_retornos_diarios())
         assert sum(resultado["weights"].values()) == pytest.approx(1.0, abs=1e-6)
         assert resultado["optimizer_metadata"]["volatilidad_objetivo"] == 0.12
+
+
+def test_avisos_del_modelo_y_del_optimizador_se_suman():
+    # BL-prior sin capitalizaciones (aviso del proxy) + σ objetivo inalcanzable (aviso del optimizador)
+    modelo = crear_modelo_personalizado("bl", "bl_prior", "ledoit_wolf", "efficient_risk",
+                                        optimizer_config={"target_volatility": 0.01})
+    avisos = modelo.optimize(_retornos_diarios())["optimizer_metadata"]["avisos"]
+    assert any("proxy" in a.lower() for a in avisos)
+    assert any("mínima posible" in a for a in avisos)
