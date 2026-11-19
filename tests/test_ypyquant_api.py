@@ -83,7 +83,7 @@ def test_listar_presets_returns_dict():
 def test_version():
     import ypyquant
     assert hasattr(ypyquant, "__version__"), "__version__ debe estar definido"
-    assert ypyquant.__version__ == "0.4.0"
+    assert ypyquant.__version__ == "0.5.0"
 
 
 def test_all_defined():

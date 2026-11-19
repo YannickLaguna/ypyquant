@@ -51,3 +51,7 @@ Son orientativos, no un veredicto: dependen de T, del número real de pruebas (t
 ## Advertencia
 
 **No conviertas estas medidas en el objetivo de optimización.** Cuando un estadístico de validación se maximiza o se usa para filtrar candidatas, deja de medir la validez y pasa a ser otro parámetro que se sobreajusta (Ley de Goodhart). Úsalas una vez, sobre el conjunto de pruebas completo y declarado de antemano, y si se repite el ciclo cuenta cada iteración en N.
+
+## Uso con barridos
+
+`ypyquant.estrategias.validacion_barridos` aplica estas funciones a la matriz de retornos de un barrido (N = nº de combinaciones de la rejilla) y a su permutación; ver `docs/ui.md` (API y contratos) y `docs/migracion-v0.5.0.md`. Recuerda que N cuenta solo lo guardado en la rejilla: si exploraste más combinaciones a mano, el DSR y el PBO son optimistas. El periodo reservado del barrido no entra en ninguna de estas validaciones; se evalúa aparte con contador de usos.

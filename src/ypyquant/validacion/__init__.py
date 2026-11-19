@@ -7,8 +7,8 @@ Responsabilidad:
   `walk_forward` (selección walk-forward sobre una matriz de retornos).
 
 Se relaciona con:
-- ypyquant.estrategias.experimentos (conexión posterior: matriz de retornos de los barridos y
-  `registrar_validador`).
+- ypyquant.estrategias.barridos / .validacion_barridos / .reservado (validan barridos con estas
+  funciones) y .experimentos (validadores por experimento `rachas` y `psr`, métricas Ulcer/Martin).
 - ypyquant.data.matriz_precios (formato de precios que consume `permutar_precios`).
 - docs/validacion.md (fórmulas, referencias e interpretación).
 """

@@ -3,7 +3,8 @@ Estrategias, experimentos y almacén de resultados de ypyquant.
 
 Responsabilidad: punto de entrada público del subpaquete. Reúne el contrato `Estrategia`, el
 registro con descubrimiento automático de estrategias de usuario, los experimentos
-reproducibles (`ConfiguracionExperimento` + `ejecutar_experimento`) y el almacén Parquet/DuckDB.
+reproducibles (`ConfiguracionExperimento` + `ejecutar_experimento`), el almacén Parquet/DuckDB y los
+barridos con su validación estadística (`barridos`, `validacion_barridos`, `reservado`).
 
 Se relaciona con: portfolio.backtest_engine (motor), optimization (estimadores y presets),
 app/api (API FastAPI) y estrategias_usuario/ (estrategias propias descubiertas al arrancar).

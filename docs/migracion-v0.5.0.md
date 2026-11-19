@@ -3,9 +3,13 @@
 > Responsabilidad: describir las novedades de v0.5.0 y cómo usarlas. Cada apartado documenta una
 > funcionalidad nueva (las secciones se añaden por separado).
 > Se relaciona con: `src/ypyquant/optimization/estimacion_robusta/elipsoide.py`, `portfolio_models.py`,
-> `optimizador_portafolio.py`, `presets/robusta.py`, `estrategias/incluidas.py` y `tests/test_elipsoide.py`.
+> `optimizador_portafolio.py`, `presets/robusta.py`, `estrategias/incluidas.py`, `tests/test_elipsoide.py`,
+> `src/ypyquant/validacion/`, `estrategias/{barridos,validacion_barridos,reservado,procedencia}.py`,
+> `app/api/rutas_barridos.py`, `tests/test_validacion.py` y `tests/test_barridos.py`.
 
-v0.5.0 es compatible hacia atrás: no cambia ninguna firma existente.
+v0.5.0 es compatible hacia atrás: no cambia ninguna firma existente. Lo único que cambia de comportamiento
+visible: `metricas.json` trae tres métricas más, cada experimento nuevo guarda `procedencia.json` y
+`POST /api/experimentos/barrido` devuelve además `barrido_id`.
 
 ## Optimización robusta con elipsoide
 
@@ -69,3 +73,54 @@ from ypyquant.optimization.estimacion_robusta import matriz_incertidumbre, optim
 theta = matriz_incertidumbre(sigma_anual, n_observaciones=756, tipo="sigma", frecuencia=252)
 pesos, estado, diag = optimizar_robusto_elipsoide(mu, sigma_anual, theta, kappa=1.5, aversion=2.5, peso_maximo=0.3)
 ```
+
+## Validación estadística (`ypyquant.validacion`)
+
+Librería pura (numpy/pandas/scipy, sin motor ni API) para contestar «¿este backtest se distingue de la suerte?». Fórmulas, referencias y umbrales en `docs/validacion.md`.
+
+| Símbolo | Qué hace |
+|---|---|
+| `sharpe`, `sharpe_probabilistico` (PSR), `sharpe_deflactado` (DSR), `sharpe_maximo_esperado` | Sharpe por periodo y su deflactación por el nº de pruebas |
+| `pbo_cscv(matriz, n_bloques=16)` | Probabilidad de sobreajuste por CSCV (+ λ y pares IS/OOS para gráficos) |
+| `prueba_rachas(signos)` | Rachas de Wald-Wolfowitz |
+| `indice_ulcer`, `ratio_martin` | Riesgo de drawdown y retorno/Ulcer |
+| `permutar_precios(datos, semilla, inicio, longitud_bloque)` | Precios permutados (método de Masters) |
+| `p_valor_permutacion(real, permutados)` | (1 + #{perm ≥ real}) / (1 + n) |
+| `seleccion_walk_forward(matriz, ventana, paso)` | Re-optimización periódica sobre una matriz de retornos |
+
+**No uses estas medidas como objetivo de optimización** (ley de Goodhart): úsalas una vez sobre el conjunto de pruebas completo y declarado de antemano.
+
+## Experimentos: carga y ejecución separadas, procedencia y métricas
+
+- `cargar_datos_experimento(config, cargador) -> DatosExperimento` (precios con la historia previa, benchmark, avisos) y `ejecutar_con_datos(config, datos, completo=True) -> ResultadoExperimento`. `ejecutar_experimento` es su composición y da los mismos resultados que antes. `ejecutar_con_datos` selecciona los tickers de la configuración y recorta los precios a `<= fecha_fin` (así un barrido cargado hasta una fecha posterior no deja ver el futuro a `Estrategia.preparar`); `completo=False` omite procedencia y validadores (miles de backtests en permutación).
+- **Procedencia** (`ResultadoExperimento.procedencia`, `procedencia.json`, `AlmacenExperimentos.leer(...)["procedencia"]`): `commit` y `arbol_sucio` (git; `None` fuera de un repo, sin fallar; cacheados por proceso y solo cuentan archivos versionados), `version_ypyquant`, `python`, `numpy`, `pandas`, `cvxpy`, `hash_precios` (SHA-256 de los precios por ticker ordenado y el benchmark) y `ejecutado`. No entra en la huella.
+- **Métricas nuevas**: `ulcer`, `martin` y `costes_sobre_ganancia_bruta` = comisiones / (capital_final − capital_inicial + comisiones), `None` si la ganancia bruta es ≤ 0; > 0,5 = los costes se comen la mitad del edge.
+- **Validadores por experimento** registrados de serie (`config.validaciones`): `rachas` (signos de los retornos diarios) y `psr` (Sharpe probabilístico frente a 0); resultado en `metricas.validacion.<nombre>`. `GET /api/validadores` los lista.
+
+## Barridos
+
+`ConfiguracionBarrido(base, rejilla, fecha_fin_desarrollo=None, metrica_objetivo="sharpe", etiqueta="")` da un barrido con identidad propia (`barrido-<10 hex>`) y `AlmacenBarridos` (`data/barridos/<id>/`; raíz configurable como `AlmacenExperimentos`) lo persiste con su estado y los resultados de validación.
+
+```python
+from ypyquant.estrategias.barridos import AlmacenBarridos, ConfiguracionBarrido, matriz_retornos, superficie
+from ypyquant.estrategias.validacion_barridos import validar_barrido, walk_forward_barrido, prueba_permutacion_barrido
+from ypyquant.estrategias.reservado import evaluar_reservado
+
+almacen = AlmacenBarridos()                       # data/barridos/ (los experimentos, en data/experimentos/)
+config = ConfiguracionBarrido(base=base, rejilla={"top_k": [3, 5, 8], "meses_retorno": [6, 9, 12]},
+                              fecha_fin_desarrollo="2022-12-31")
+id_barrido, _ = almacen.crear(config)             # registra; los experimentos los ejecutas tú (o la API)
+barrido = almacen.cargar(id_barrido)
+validacion = validar_barrido(barrido)             # DSR, PBO-CSCV, rachas, superficie con meseta
+wf = walk_forward_barrido(barrido, ventana_entreno_dias=756, paso_dias=90)
+perm = prueba_permutacion_barrido(barrido, cargador, n_permutaciones=100, procesos=4)
+reservado = evaluar_reservado(barrido, "top_k=5, meses_retorno=9", cargador)
+```
+
+- **Matriz de retornos** (`matriz_retornos`): fechas × combinaciones (columna = id de experimento). Si las combinaciones no cubren las mismas fechas se **recorta al tramo común** por defecto (`relleno="cero"` conserva la unión con 0 los días sin posición).
+- **Superficie** (`superficie`): parámetros → métricas + **meseta** (media de la métrica objetivo de los vecinos a ± 1 posición por eje; la propia combinación no cuenta). `alternativa_meseta` de la validación sugiere la combinación de mejor meseta.
+- **Permutación del barrido**: cada permutación de precios ejecuta TODAS las combinaciones y se queda con el mejor estadístico (`in_sample`: mejor métrica objetivo; `walk_forward`: Sharpe de la serie OOS, permutando solo desde `fecha_inicio + ventana_entreno_dias`). Carga los precios una vez y reparte las permutaciones en procesos (`ProcessPoolExecutor`, spawn; cada worker redescubre las estrategias, también `estrategias_usuario/`). Máximo 1000 permutaciones; aviso si combinaciones × permutaciones > 20 000. `ventana_entreno_dias` y `paso_dias` son días naturales.
+- **Periodo reservado**: el tramo (`fecha_fin_desarrollo`, `base.fecha_fin`] no lo toca ninguna validación. `evaluar_reservado` lo evalúa y cuenta el uso en `data/reservado.json` (clave: universo resuelto ordenado + fechas); si ya se había usado, `aviso` explícito: deja de ser fuera de muestra.
+- **API**: `/api/barridos` (ver `docs/ui.md`, con los contratos JSON). `POST /api/experimentos/barrido` sigue funcionando y devuelve también `barrido_id`.
+
+Cambios menores: `tests/test_fase2.py::test_mlflow_db_exists` se salta si no existe `data/mlflow.db`; `docs/ui.md` ya no lista la limitación del rebalanceo perdido en festivos (corregida en v0.4.0: pasa al siguiente día hábil).
