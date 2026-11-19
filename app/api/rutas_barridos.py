@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
@@ -145,8 +146,8 @@ def detalle_barrido(id_barrido: str, ctx: Contexto = Depends(obtener_contexto)):
         **{nombre: almacen.leer_resultado(id_barrido, nombre) for nombre in RESULTADOS},
         "reservado": almacen.leer_resultado(id_barrido, "reservado") or [],
         "reservado_usos": usos,
-        "periodo_reservado": ({"inicio": config.fecha_fin_desarrollo, "fin": config.base.fecha_fin}
-                              if config.fecha_fin_desarrollo else None),
+        "periodo_reservado": ({"inicio": (pd.Timestamp(config.fecha_fin_desarrollo) + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+                               "fin": config.base.fecha_fin} if config.fecha_fin_desarrollo else None),
     }
 
 
