@@ -2,7 +2,8 @@
  * Detalle de experimento: KPIs, equity vs benchmark (con marcas de rebalanceo), drawdown, tabla de
  * métricas, pesos en el tiempo y operaciones.
  * Responsabilidad: mostrar los estados pendiente/en curso (sondeo automático), error (con traza) y
- * hecho; permitir borrar el experimento.
+ * hecho; permitir borrar el experimento; mostrar la procedencia (commit, versiones, hash de datos) en
+ * un bloque plegable y las métricas de coste/riesgo (Ulcer, Martin, costes sobre ganancia bruta).
  * Se relaciona con: api/hooks.ts (useExperimento, useBorrarExperimento), componentes/Graficos.tsx,
  * componentes/TablaOrdenable.tsx y componentes/Piezas.tsx.
  */
@@ -13,9 +14,11 @@ import type { OperacionFila } from '../api/tipos'
 import { CajaError, Cargando, Insignia } from '../componentes/Estado'
 import { GraficoPesos, GraficoSeries, type MarcaGrafico, type SerieGrafico } from '../componentes/Graficos'
 import { Kpi } from '../componentes/Piezas'
+import ProcedenciaExperimento from '../componentes/ProcedenciaExperimento'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, dinero, entero, fechaCorta, porcentaje, ratio, resumenParametros, resumenUniverso } from '../lib/formato'
 import { colorToken } from '../lib/tema'
+import { costesAltos } from '../lib/barridos'
 
 const FILAS_OPERACIONES = 100
 
@@ -26,6 +29,8 @@ const FILAS_METRICAS: [string, string, (v: number | null | undefined) => string]
   ['sharpe', 'Sharpe', ratio],
   ['sortino', 'Sortino', ratio],
   ['calmar', 'Calmar', ratio],
+  ['ulcer', 'Ulcer (índice, %)', ratio],
+  ['martin', 'Martin (CAGR % / Ulcer %)', ratio],
   ['max_drawdown', 'Máx. drawdown', porcentaje],
   ['var_95', 'VaR 95 % (diario)', (v) => porcentaje(v, 2)],
   ['cvar_95', 'CVaR 95 % (diario)', (v) => porcentaje(v, 2)],
@@ -40,6 +45,7 @@ const FILAS_METRICAS: [string, string, (v: number | null | undefined) => string]
   ['n_rebalanceos', 'Rebalanceos', entero],
   ['n_operaciones', 'Operaciones', entero],
   ['comisiones_totales', 'Comisiones totales', (v) => dinero(v, 0)],
+  ['costes_sobre_ganancia_bruta', 'Costes / ganancia bruta', ratio],
   ['capital_final', 'Capital final', (v) => dinero(v, 0)],
 ]
 
@@ -145,6 +151,12 @@ export default function ExperimentoDetalle() {
             </div>
           )}
 
+          {costesAltos(num('costes_sobre_ganancia_bruta')) && (
+            <div role="status" className="rounded-lg border border-aviso/50 bg-aviso/10 p-3 text-aviso">
+              Los costes se comen {porcentaje(num('costes_sobre_ganancia_bruta'), 0)} de la ganancia bruta (&gt; 50 %): el edge es frágil frente a las comisiones.
+            </div>
+          )}
+
           <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
             <Kpi etiqueta="Sharpe" valor={ratio(num('sharpe'))} />
             <Kpi etiqueta="CAGR" valor={porcentaje(num('cagr'))} clase={claseSigno(num('cagr'))} />
@@ -188,6 +200,8 @@ export default function ExperimentoDetalle() {
               <GraficoPesos pesos={data.pesos} />
             </section>
           </div>
+
+          <ProcedenciaExperimento procedencia={data.procedencia} />
 
           <section aria-labelledby="h-ops" className="space-y-2">
             <h2 id="h-ops">Operaciones ({entero(data.operaciones.length)})</h2>

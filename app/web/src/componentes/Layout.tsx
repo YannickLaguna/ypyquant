@@ -11,6 +11,7 @@ import { aplicarTema, temaGuardado, type Tema } from '../lib/tema'
 const ENLACES = [
   { a: '/estrategias', texto: 'Estrategias' },
   { a: '/experimentos', texto: 'Experimentos' },
+  { a: '/barridos', texto: 'Barridos' },
   { a: '/comparar', texto: 'Comparar' },
   { a: '/paper', texto: 'Paper trading' },
 ]

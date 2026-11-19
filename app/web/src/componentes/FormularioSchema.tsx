@@ -10,7 +10,7 @@ import type { EsquemaParametros, EsquemaPropiedad } from '../api/tipos'
 export type Valores = Record<string, unknown>
 
 /** Resuelve `anyOf` (p. ej. `[{type: integer}, {type: null}]` de los opcionales) al primer tipo no nulo. */
-function resolver(propiedad: EsquemaPropiedad): EsquemaPropiedad {
+export function resolver(propiedad: EsquemaPropiedad): EsquemaPropiedad {
   if (propiedad.anyOf) {
     const util = propiedad.anyOf.find((p) => (p.type as string) !== 'null')
     return { ...util, ...propiedad, type: util?.type ?? propiedad.type }

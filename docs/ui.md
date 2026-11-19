@@ -216,6 +216,15 @@ Seguimiento: `GET /api/barridos/{id}` → `tareas.permutacion_<modo>` (`estado`,
 
 **`POST /api/experimentos/barrido`** (compatible) → `{"ids": [...], "total": 3, "barrido_id": "barrido-..."}`; `barrido_id` es `null` si no hay rejilla.
 
+## Interfaz de barridos y validación
+
+- **Lanzar** (`/estrategias/<nombre>`, tarjeta «Lanzar barrido»): marca los parámetros a barrer, escribe sus valores (para numéricos, «Generar rango» con inicio/fin/paso), elige métrica objetivo, etiqueta y `fecha_fin_desarrollo` (lo posterior queda reservado). Muestra el nº de combinaciones (máx. 500) y al lanzar navega a `/barridos/<id>`. Los parámetros sin marcar usan el valor del formulario de experimento.
+- **Lista** (`/barridos`): etiqueta, estrategia, ejes, combinaciones, métrica, estado/progreso y resultados disponibles.
+- **Detalle** (`/barridos/<id>`, sondea cada 1,5 s mientras haya experimentos o tareas en curso): progreso; mapa de calor (métrica, valor/meseta, 1 o 2 ejes con valores fijos para el resto; ★ mejor, ◆ alternativa por meseta; clic abre el experimento); tabla ordenable (incluye `ulcer`, `martin` y `costes_sobre_ganancia_bruta`, en ámbar > 0,5); **Validar** (DSR, PBO con histograma de λ y dispersión IS/OOS, rachas); **Permutación** (progreso, cancelar, histograma y p-valor con semáforo); **Walk-forward**; **Periodo reservado** (solo con `fecha_fin_desarrollo`: contador de usos y confirmación si ya se usó).
+- Semáforos orientativos (`src/lib/barridos.ts`): DSR > 0,95 verde; PBO < 0,1 verde, 0,1–0,2 ámbar, > 0,2 rojo; p-valor in-sample < 1 % verde, walk-forward < 5 % (periodo de ~1 año) o < 1 % (≥ 2 años).
+- El detalle de experimento muestra la **procedencia** en un bloque plegable.
+- Desarrollo en paralelo a otra instancia: `YPYQUANT_API_PUERTO` y `YPYQUANT_WEB_PUERTO` cambian el proxy y el puerto de Vite (por defecto 8010 y 5173).
+
 ## Paper trading con estrategias del registro
 
 ```bash

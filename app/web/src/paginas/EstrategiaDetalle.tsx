@@ -1,17 +1,20 @@
 /**
- * Detalle de estrategia: código fuente (solo lectura, resaltado) y formulario para lanzar un experimento
+ * Detalle de estrategia: código fuente (solo lectura, resaltado) y formularios para lanzar un experimento
  * o un barrido de parámetros.
  * Responsabilidad: formulario autogenerado desde el JSON Schema de los parámetros + ajustes generales del
  * experimento (universo, fechas, capital, costes, frecuencia, benchmark, semilla); valida en cliente y
- * envía a la API; tras lanzar navega al detalle del experimento (o a la lista si es un barrido).
- * Se relaciona con: componentes/FormularioSchema.tsx, api/hooks.ts, paginas/ExperimentoDetalle.tsx.
+ * envía a la API; tras lanzar un experimento navega a su detalle. El barrido lo gestiona
+ * componentes/LanzadorBarrido.tsx con la configuración base de este formulario.
+ * Se relaciona con: componentes/FormularioSchema.tsx, componentes/LanzadorBarrido.tsx, api/hooks.ts,
+ * paginas/ExperimentoDetalle.tsx y paginas/BarridoDetalle.tsx.
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useEstrategia, useLanzarBarrido, useLanzarExperimento, useUniversos } from '../api/hooks'
+import { useEstrategia, useLanzarExperimento, useUniversos } from '../api/hooks'
 import type { ConfiguracionExperimento, Frecuencia } from '../api/tipos'
 import { CajaError, Cargando } from '../componentes/Estado'
 import FormularioSchema, { validarValores, valoresPorDefecto, type Valores } from '../componentes/FormularioSchema'
+import LanzadorBarrido from '../componentes/LanzadorBarrido'
 import { Codigo } from '../componentes/Piezas'
 
 const UNIVERSO_INICIAL = 'AAPL, MSFT, GOOGL, AMZN, NVDA, JPM, XOM, JNJ, PG, KO'
@@ -24,25 +27,12 @@ export function interpretarUniverso(texto: string, nombresUniversos: string[]): 
   return limpio.split(/[\s,;]+/).filter(Boolean).map((t) => t.toUpperCase())
 }
 
-/** Líneas `parametro=1,2,3` -> `{parametro: [1,2,3]}`; devuelve el error de la primera línea inválida. */
-export function interpretarRejilla(texto: string): { rejilla: Record<string, unknown[]>; error?: string } {
-  const rejilla: Record<string, unknown[]> = {}
-  for (const linea of texto.split('\n').map((l) => l.trim()).filter(Boolean)) {
-    const [clave, resto] = linea.split('=')
-    const valores = (resto ?? '').split(',').map((v) => v.trim()).filter(Boolean)
-    if (!clave?.trim() || valores.length === 0) return { rejilla, error: `Línea inválida: «${linea}» (usa parametro=1,2,3)` }
-    rejilla[clave.trim()] = valores.map((v) => (v !== '' && !Number.isNaN(Number(v)) ? Number(v) : v))
-  }
-  return { rejilla }
-}
-
 export default function EstrategiaDetalle() {
   const { nombre } = useParams()
   const navegar = useNavigate()
   const { data: estrategia, isPending, error } = useEstrategia(nombre)
   const { data: universos } = useUniversos()
   const lanzar = useLanzarExperimento()
-  const barrido = useLanzarBarrido()
 
   const [parametros, setParametros] = useState<Valores>({})
   const [universo, setUniverso] = useState(UNIVERSO_INICIAL)
@@ -54,7 +44,6 @@ export default function EstrategiaDetalle() {
   const [frecuencia, setFrecuencia] = useState<Frecuencia | ''>('')
   const [benchmark, setBenchmark] = useState('SPY')
   const [semilla, setSemilla] = useState(42)
-  const [textoRejilla, setTextoRejilla] = useState('')
 
   useEffect(() => {
     if (estrategia) setParametros(valoresPorDefecto(estrategia.parametros_schema))
@@ -64,9 +53,7 @@ export default function EstrategiaDetalle() {
   if (error) return <CajaError error={error} />
 
   const erroresParametros = validarValores(estrategia.parametros_schema, parametros)
-  const { rejilla, error: errorRejilla } = interpretarRejilla(textoRejilla)
-  const hayBarrido = Object.keys(rejilla).length > 0
-  const invalido = Object.keys(erroresParametros).length > 0 || !!errorRejilla
+  const invalido = Object.keys(erroresParametros).length > 0
 
   const construirConfig = (): ConfiguracionExperimento => ({
     estrategia: estrategia.nombre,
@@ -85,13 +72,8 @@ export default function EstrategiaDetalle() {
   const enviar = (e: React.FormEvent) => {
     e.preventDefault()
     if (invalido) return
-    if (hayBarrido) {
-      barrido.mutate({ config: construirConfig(), rejilla }, { onSuccess: () => navegar('/experimentos') })
-    } else {
-      lanzar.mutate(construirConfig(), { onSuccess: (r) => navegar(`/experimentos/${r.id}`) })
-    }
+    lanzar.mutate(construirConfig(), { onSuccess: (r) => navegar(`/experimentos/${r.id}`) })
   }
-  const errorEnvio = lanzar.error ?? barrido.error
 
   return (
     <div className="space-y-5">
@@ -137,19 +119,14 @@ export default function EstrategiaDetalle() {
             <Campo id="semilla" etiqueta="Semilla"><input id="semilla" type="number" className="campo num" value={semilla} onChange={(e) => setSemilla(Number(e.target.value))} /></Campo>
           </fieldset>
 
-          <details className="border-t border-borde pt-3">
-            <summary className="cursor-pointer font-medium">Barrido de parámetros (opcional)</summary>
-            <label htmlFor="rejilla" className="mt-2 block text-xs text-suave">Una línea por parámetro: <code>top_k=3,5,8</code>. Se ejecuta el producto cartesiano.</label>
-            <textarea id="rejilla" className="campo num mt-1" rows={3} value={textoRejilla} onChange={(e) => setTextoRejilla(e.target.value)} placeholder="top_k=3,5,8" aria-invalid={!!errorRejilla} />
-            {errorRejilla && <p className="mt-1 text-xs text-neg">{errorRejilla}</p>}
-          </details>
-
-          {errorEnvio && <CajaError error={errorEnvio} titulo="No se pudo lanzar" />}
-          <button type="submit" className="boton boton-primario" disabled={invalido || lanzar.isPending || barrido.isPending}>
-            {lanzar.isPending || barrido.isPending ? 'Lanzando…' : hayBarrido ? 'Lanzar barrido' : 'Lanzar experimento'}
+          {lanzar.error && <CajaError error={lanzar.error} titulo="No se pudo lanzar" />}
+          <button type="submit" className="boton boton-primario" disabled={invalido || lanzar.isPending}>
+            {lanzar.isPending ? 'Lanzando…' : 'Lanzar experimento'}
           </button>
         </form>
       </div>
+
+      <LanzadorBarrido esquema={estrategia.parametros_schema} construirBase={construirConfig} parametrosValidos={!invalido} />
     </div>
   )
 }

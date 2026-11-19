@@ -8,15 +8,24 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { ErrorApi, pedir, querystring } from './cliente'
 import type {
   Comparacion,
+  ConfiguracionBarrido,
   ConfiguracionExperimento,
   CuentaPaper,
+  DetalleBarrido,
   DetalleExperimento,
   EstadoPaper,
   EstrategiaDetalle,
   HistorialPaper,
   LogBot,
+  ModoPermutacion,
   OrdenPaper,
+  PeticionPermutacion,
   PosicionPaper,
+  RespuestaPermutacion,
+  ResultadoReservado,
+  ResultadoValidacion,
+  ResultadoWalkForward,
+  ResumenBarrido,
   RespuestaEstrategias,
   ResumenExperimento,
   Universo,
@@ -75,15 +84,6 @@ export function useLanzarExperimento() {
   })
 }
 
-export function useLanzarBarrido() {
-  const cliente = useQueryClient()
-  return useMutation({
-    mutationFn: (peticion: { config: ConfiguracionExperimento; rejilla: Record<string, unknown[]> }) =>
-      pedir<{ ids: string[]; total: number }>('/api/experimentos/barrido', { metodo: 'POST', cuerpo: peticion }),
-    onSuccess: () => cliente.invalidateQueries({ queryKey: ['experimentos'] }),
-  })
-}
-
 export function useBorrarExperimento() {
   const cliente = useQueryClient()
   return useMutation({
@@ -91,6 +91,79 @@ export function useBorrarExperimento() {
     onSuccess: () => cliente.invalidateQueries({ queryKey: ['experimentos'] }),
   })
 }
+
+// ---- Barridos y validación ---------------------------------------------------------------
+
+/** ¿Hay algo en marcha en el barrido? (experimentos sin terminar o tareas de permutación activas). */
+export function barridoActivo(b: DetalleBarrido | undefined): boolean {
+  if (!b) return false
+  return (
+    b.estado === 'pendiente' ||
+    b.estado === 'en_curso' ||
+    Object.values(b.tareas ?? {}).some((t) => t.estado === 'pendiente' || t.estado === 'en_curso')
+  )
+}
+
+export const useBarridos = () =>
+  useQuery({
+    queryKey: ['barridos'],
+    queryFn: () => pedir<{ barridos: ResumenBarrido[] }>('/api/barridos'),
+    refetchInterval: (consulta) =>
+      consulta.state.data?.barridos.some((b) => b.estado === 'pendiente' || b.estado === 'en_curso') ? MS_SONDEO : false,
+  })
+
+export const useBarrido = (id: string | undefined) =>
+  useQuery({
+    queryKey: ['barrido', id],
+    queryFn: () => pedir<DetalleBarrido>(`/api/barridos/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+    refetchInterval: (consulta) => (barridoActivo(consulta.state.data) ? MS_SONDEO : false),
+  })
+
+export function useCrearBarrido() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (config: ConfiguracionBarrido) =>
+      pedir<{ id: string; ids: string[]; total: number; reutilizado: boolean }>('/api/barridos', { metodo: 'POST', cuerpo: config }),
+    onSuccess: () => {
+      cliente.invalidateQueries({ queryKey: ['barridos'] })
+      cliente.invalidateQueries({ queryKey: ['experimentos'] })
+    },
+  })
+}
+
+export function useBorrarBarrido() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, conExperimentos }: { id: string; conExperimentos: boolean }) =>
+      pedir<void>(`/api/barridos/${encodeURIComponent(id)}${querystring({ con_experimentos: conExperimentos })}`, { metodo: 'DELETE' }),
+    onSuccess: () => {
+      cliente.invalidateQueries({ queryKey: ['barridos'] })
+      cliente.invalidateQueries({ queryKey: ['experimentos'] })
+    },
+  })
+}
+
+/** Mutación POST sobre un barrido que, al acabar, refresca su detalle (donde se guardan los resultados). */
+function useAccionBarrido<E, R>(id: string, accion: string) {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (cuerpo?: E) => pedir<R>(`/api/barridos/${encodeURIComponent(id)}/${accion}`, { metodo: 'POST', cuerpo: cuerpo ?? {} }),
+    onSettled: () => cliente.invalidateQueries({ queryKey: ['barrido', id] }),
+  })
+}
+
+export const useValidarBarrido = (id: string) => useAccionBarrido<undefined, ResultadoValidacion>(id, 'validar')
+
+export const useWalkForwardBarrido = (id: string) =>
+  useAccionBarrido<{ ventana_entreno_dias: number; paso_dias: number }, ResultadoWalkForward>(id, 'walk_forward')
+
+export const useLanzarPermutacion = (id: string) => useAccionBarrido<PeticionPermutacion, RespuestaPermutacion>(id, 'permutacion')
+
+export const useCancelarPermutacion = (id: string) =>
+  useAccionBarrido<{ modo: ModoPermutacion }, { tarea: string; cancelando: boolean }>(id, 'permutacion/cancelar')
+
+export const useEvaluarReservado = (id: string) => useAccionBarrido<{ experimento: string }, ResultadoReservado>(id, 'reservado')
 
 // ---- Paper trading -----------------------------------------------------------------------
 
