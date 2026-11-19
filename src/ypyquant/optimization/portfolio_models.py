@@ -10,6 +10,7 @@ Clases principales:
 - PMPTMaxSortinoOptimizer — max Sortino via pypfopt.EfficientSemivariance (fallback SLSQP).
 - BayesSteinReturnsModel, BLPriorReturnsModel, BLMomentumReturnsModel — estimadores de µ del TFM (v0.4.0).
 - MaxSharpeQPOptimizer, MichaudOptimizer — max-Sharpe QP exacto y remuestreo eficiente de Michaud (v0.4.0).
+- RobustoElipsoideOptimizer, RobustoCajaOptimizer — optimización robusta con incertidumbre elipsoidal / de caja en µ (v0.5.0).
 
 Relacionado con: walk_forward.py (consume optimizadores), factor_models.py (provee μ),
 black_litterman.py (posterior BL), data_preprocessing.py (valida retornos),
@@ -24,6 +25,14 @@ from enum import Enum
 import numpy as np
 import pandas as pd
 
+from ypyquant.optimization.estimacion_robusta.elipsoide import (
+    delta_caja,
+    kappa_confianza,
+    matriz_incertidumbre,
+    optimizar_robusto_caja,
+    optimizar_robusto_elipsoide,
+    z_confianza,
+)
 from ypyquant.optimization.estimacion_robusta.estimadores_mu import (
     estimar_mu_bayes_stein,
     estimar_mu_bl_momentum,
@@ -106,6 +115,9 @@ class OptimizerType(str, Enum):
     # Estimación robusta del TFM (v0.4.0)
     MAX_SHARPE_QP = "max_sharpe_qp"
     MICHAUD = "michaud"
+    # Optimización robusta con incertidumbre en µ (v0.5.0)
+    ROBUSTO_ELIPSOIDE = "robusto_elipsoide"
+    ROBUSTO_CAJA = "robusto_caja"
 
 
 # ============================================================================
@@ -1706,3 +1718,144 @@ class MichaudOptimizer(PortfolioOptimizer):
                 'degenerate': degenerate, 'volatilidad_objetivo': self.volatilidad_objetivo,
             },
         }
+
+
+def _resultado_robusto(
+    optimizador: PortfolioOptimizer, expected_returns: pd.Series, risk_matrix: pd.DataFrame,
+    pesos: np.ndarray, estado: str, diagnostico: dict, volatilidad_objetivo: float | None,
+    risk_free_rate: float, parametros: dict,
+) -> dict:
+    """Empaqueta pesos, métricas y metadatos (estado del solver, diagnóstico del peor caso y avisos)."""
+    metricas = optimizador.calculate_metrics(pesos, expected_returns, risk_matrix, risk_free_rate)
+    metadatos = {'method': estado, 'success': estado != 'gmv_fallback', 'degenerate': estado.startswith('gmv'),
+                 'volatilidad_objetivo': volatilidad_objetivo, 'diagnostico': diagnostico, **parametros}
+    if estado == 'gmv_volatilidad_inalcanzable':
+        metadatos['avisos'] = [(
+            f"La volatilidad objetivo ({volatilidad_objetivo:.1%}) está por debajo de la mínima posible con "
+            f"estos activos ({metricas['volatility']:.1%}): se devuelve la cartera de mínima varianza. "
+            "Para bajar más hay que añadir liquidez."
+        )]
+    return {
+        'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
+        **metricas,
+        'optimizer_metadata': metadatos,
+    }
+
+
+def _observaciones_ventana(optimizador: PortfolioOptimizer, kwargs: dict) -> int:
+    """T: `n_observaciones` fijado en el optimizador o, si no, la longitud del histórico recibido."""
+    if optimizador.n_observaciones:
+        return int(optimizador.n_observaciones)
+    historico = kwargs.get('retornos_historicos')
+    if historico is None:
+        raise ValueError(
+            f"{type(optimizador).__name__} necesita 'retornos_historicos' (para conocer T) o `n_observaciones`."
+        )
+    return len(historico)
+
+
+class RobustoElipsoideOptimizer(PortfolioOptimizer):
+    """
+    Optimización robusta con incertidumbre elipsoidal en µ (Goldfarb-Iyengar 2003; Ceria-Stubbs 2006):
+
+        max_w  µ'w - κ‖Θ^{1/2}w‖ - (aversión/2) w'Σw   s.a.  1'w=1, 0<=w<=peso_maximo [, σ(w) <= σ*]
+
+    I: µ y Σ anualizados del modelo de rentabilidad/riesgo (como los demás optimizadores),
+       `constraints['max_weight']` y el kwarg `retornos_historicos` (lo rellena solo
+       `PortfolioOptimizationModel`) para conocer T, la longitud de la ventana de estimación
+       (o `n_observaciones` fijo). Θ = frequency·Σ/T (`tipo_theta`="sigma") o su diagonal.
+    T: `optimizar_robusto_elipsoide` (SOCP). κ = `kappa` si se da; si no, sqrt(χ²_N(`confianza`)).
+       Con `kappa`=0 reproduce media-varianza.
+    O: pesos + métricas; `optimizer_metadata` con `method`, `kappa`, `diagnostico`
+       (rentabilidad nominal y de peor caso, volatilidad, penalización) y `degenerate`.
+    """
+
+    requiere_historico = True
+
+    def __init__(
+        self, kappa: float | None = None, confianza: float = 0.9, tipo_theta: str = "sigma",
+        aversion: float | None = 2.5, volatilidad_objetivo: float | None = None, frequency: int = 252,
+        risk_free_rate: float = 0.0, n_observaciones: int | None = None,
+    ):
+        super().__init__(name="robusto_elipsoide")
+        self.kappa = kappa
+        self.confianza = confianza
+        self.tipo_theta = tipo_theta
+        self.aversion = aversion
+        self.volatilidad_objetivo = volatilidad_objetivo
+        self.frequency = frequency
+        self.risk_free_rate = risk_free_rate
+        self.n_observaciones = n_observaciones
+        self.config = {
+            'kappa': kappa, 'confianza': confianza, 'tipo_theta': tipo_theta, 'aversion': aversion,
+            'volatilidad_objetivo': volatilidad_objetivo, 'frequency': frequency,
+            'risk_free_rate': risk_free_rate, 'n_observaciones': n_observaciones,
+        }
+
+    def optimize(
+        self, expected_returns: pd.Series, risk_matrix: pd.DataFrame, constraints: dict | None = None, **kwargs
+    ) -> dict:
+        self.validate_inputs(expected_returns, risk_matrix)
+        peso_maximo = constraints.get('max_weight', 1.0) if constraints else 1.0
+        n_obs = _observaciones_ventana(self, kwargs)
+        sigma = risk_matrix.values
+        theta = matriz_incertidumbre(sigma, n_obs, self.tipo_theta, frecuencia=self.frequency)
+        kappa = self.kappa if self.kappa is not None else kappa_confianza(self.confianza, len(expected_returns))
+        pesos, estado, diagnostico = optimizar_robusto_elipsoide(
+            expected_returns.values, sigma, theta, kappa, aversion=self.aversion,
+            volatilidad_objetivo=self.volatilidad_objetivo or None, peso_maximo=peso_maximo,
+        )
+        return _resultado_robusto(
+            self, expected_returns, risk_matrix, pesos, estado, diagnostico, self.volatilidad_objetivo or None,
+            self.risk_free_rate, {'kappa': float(kappa), 'tipo_theta': self.tipo_theta, 'n_observaciones': n_obs},
+        )
+
+
+class RobustoCajaOptimizer(PortfolioOptimizer):
+    """
+    Optimización robusta con incertidumbre de caja |µ_i - µ̂_i| <= δ_i, δ_i = z·σ_i·sqrt(frequency/T):
+
+        max_w  (µ - δ)'w - (aversión/2) w'Σw   s.a.  1'w=1, 0<=w<=peso_maximo [, σ(w) <= σ*]
+
+    I, O: como `RobustoElipsoideOptimizer` (necesita T vía `retornos_historicos` o `n_observaciones`).
+    T: `optimizar_robusto_caja`. z = `z` si se da; si no, el cuantil bilateral normal de `confianza`.
+       Con z=0 reproduce media-varianza.
+    """
+
+    requiere_historico = True
+
+    def __init__(
+        self, z: float | None = None, confianza: float = 0.9, aversion: float | None = 2.5,
+        volatilidad_objetivo: float | None = None, frequency: int = 252, risk_free_rate: float = 0.0,
+        n_observaciones: int | None = None,
+    ):
+        super().__init__(name="robusto_caja")
+        self.z = z
+        self.confianza = confianza
+        self.aversion = aversion
+        self.volatilidad_objetivo = volatilidad_objetivo
+        self.frequency = frequency
+        self.risk_free_rate = risk_free_rate
+        self.n_observaciones = n_observaciones
+        self.config = {
+            'z': z, 'confianza': confianza, 'aversion': aversion, 'volatilidad_objetivo': volatilidad_objetivo,
+            'frequency': frequency, 'risk_free_rate': risk_free_rate, 'n_observaciones': n_observaciones,
+        }
+
+    def optimize(
+        self, expected_returns: pd.Series, risk_matrix: pd.DataFrame, constraints: dict | None = None, **kwargs
+    ) -> dict:
+        self.validate_inputs(expected_returns, risk_matrix)
+        peso_maximo = constraints.get('max_weight', 1.0) if constraints else 1.0
+        n_obs = _observaciones_ventana(self, kwargs)
+        sigma = risk_matrix.values
+        z = self.z if self.z is not None else z_confianza(self.confianza)
+        delta = delta_caja(sigma, n_obs, z, frecuencia=self.frequency)
+        pesos, estado, diagnostico = optimizar_robusto_caja(
+            expected_returns.values, sigma, delta, aversion=self.aversion,
+            volatilidad_objetivo=self.volatilidad_objetivo or None, peso_maximo=peso_maximo,
+        )
+        return _resultado_robusto(
+            self, expected_returns, risk_matrix, pesos, estado, diagnostico, self.volatilidad_objetivo or None,
+            self.risk_free_rate, {'z': float(z), 'n_observaciones': n_obs},
+        )

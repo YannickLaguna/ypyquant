@@ -9,7 +9,7 @@ estrategias_usuario/*.py ──┐
 src/ypyquant/estrategias/  │  núcleo (sin UI): Estrategia, registro, experimentos, almacén
   base.py        contrato Estrategia + adaptador al BacktestEngine
   registro.py    @registrar_estrategia, descubrimiento automático
-  incluidas.py   pesos_iguales, momentum, bayes_stein, michaud, bl_prior, preset_ypyquant
+  incluidas.py   pesos_iguales, momentum, bayes_stein, michaud, bl_prior, robusta_elipsoide, robusta_caja, preset_ypyquant
   experimentos.py ConfiguracionExperimento (huella), ejecutar_experimento, expandir_rejilla, validadores
   almacen.py     Parquet + DuckDB en data/experimentos/<id>/
   precios.py     yfinance con caché Parquet (data/cache_precios) y precios sintéticos

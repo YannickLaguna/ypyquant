@@ -69,6 +69,8 @@ from ypyquant.optimization.portfolio_models import (
     ReturnModelType,
     RiskModelType,
     RiskParityOptimizer,
+    RobustoCajaOptimizer,
+    RobustoElipsoideOptimizer,
     SampleCovarianceModel,
     SemiCovarianceModel,
 )
@@ -699,6 +701,7 @@ _RIESGO_CONSTRUIBLES = (
 _OPTIMIZADORES_CONSTRUIBLES = (
     OptimizerType.MAX_SHARPE, OptimizerType.MIN_VOLATILITY, OptimizerType.RISK_PARITY,
     OptimizerType.MAX_SHARPE_QP, OptimizerType.MICHAUD, OptimizerType.EFFICIENT_RISK,
+    OptimizerType.ROBUSTO_ELIPSOIDE, OptimizerType.ROBUSTO_CAJA,
 )
 
 # Parámetros de configuración admitidos por cada optimizador (el resto se descarta con un aviso).
@@ -713,6 +716,14 @@ _PARAMETROS_OPTIMIZADOR = {
     ),
     # Máxima rentabilidad con σ <= target_volatility: fija el riesgo con cualquier modelo de µ
     OptimizerType.EFFICIENT_RISK: ('risk_free_rate', 'target_volatility'),
+    # Incertidumbre en µ (v0.5.0): elipsoide (kappa/confianza/tipo_theta) y caja (z/confianza)
+    OptimizerType.ROBUSTO_ELIPSOIDE: (
+        'kappa', 'confianza', 'tipo_theta', 'aversion', 'volatilidad_objetivo', 'frequency', 'risk_free_rate',
+        'n_observaciones',
+    ),
+    OptimizerType.ROBUSTO_CAJA: (
+        'z', 'confianza', 'aversion', 'volatilidad_objetivo', 'frequency', 'risk_free_rate', 'n_observaciones',
+    ),
 }
 
 
@@ -786,6 +797,10 @@ def crear_modelo_personalizado(
         optimizador = MaxSharpeQPOptimizer(**parametros)
     elif optimizer_type == OptimizerType.MICHAUD:
         optimizador = MichaudOptimizer(**parametros)
+    elif optimizer_type == OptimizerType.ROBUSTO_ELIPSOIDE:
+        optimizador = RobustoElipsoideOptimizer(**parametros)
+    elif optimizer_type == OptimizerType.ROBUSTO_CAJA:
+        optimizador = RobustoCajaOptimizer(**parametros)
     else:
         raise ValueError(f"Unknown optimizer type: {optimizer_type}")
 
