@@ -9,6 +9,9 @@ tipados que la UI convierte en formulario:
   con Σ Ledoit-Wolf y max-Sharpe QP; tope de peso y penalización de turnover como parámetros
   (Michaud no admite penalización: promedia pesos de réplicas). Con `volatilidad_objetivo` > 0
   el objetivo pasa de max-Sharpe a máxima rentabilidad con σ <= objetivo (frontera eficiente).
+- `robusta_elipsoide`, `robusta_caja`: media-varianza robusta a la incertidumbre en µ (conjunto
+  elipsoidal de Goldfarb-Iyengar o de caja, `estimacion_robusta.elipsoide`); µ̂ muestral, Bayes-Stein
+  o BL-prior y Σ Ledoit-Wolf. El radio sale de una `confianza` o se fija directo (`kappa` / `z`).
 - `preset_ypyquant`: adaptador genérico que envuelve cualquier preset de `optimization/presets`
   (markowitz, risk_parity, pmpt_*, tfm_*...). Algunos presets (capm, fama_french_4) necesitan
   datos externos (tasa libre, factores) y pueden fallar sin red.
@@ -22,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -31,13 +34,20 @@ from pydantic import Field
 from ypyquant.estrategias.base import Estrategia, ParametrosBase, matriz_cierres, matriz_volumen
 from ypyquant.estrategias.registro import registrar_estrategia
 from ypyquant.optimization.estimacion_robusta import (
+    delta_caja,
     estimar_mu_bayes_stein,
     estimar_mu_bl_prior,
     estimar_mu_michaud,
+    estimar_mu_muestral,
     estimar_sigma_ledoit_wolf,
+    kappa_confianza,
+    matriz_incertidumbre,
     optimizar_max_sharpe,
+    optimizar_robusto_caja,
+    optimizar_robusto_elipsoide,
     optimizar_volatilidad_objetivo,
     pesos_mercado,
+    z_confianza,
 )
 from ypyquant.optimization.presets import PRESETS_REGISTRADOS
 
@@ -206,6 +216,125 @@ class BLPrior(_EstimadorRobusto):
         )
         mu = estimar_mu_bl_prior(sigma, pesos_mkt, p.delta)
         return self.optimizar(mu, sigma.values, 0.0, pesos_previos)
+
+
+class _ParametrosIncertidumbre(ParametrosBase):
+    """Parámetros comunes de las estrategias con incertidumbre en µ (elipsoide y caja)."""
+
+    estimador_mu: Literal["muestral", "bayes_stein", "bl_prior"] = Field(
+        "muestral",
+        description="Estimador de µ̂: media muestral, Bayes-Stein (contrae hacia la GMV) o prior de equilibrio de Black-Litterman",
+    )
+    confianza: float = Field(
+        0.9, ge=0.0, le=0.999,
+        description="Nivel de confianza del conjunto de incertidumbre (0,9 = 90 %). Solo se usa si el radio directo es 0. "
+        "0 = sin robustez (media-varianza)",
+    )
+    aversion: float = Field(2.5, ge=0.0, le=100.0, description="Aversión al riesgo λ del término de varianza (0 = solo robusto)")
+    volatilidad_objetivo: float = Field(
+        0.0, ge=0.0, le=1.0,
+        description="Volatilidad anual objetivo (0,12 = 12 %): añade la restricción σ <= objetivo. 0 = sin restricción",
+    )
+    delta: float = Field(2.5, gt=0.0, le=20.0, description="Aversión δ del mercado del prior (solo con estimador_mu = bl_prior)")
+    ventana_dias: int = Field(756, ge=60, le=2520, description="Días de historia para estimar µ y Σ (756 ≈ 3 años)")
+    peso_maximo: float = Field(0.30, gt=0.0, le=1.0, description="Tope de peso por activo")
+
+
+class _EstimadorIncertidumbre(_EstimadorRobusto):
+    """
+    Base de las estrategias robustas a la incertidumbre en µ: estima µ̂ y Σ (Ledoit-Wolf) en la
+    ventana, construye el conjunto de incertidumbre con T = nº de observaciones de la ventana y
+    resuelve el SOCP. Las subclases implementan `resolver(mu, sigma, n_observaciones)`.
+    """
+
+    def resolver(self, mu: np.ndarray, sigma: np.ndarray, n_observaciones: int) -> np.ndarray:
+        raise NotImplementedError
+
+    def estimar_mu(self, retornos: pd.DataFrame, sigma: pd.DataFrame, datos, fecha) -> np.ndarray:
+        """µ̂ anualizado según `estimador_mu`."""
+        p = self.parametros
+        if p.estimador_mu == "bayes_stein":
+            return estimar_mu_bayes_stein(retornos, sigma, DIAS_ANIO, si_t_menor_n2="ignorar")
+        if p.estimador_mu == "bl_prior":
+            cierres, volumen = matriz_cierres(datos), matriz_volumen(datos)
+            pesos_mkt, _fuente = pesos_mercado(
+                list(retornos.columns), pd.Timestamp(fecha), precios=cierres,
+                volumen=volumen if not volumen.empty else None,
+            )
+            return estimar_mu_bl_prior(sigma, pesos_mkt, p.delta)
+        return estimar_mu_muestral(retornos, DIAS_ANIO)
+
+    def estimar_pesos(self, retornos, datos, fecha, pesos_previos):
+        sigma = estimar_sigma_ledoit_wolf(retornos, DIAS_ANIO)
+        mu = self.estimar_mu(retornos, sigma, datos, fecha)
+        return self.resolver(mu, sigma.values, len(retornos))
+
+
+class _ParametrosElipsoide(_ParametrosIncertidumbre):
+    """Parámetros de `robusta_elipsoide`: añade el radio directo κ y la forma de Θ."""
+
+    kappa: float = Field(
+        0.0, ge=0.0, le=50.0,
+        description="Radio κ del elipsoide, directo. Si es > 0 prevalece sobre la confianza; 0 = usar la confianza. "
+        "Con muchos activos κ=√χ²_N(confianza) es muy grande: un κ pequeño (0,5-3) regulariza más",
+    )
+    tipo_theta: Literal["sigma", "diagonal"] = Field(
+        "sigma", description="Incertidumbre de µ̂: Θ=Σ/T (con correlaciones) o diag(Σ)/T (errores independientes)"
+    )
+
+
+@registrar_estrategia
+class RobustaElipsoide(_EstimadorIncertidumbre):
+    """Media-varianza robusta con incertidumbre elipsoidal en µ (Goldfarb-Iyengar 2003)."""
+
+    nombre = "robusta_elipsoide"
+    descripcion = (
+        "Media-varianza robusta: máx. µ̂'w - κ‖Θ^½w‖ - λ/2·w'Σw con elipsoide de incertidumbre en µ "
+        "(Goldfarb-Iyengar 2003); κ por confianza χ² o directo, long-only."
+    )
+    Parametros = _ParametrosElipsoide
+
+    def resolver(self, mu, sigma, n_observaciones):
+        p = self.parametros
+        theta = matriz_incertidumbre(sigma, n_observaciones, p.tipo_theta, frecuencia=DIAS_ANIO)
+        kappa = p.kappa if p.kappa > 0 else kappa_confianza(p.confianza, len(mu))
+        pesos, _estado, _diagnostico = optimizar_robusto_elipsoide(
+            mu, sigma, theta, kappa, aversion=p.aversion,
+            volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),
+        )
+        return pesos
+
+
+class _ParametrosCaja(_ParametrosIncertidumbre):
+    """Parámetros de `robusta_caja`: añade el z directo."""
+
+    z: float = Field(
+        0.0, ge=0.0, le=10.0,
+        description="Múltiplo z del error típico (δ_i = z·σ_i/√T), directo. Si es > 0 prevalece sobre la confianza; "
+        "0 = usar la confianza (z bilateral normal)",
+    )
+
+
+@registrar_estrategia
+class RobustaCaja(_EstimadorIncertidumbre):
+    """Media-varianza robusta con incertidumbre de caja |µ_i - µ̂_i| <= δ_i."""
+
+    nombre = "robusta_caja"
+    descripcion = (
+        "Media-varianza robusta con incertidumbre de caja: cada µ̂_i se rebaja z errores típicos "
+        "(δ_i = z·σ_i/√T) y se optimiza long-only."
+    )
+    Parametros = _ParametrosCaja
+
+    def resolver(self, mu, sigma, n_observaciones):
+        p = self.parametros
+        z = p.z if p.z > 0 else z_confianza(p.confianza)
+        delta = delta_caja(sigma, n_observaciones, z, frecuencia=DIAS_ANIO)
+        pesos, _estado, _diagnostico = optimizar_robusto_caja(
+            mu, sigma, delta, aversion=p.aversion,
+            volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),
+        )
+        return pesos
 
 
 @registrar_estrategia

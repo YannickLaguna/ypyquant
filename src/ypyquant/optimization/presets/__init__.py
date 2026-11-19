@@ -12,6 +12,7 @@ Estructura:
         ml_avanzados.py      ← Presets con Machine Learning (LSTM, PCA, SVM)
         pmpt.py              ← Presets Post-Modern Portfolio Theory
         tfm.py               ← Presets del TFM (Bayes-Stein, Michaud, BL-prior)
+        robusta.py           ← Preset de incertidumbre elipsoidal en µ (robusta_elipsoide)
 
 Uso:
     from ypyquant.optimization.presets import obtener_preset, listar_presets
@@ -129,7 +130,7 @@ def obtener_detalles_preset(nombre_preset: str, risk_free_rate: float = 0.02) ->
 # ============================================================================
 
 # Importar presets de cada módulo (esto los registra automáticamente)
-from ypyquant.optimization.presets import factor_models, pmpt, tfm, tradicionales  # noqa: F401 - registran los presets
+from ypyquant.optimization.presets import factor_models, pmpt, robusta, tfm, tradicionales  # noqa: F401 - registran los presets
 
 # Los presets ML avanzados se importan condicionalmente
 try:
