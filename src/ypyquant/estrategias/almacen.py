@@ -148,6 +148,20 @@ class AlmacenExperimentos:
     def existe(self, id_experimento: str) -> bool:
         return (self._carpeta(id_experimento) / "estado.json").exists()
 
+    def estado_de(self, id_experimento: str) -> str | None:
+        """Estado (`pendiente|en_curso|hecho|error`) del experimento; None si no existe (lectura ligera)."""
+        estado = _leer_json(self._carpeta(id_experimento) / "estado.json")
+        return estado["estado"] if estado else None
+
+    def leer_metricas(self, id_experimento: str) -> dict[str, Any] | None:
+        """Contenido de `metricas.json` (None si el experimento no ha terminado)."""
+        return _leer_json(self._carpeta(id_experimento) / "metricas.json")
+
+    def leer_equity(self, id_experimento: str) -> pd.DataFrame | None:
+        """DataFrame de `equity.parquet` (`fecha, equity, benchmark, drawdown, retorno`); None si no existe."""
+        ruta = self._carpeta(id_experimento) / "equity.parquet"
+        return pd.read_parquet(ruta) if ruta.exists() else None
+
     def _resumen(self, carpeta: Path) -> dict[str, Any] | None:
         config, estado = _leer_json(carpeta / "config.json"), _leer_json(carpeta / "estado.json")
         if config is None or estado is None:
