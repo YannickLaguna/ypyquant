@@ -808,3 +808,82 @@ class TestIntegracionStrategy:
         assert sum(resultado["weights"].values()) == pytest.approx(1.0, abs=1e-3)
         # distinto de la semivarianza + min_volatility que usaba antes
         assert resultado["optimizer_metadata"]["method"] in ("pypfopt_ecvar", "slsqp")
+
+
+# ============================================================================
+# Volatilidad objetivo como restricción (2026-11-19)
+# ============================================================================
+
+
+def _mu_sigma_tres_activos():
+    """Tres activos: volatilidades 10 %, 20 % y 30 %, rentabilidades 4 %, 8 % y 12 %, ρ = 0,2."""
+    vol = np.array([0.10, 0.20, 0.30])
+    corr = np.full((3, 3), 0.2) + 0.8 * np.eye(3)
+    return np.array([0.04, 0.08, 0.12]), np.outer(vol, vol) * corr
+
+
+class TestVolatilidadObjetivo:
+    def test_restriccion_activa_alcanza_la_volatilidad(self):
+        mu, sigma = _mu_sigma_tres_activos()
+        pesos, estado = er.optimizar_volatilidad_objetivo(mu, sigma, 0.15)
+        assert estado == "volatilidad_objetivo"
+        assert pesos.sum() == pytest.approx(1.0, abs=1e-8) and np.all(pesos >= -1e-9)
+        assert np.sqrt(pesos @ sigma @ pesos) == pytest.approx(0.15, abs=1e-4)
+
+    def test_mas_volatilidad_mas_rentabilidad(self):
+        mu, sigma = _mu_sigma_tres_activos()
+        rentabilidades = [mu @ er.optimizar_volatilidad_objetivo(mu, sigma, v)[0] for v in (0.11, 0.15, 0.2, 0.25)]
+        assert rentabilidades == sorted(rentabilidades)
+
+    def test_objetivo_por_debajo_de_la_minima_varianza_devuelve_gmv(self):
+        mu, sigma = _mu_sigma_tres_activos()
+        pesos, estado = er.optimizar_volatilidad_objetivo(mu, sigma, 0.02)
+        assert estado == "gmv_volatilidad_inalcanzable"
+        np.testing.assert_allclose(pesos, er.optimizar_min_varianza(sigma), atol=1e-4)
+
+    def test_objetivo_holgado_y_tope_de_peso(self):
+        mu, sigma = _mu_sigma_tres_activos()
+        pesos, estado = er.optimizar_volatilidad_objetivo(mu, sigma, 0.9)
+        assert estado == "volatilidad_objetivo_holgada"
+        np.testing.assert_allclose(pesos, [0, 0, 1], atol=1e-4)
+        pesos, _ = er.optimizar_volatilidad_objetivo(mu, sigma, 0.9, peso_maximo=0.5)
+        np.testing.assert_allclose(pesos, [0, 0.5, 0.5], atol=1e-4)
+
+    def test_max_sharpe_qp_con_volatilidad_objetivo(self):
+        modelo = crear_modelo_personalizado(
+            "bs", "bayes_stein", "ledoit_wolf", "max_sharpe_qp",
+            returns_config={"frequency": 252}, optimizer_config={"volatilidad_objetivo": 0.12},
+        )
+        resultado = modelo.optimize(_retornos_diarios())
+        assert resultado["optimizer_metadata"]["volatilidad_objetivo"] == 0.12
+        assert resultado["optimizer_metadata"]["method"] in ("volatilidad_objetivo", "volatilidad_objetivo_holgada",
+                                                             "gmv_volatilidad_inalcanzable")
+        if resultado["optimizer_metadata"]["method"] == "volatilidad_objetivo":
+            assert resultado["volatility"] == pytest.approx(0.12, abs=1e-3)
+
+    def test_black_litterman_con_efficient_risk(self):
+        # BL (prior de mercado) + restricción de volatilidad: la «versión BL» de fijar la volatilidad
+        retornos = _retornos_diarios()
+        caps = {t: float(i + 1) * 1e9 for i, t in enumerate(retornos.columns)}
+        modelo = crear_modelo_personalizado(
+            "bl", "bl_prior", "ledoit_wolf", "efficient_risk",
+            returns_config={"market_caps": caps}, optimizer_config={"target_volatility": 0.16},
+        )
+        resultado = modelo.optimize(retornos)
+        assert sum(resultado["weights"].values()) == pytest.approx(1.0, abs=1e-6)
+        assert resultado["optimizer_metadata"]["volatilidad_objetivo"] == 0.16
+        assert resultado["volatility"] <= 0.16 + 1e-3 or resultado["optimizer_metadata"]["method"] == "gmv_volatilidad_inalcanzable"
+
+    def test_efficient_risk_sin_objetivo_lanza(self):
+        modelo = crear_modelo_personalizado("m", "historical_mean", "ledoit_wolf", "efficient_risk")
+        with pytest.raises(ValueError, match="target_volatility"):
+            modelo.optimize(_retornos_diarios())
+
+    def test_michaud_con_volatilidad_objetivo(self):
+        modelo = crear_modelo_personalizado(
+            "mi", "historical_mean", "ledoit_wolf", "michaud",
+            optimizer_config={"n_replicas": 6, "seed": 1, "volatilidad_objetivo": 0.12},
+        )
+        resultado = modelo.optimize(_retornos_diarios())
+        assert sum(resultado["weights"].values()) == pytest.approx(1.0, abs=1e-6)
+        assert resultado["optimizer_metadata"]["volatilidad_objetivo"] == 0.12

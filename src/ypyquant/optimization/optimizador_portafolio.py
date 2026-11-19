@@ -698,7 +698,7 @@ _RIESGO_CONSTRUIBLES = (
 )
 _OPTIMIZADORES_CONSTRUIBLES = (
     OptimizerType.MAX_SHARPE, OptimizerType.MIN_VOLATILITY, OptimizerType.RISK_PARITY,
-    OptimizerType.MAX_SHARPE_QP, OptimizerType.MICHAUD,
+    OptimizerType.MAX_SHARPE_QP, OptimizerType.MICHAUD, OptimizerType.EFFICIENT_RISK,
 )
 
 # Parámetros de configuración admitidos por cada optimizador (el resto se descarta con un aviso).
@@ -706,10 +706,13 @@ _PARAMETROS_OPTIMIZADOR = {
     OptimizerType.MAX_SHARPE: ('risk_free_rate',),
     OptimizerType.MIN_VOLATILITY: ('risk_free_rate',),
     OptimizerType.RISK_PARITY: (),
-    OptimizerType.MAX_SHARPE_QP: ('risk_free_rate', 'penalizacion_turnover'),
+    OptimizerType.MAX_SHARPE_QP: ('risk_free_rate', 'penalizacion_turnover', 'volatilidad_objetivo'),
     OptimizerType.MICHAUD: (
         'n_replicas', 'metodo_bootstrap', 'longitud_media_bloque', 'frequency', 'risk_free_rate', 'seed',
+        'volatilidad_objetivo',
     ),
+    # Máxima rentabilidad con σ <= target_volatility: fija el riesgo con cualquier modelo de µ
+    OptimizerType.EFFICIENT_RISK: ('risk_free_rate', 'target_volatility'),
 }
 
 
@@ -775,6 +778,8 @@ def crear_modelo_personalizado(
         optimizador = MarkowitzOptimizer(objective="max_sharpe", **parametros)
     elif optimizer_type == OptimizerType.MIN_VOLATILITY:
         optimizador = MarkowitzOptimizer(objective="min_volatility", **parametros)
+    elif optimizer_type == OptimizerType.EFFICIENT_RISK:
+        optimizador = MarkowitzOptimizer(objective="efficient_risk", **parametros)
     elif optimizer_type == OptimizerType.RISK_PARITY:
         optimizador = RiskParityOptimizer()
     elif optimizer_type == OptimizerType.MAX_SHARPE_QP:

@@ -30,7 +30,7 @@ from ypyquant.optimization.estimacion_robusta.estimadores_mu import (
     estimar_mu_bl_prior,
     estimar_mu_michaud,
 )
-from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe, optimizar_volatilidad_objetivo
 from ypyquant.optimization.estimacion_robusta.sigma import estimar_sigma_ledoit_wolf
 from ypyquant.optimization.estimacion_robusta.w_mercado import CapitalizacionEstatica, pesos_mercado
 
@@ -716,20 +716,24 @@ class MarkowitzOptimizer(PortfolioOptimizer):
     """
     Optimización media-varianza clásica (Markowitz).
 
-    I: μ (Series), Σ (DataFrame), objective='max_sharpe'|'min_volatility'.
-    T: pypfopt.EfficientFrontier con backend CVXPY (fallback SLSQP si pypfopt falla).
+    I: μ (Series), Σ (DataFrame), objective='max_sharpe'|'min_volatility'|'efficient_risk'
+       (este último con `target_volatility`, σ anual objetivo).
+    T: pypfopt.EfficientFrontier con backend CVXPY (fallback SLSQP si pypfopt falla);
+       efficient_risk con `optimizar_volatilidad_objetivo` (máx. µ'w con σ <= objetivo).
     O: Pesos óptimos + métricas (retorno esperado, volatilidad, Sharpe).
     """
 
     def __init__(
         self,
         objective: str = "max_sharpe",
-        risk_free_rate: float = 0.02
+        risk_free_rate: float = 0.02,
+        target_volatility: float | None = None,
     ):
         super().__init__(name=f"markowitz_{objective}")
         self.objective = objective
         self.risk_free_rate = risk_free_rate
-        self.config = {'objective': objective, 'risk_free_rate': risk_free_rate}
+        self.target_volatility = target_volatility
+        self.config = {'objective': objective, 'risk_free_rate': risk_free_rate, 'target_volatility': target_volatility}
 
     def optimize(
         self,
@@ -741,6 +745,13 @@ class MarkowitzOptimizer(PortfolioOptimizer):
         self.validate_inputs(expected_returns, risk_matrix)
 
         max_weight = constraints.get('max_weight', 1.0) if constraints else 1.0
+
+        if self.objective == "efficient_risk":
+            if not self.target_volatility:
+                raise ValueError("efficient_risk requiere target_volatility (σ anual objetivo, p. ej. 0.12)")
+            return _resultado_volatilidad_objetivo(
+                self, expected_returns, risk_matrix, self.target_volatility, max_weight, self.risk_free_rate
+            )
 
         # Intentar con pypfopt.EfficientFrontier (backend CVXPY, más estable numéricamente)
         try:
@@ -1556,27 +1567,61 @@ class BLMomentumReturnsModel(_ModeloConPesosMercado):
         return sigma + self.covarianza_posterior_
 
 
+def _resultado_volatilidad_objetivo(
+    optimizador: PortfolioOptimizer, expected_returns: pd.Series, risk_matrix: pd.DataFrame,
+    volatilidad_objetivo: float, peso_maximo: float, risk_free_rate: float,
+) -> dict:
+    """Resuelve máx. µ'w con σ <= objetivo y empaqueta pesos, métricas y metadatos (estado del solver)."""
+    pesos, estado = optimizar_volatilidad_objetivo(
+        expected_returns.values, risk_matrix.values, volatilidad_objetivo, peso_maximo=peso_maximo
+    )
+    metricas = optimizador.calculate_metrics(pesos, expected_returns, risk_matrix, risk_free_rate)
+    metadatos = {'method': estado, 'success': estado != 'gmv_fallback', 'volatilidad_objetivo': volatilidad_objetivo,
+                 'degenerate': estado.startswith('gmv')}
+    if estado == 'gmv_volatilidad_inalcanzable':
+        metadatos['avisos'] = [(
+            f"La volatilidad objetivo ({volatilidad_objetivo:.1%}) está por debajo de la mínima posible con "
+            f"estos activos ({metricas['volatility']:.1%}): se devuelve la cartera de mínima varianza. "
+            "Para bajar más hay que añadir liquidez."
+        )]
+    return {
+        'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
+        **metricas,
+        'optimizer_metadata': metadatos,
+    }
+
+
 class MaxSharpeQPOptimizer(PortfolioOptimizer):
     """
     Max-Sharpe long-only exacto vía QP de Cornuéjols-Tütüncü, con cascada QP → SLSQP → pypfopt → GMV.
 
     I: µ, Σ (anualizados), `constraints['max_weight']`, kwarg opcional `pesos_previos`
        (con `penalizacion_turnover` > 0 activa la variante media-varianza con L1).
-    T: `optimizar_max_sharpe` (estimacion_robusta.max_sharpe_qp).
+       Con `volatilidad_objetivo` (σ anual) cambia de objetivo: máx. µ'w con σ <= objetivo.
+    T: `optimizar_max_sharpe` u `optimizar_volatilidad_objetivo` (estimacion_robusta.max_sharpe_qp).
     O: pesos + métricas; `optimizer_metadata` incluye `method` (estado del solver) y `degenerate`.
     """
 
-    def __init__(self, risk_free_rate: float = 0.0, penalizacion_turnover: float = 0.0):
+    def __init__(
+        self, risk_free_rate: float = 0.0, penalizacion_turnover: float = 0.0,
+        volatilidad_objetivo: float | None = None,
+    ):
         super().__init__(name="max_sharpe_qp")
         self.risk_free_rate = risk_free_rate
         self.penalizacion_turnover = penalizacion_turnover
-        self.config = {'risk_free_rate': risk_free_rate, 'penalizacion_turnover': penalizacion_turnover}
+        self.volatilidad_objetivo = volatilidad_objetivo
+        self.config = {'risk_free_rate': risk_free_rate, 'penalizacion_turnover': penalizacion_turnover,
+                       'volatilidad_objetivo': volatilidad_objetivo}
 
     def optimize(
         self, expected_returns: pd.Series, risk_matrix: pd.DataFrame, constraints: dict | None = None, **kwargs
     ) -> dict:
         self.validate_inputs(expected_returns, risk_matrix)
         peso_maximo = constraints.get('max_weight', 1.0) if constraints else 1.0
+        if self.volatilidad_objetivo:
+            return _resultado_volatilidad_objetivo(
+                self, expected_returns, risk_matrix, self.volatilidad_objetivo, peso_maximo, self.risk_free_rate
+            )
         pesos, degenerate, estado = optimizar_max_sharpe(
             expected_returns.values, risk_matrix.values, rf=self.risk_free_rate, peso_maximo=peso_maximo,
             pesos_previos=kwargs.get('pesos_previos'), penalizacion_turnover=self.penalizacion_turnover,
@@ -1597,7 +1642,10 @@ class MichaudOptimizer(PortfolioOptimizer):
     I: kwarg `retornos_historicos` (DataFrame T x N, en la frecuencia `frequency`); si se usa vía
        `PortfolioOptimizationModel` se rellena solo con `returns_df`. µ y Σ recibidos solo
        sirven para calcular las métricas del resultado (Michaud reestima los suyos).
-    T: `estimar_mu_michaud` con `metodo_bootstrap` "iid" o "bloques" (Politis-Romano).
+    T: `estimar_mu_michaud` con `metodo_bootstrap` "iid" o "bloques" (Politis-Romano); con
+       `volatilidad_objetivo` cada réplica resuelve máx. µ'w con σ <= objetivo en vez de max-Sharpe
+       (el promedio cumple σ <= objetivo con cada Σ de réplica, por convexidad; con la Σ completa,
+       aproximadamente).
     O: pesos promedio + métricas + `optimizer_metadata` con `frac_contingencia` y `degenerate`
        (mayoría de réplicas en contingencia GMV).
     """
@@ -1612,6 +1660,7 @@ class MichaudOptimizer(PortfolioOptimizer):
         frequency: int = 252,
         risk_free_rate: float = 0.0,
         seed: int | None = None,
+        volatilidad_objetivo: float | None = None,
     ):
         super().__init__(name="michaud")
         self.n_replicas = n_replicas
@@ -1620,10 +1669,11 @@ class MichaudOptimizer(PortfolioOptimizer):
         self.frequency = frequency
         self.risk_free_rate = risk_free_rate
         self.seed = seed
+        self.volatilidad_objetivo = volatilidad_objetivo
         self.config = {
             'n_replicas': n_replicas, 'metodo_bootstrap': metodo_bootstrap,
             'longitud_media_bloque': longitud_media_bloque, 'frequency': frequency,
-            'risk_free_rate': risk_free_rate, 'seed': seed,
+            'risk_free_rate': risk_free_rate, 'seed': seed, 'volatilidad_objetivo': volatilidad_objetivo,
         }
 
     def optimize(
@@ -1641,6 +1691,7 @@ class MichaudOptimizer(PortfolioOptimizer):
             peso_maximo=peso_maximo, devolver_diagnostico=True, metodo_bootstrap=self.metodo_bootstrap,
             longitud_media_bloque=self.longitud_media_bloque,
             rng=np.random.default_rng(self.seed) if self.seed is not None else None, frecuencia=self.frequency,
+            volatilidad_objetivo=self.volatilidad_objetivo,
         )
         metricas = self.calculate_metrics(pesos, expected_returns, risk_matrix, self.risk_free_rate)
         degenerate = bool(frac_contingencia > 0.5) if np.isfinite(frac_contingencia) else False
@@ -1650,6 +1701,6 @@ class MichaudOptimizer(PortfolioOptimizer):
             'optimizer_metadata': {
                 'method': 'michaud_bootstrap', 'success': True, 'n_replicas': self.n_replicas,
                 'metodo_bootstrap': self.metodo_bootstrap, 'frac_contingencia': float(frac_contingencia),
-                'degenerate': degenerate,
+                'degenerate': degenerate, 'volatilidad_objetivo': self.volatilidad_objetivo,
             },
         }

@@ -27,6 +27,10 @@ max-Sharpe y λ>0 es una regularización continua hacia w_prev. Ya NO es el QP
 exacto de Sharpe: el Sharpe de la cartera resultante es <= al de w_t. Estado:
 `"qp_turnover"`. Si la contingencia GMV se activa, la penalización no se aplica.
 
+Volatilidad objetivo (`optimizar_volatilidad_objetivo`, 2026-11-19): máxima rentabilidad con
+σ <= σ* (frontera eficiente long-only), alternativa a max-Sharpe para fijar el riesgo de la
+cartera con cualquier estimador de µ, en vez de mezclar la tangente con liquidez.
+
 Se relaciona con: estimadores_mu.py (Michaud lo llama por réplica), rejilla.py
 (motor walk-forward), portfolio_models.MaxSharpeQPOptimizer (envoltorio Strategy)
 y el módulo original del TFM `estrategias_rejilla_v2.py` (del que se porta).
@@ -270,3 +274,71 @@ def optimizar_max_sharpe(
             return penalizados, False, "qp_turnover"
         logger.warning("[MaxSharpe] La penalización de turnover no se pudo resolver; se mantiene la tangente.")
     return pesos, degenerate, estado
+
+
+def optimizar_volatilidad_objetivo(
+    mu: np.ndarray,
+    sigma: np.ndarray,
+    volatilidad_objetivo: float,
+    peso_maximo: float = 1.0,
+    tolerancia: float = 1e-6,
+) -> tuple[np.ndarray, str]:
+    """
+    Máxima rentabilidad esperada con la volatilidad acotada (punto de la frontera eficiente
+    long-only con σ = objetivo; el `efficient_risk` de PyPortfolioOpt):
+
+        max_w  µ'w   s.a.  w'Σw <= σ*²,  1'w = 1,  0 <= w <= peso_maximo.
+
+    Es un problema cónico de segundo orden (cvxpy; CLARABEL, ECOS o SCS). Sirve con cualquier
+    estimador de µ (muestral, Bayes-Stein, Black-Litterman…): el estimador decide qué
+    rentabilidad se espera y la restricción, cuánto riesgo se acepta.
+
+    Parámetros
+    ----------
+    mu, sigma : retornos esperados y covarianza en la misma unidad (anualizados).
+    volatilidad_objetivo : σ* en la unidad de sigma (p. ej. 0.12 = 12 % anual).
+    peso_maximo : tope de peso por activo.
+
+    Retorna
+    -------
+    (pesos, estado) con estado en:
+      - "volatilidad_objetivo": la restricción está activa (σ de la cartera ≈ σ*);
+      - "volatilidad_objetivo_holgada": σ* supera la volatilidad de la cartera de máxima
+        rentabilidad, que es la que se devuelve (σ < σ*);
+      - "gmv_volatilidad_inalcanzable": σ* está por debajo de la mínima varianza; se devuelve
+        la GMV (para bajar más hace falta liquidez: mezclar con efectivo);
+      - "gmv_fallback": el solver falló; se devuelve la GMV.
+    """
+    import cvxpy as cp
+
+    mu = np.asarray(mu, dtype=float)
+    sigma = np.asarray(sigma, dtype=float)
+    if volatilidad_objetivo is None or volatilidad_objetivo <= 0:
+        raise ValueError("volatilidad_objetivo debe ser > 0")
+    n = len(mu)
+    gmv = optimizar_min_varianza(sigma, peso_maximo)
+    if np.sqrt(gmv @ sigma @ gmv) > volatilidad_objetivo + tolerancia:
+        return gmv, "gmv_volatilidad_inalcanzable"
+
+    try:
+        L = np.linalg.cholesky(sigma + 1e-10 * np.eye(n))
+    except np.linalg.LinAlgError:
+        return gmv, "gmv_fallback"
+    w = cp.Variable(n)
+    restricciones = [cp.sum(w) == 1, w >= 0, cp.norm(L.T @ w, 2) <= volatilidad_objetivo]
+    if peso_maximo < 1.0:
+        restricciones.append(w <= peso_maximo)
+    problema = cp.Problem(cp.Maximize(mu @ w), restricciones)
+    for solver in ("CLARABEL", "ECOS", "SCS"):
+        try:
+            problema.solve(solver=solver)
+        except Exception:  # noqa: BLE001, S112 - se prueba el siguiente solver
+            continue
+        if problema.status in ("optimal", "optimal_inaccurate") and w.value is not None:
+            pesos = np.clip(np.asarray(w.value, dtype=float), 0.0, None)
+            pesos /= pesos.sum()
+            vol = float(np.sqrt(pesos @ sigma @ pesos))
+            activa = vol >= volatilidad_objetivo * (1 - 1e-3)
+            return pesos, "volatilidad_objetivo" if activa else "volatilidad_objetivo_holgada"
+    logger.warning("[VolatilidadObjetivo] Ningún solver resolvió el problema; se devuelve la GMV.")
+    return gmv, "gmv_fallback"

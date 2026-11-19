@@ -7,7 +7,8 @@ tipados que la UI convierte en formulario:
 - `momentum`: top-k por retorno acumulado 12-1 (salta el último mes), pesos iguales.
 - `bayes_stein`, `michaud`, `bl_prior`: los estimadores del TFM (`optimization.estimacion_robusta`)
   con Σ Ledoit-Wolf y max-Sharpe QP; tope de peso y penalización de turnover como parámetros
-  (Michaud no admite penalización: promedia pesos de réplicas).
+  (Michaud no admite penalización: promedia pesos de réplicas). Con `volatilidad_objetivo` > 0
+  el objetivo pasa de max-Sharpe a máxima rentabilidad con σ <= objetivo (frontera eficiente).
 - `preset_ypyquant`: adaptador genérico que envuelve cualquier preset de `optimization/presets`
   (markowitz, risk_parity, pmpt_*, tfm_*...). Algunos presets (capm, fama_french_4) necesitan
   datos externos (tasa libre, factores) y pueden fallar sin red.
@@ -35,6 +36,7 @@ from ypyquant.optimization.estimacion_robusta import (
     estimar_mu_michaud,
     estimar_sigma_ledoit_wolf,
     optimizar_max_sharpe,
+    optimizar_volatilidad_objetivo,
     pesos_mercado,
 )
 from ypyquant.optimization.presets import PRESETS_REGISTRADOS
@@ -105,6 +107,10 @@ class _ParametrosEstimador(ParametrosBase):
     peso_maximo: float = Field(0.30, gt=0.0, le=1.0, description="Tope de peso por activo")
     penalizacion_turnover: float = Field(0.0, ge=0.0, le=100.0, description="λ de penalización de turnover (0 = sin)")
     tasa_libre_riesgo: float = Field(0.0, ge=0.0, le=0.2, description="Tasa libre anual para el max-Sharpe")
+    volatilidad_objetivo: float = Field(
+        0.0, ge=0.0, le=1.0,
+        description="Volatilidad anual objetivo (0,12 = 12 %): máxima rentabilidad con esa σ. 0 = max-Sharpe",
+    )
 
 
 class _EstimadorRobusto(Estrategia):
@@ -120,6 +126,18 @@ class _EstimadorRobusto(Estrategia):
 
     def estimar_pesos(self, retornos: pd.DataFrame, datos, fecha, pesos_previos: np.ndarray | None) -> np.ndarray:
         raise NotImplementedError
+
+    def optimizar(self, mu: np.ndarray, sigma: np.ndarray, rf: float, pesos_previos: np.ndarray | None) -> np.ndarray:
+        """Max-Sharpe (con penalización de turnover) o, si hay `volatilidad_objetivo`, máx. µ'w con σ <= objetivo."""
+        p = self.parametros
+        if p.volatilidad_objetivo > 0:
+            pesos, _ = optimizar_volatilidad_objetivo(mu - rf, sigma, p.volatilidad_objetivo, peso_maximo=p.peso_maximo)
+            return pesos
+        pesos, _, _ = optimizar_max_sharpe(
+            mu, sigma, rf=rf, peso_maximo=p.peso_maximo,
+            pesos_previos=pesos_previos, penalizacion_turnover=p.penalizacion_turnover,
+        )
+        return pesos
 
     def generar_pesos(self, fecha: datetime, datos, estado: dict[str, Any]) -> dict[str, float]:
         p = self.parametros
@@ -144,11 +162,7 @@ class BayesStein(_EstimadorRobusto):
         p = self.parametros
         sigma = estimar_sigma_ledoit_wolf(retornos, DIAS_ANIO)
         mu = estimar_mu_bayes_stein(retornos, sigma, DIAS_ANIO, si_t_menor_n2="ignorar")
-        pesos, _, _ = optimizar_max_sharpe(
-            mu, sigma.values, rf=p.tasa_libre_riesgo, peso_maximo=p.peso_maximo,
-            pesos_previos=pesos_previos, penalizacion_turnover=p.penalizacion_turnover,
-        )
-        return pesos
+        return self.optimizar(mu, sigma.values, p.tasa_libre_riesgo, pesos_previos)
 
 
 @registrar_estrategia
@@ -168,6 +182,7 @@ class Michaud(_EstimadorRobusto):
         return estimar_mu_michaud(
             retornos, n_replicas=p.n_replicas, rf=p.tasa_libre_riesgo / DIAS_ANIO,
             peso_maximo=p.peso_maximo, rng=rng, frecuencia=DIAS_ANIO,
+            volatilidad_objetivo=p.volatilidad_objetivo or None,
         )
 
 
@@ -190,11 +205,7 @@ class BLPrior(_EstimadorRobusto):
             activos, pd.Timestamp(fecha), precios=cierres, volumen=volumen if not volumen.empty else None
         )
         mu = estimar_mu_bl_prior(sigma, pesos_mkt, p.delta)
-        pesos, _, _ = optimizar_max_sharpe(
-            mu, sigma.values, rf=0.0, peso_maximo=p.peso_maximo,
-            pesos_previos=pesos_previos, penalizacion_turnover=p.penalizacion_turnover,
-        )
-        return pesos
+        return self.optimizar(mu, sigma.values, 0.0, pesos_previos)
 
 
 @registrar_estrategia

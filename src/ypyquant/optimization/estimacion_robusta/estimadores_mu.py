@@ -39,7 +39,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe, optimizar_volatilidad_objetivo
 from ypyquant.optimization.estimacion_robusta.sigma import FRECUENCIA_MENSUAL, estimar_sigma_ledoit_wolf
 
 logger = logging.getLogger(__name__)
@@ -287,6 +287,7 @@ def estimar_mu_michaud(
     longitud_media_bloque: float = 6.0,
     rng: np.random.Generator | None = None,
     frecuencia: int = FRECUENCIA_MENSUAL,
+    volatilidad_objetivo: float | None = None,
 ):
     """
     Remuestreo eficiente de Michaud (1989): en cada una de `n_replicas` réplicas se
@@ -302,6 +303,9 @@ def estimar_mu_michaud(
     longitud_media_bloque : L de Politis-Romano (solo para "bloques"); regla práctica
         L ≈ T^(1/3); 6 meses por defecto.
     rng : generador explícito; None usa el estado global de numpy (como el TFM).
+    volatilidad_objetivo : σ anual; si se da, cada réplica resuelve máx. µ'w con σ <= objetivo
+        (frontera eficiente) en vez de max-Sharpe. La «contingencia» cuenta entonces las
+        réplicas que no alcanzan el objetivo y devuelven la GMV.
     devolver_diagnostico : si True devuelve `(pesos, frac_contingencia)` con la fracción
         de réplicas que usaron la contingencia GMV (NaN si ninguna convergió).
 
@@ -321,9 +325,15 @@ def estimar_mu_michaud(
             mu_r = muestra.mean().values * frecuencia
             sigma_r = estimar_sigma_ledoit_wolf(muestra, frecuencia).values
 
-            pesos, degenerate_r, _ = optimizar_max_sharpe(
-                mu=mu_r - rf * frecuencia, sigma=sigma_r, peso_maximo=peso_maximo
-            )
+            if volatilidad_objetivo:
+                pesos, estado_r = optimizar_volatilidad_objetivo(
+                    mu_r - rf * frecuencia, sigma_r, volatilidad_objetivo, peso_maximo=peso_maximo
+                )
+                degenerate_r = estado_r.startswith("gmv")
+            else:
+                pesos, degenerate_r, _ = optimizar_max_sharpe(
+                    mu=mu_r - rf * frecuencia, sigma=sigma_r, peso_maximo=peso_maximo
+                )
             pesos_acumulados += pesos
             exitos += 1
             if degenerate_r:

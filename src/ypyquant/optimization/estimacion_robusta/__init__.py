@@ -25,7 +25,11 @@ from ypyquant.optimization.estimacion_robusta.estimadores_mu import (
     estimar_mu_muestral,
     indices_bootstrap,
 )
-from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe, optimizar_min_varianza
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import (
+    optimizar_max_sharpe,
+    optimizar_min_varianza,
+    optimizar_volatilidad_objetivo,
+)
 from ypyquant.optimization.estimacion_robusta.rejilla import (
     ESTRATEGIAS_REJILLA,
     CargadorDatosRejilla,
@@ -80,6 +84,7 @@ __all__ = [
     "indices_bootstrap",
     "optimizar_max_sharpe",
     "optimizar_min_varianza",
+    "optimizar_volatilidad_objetivo",
     "pesos_mercado",
     "preparar_panel",
     "seed_para",

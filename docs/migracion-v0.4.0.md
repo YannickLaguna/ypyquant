@@ -135,3 +135,34 @@ parquet son anteriores al arreglo por hash del 2026-08-31) y `rng_global_legado=
   activos líquidos de baja capitalización.
 - OSQP usa tolerancias por defecto y `warm_start`: los pesos no son reproducibles bit a bit entre procesos (diferencias ~1e-4 en
   la paridad); un aviso «Solution may be inaccurate» de cvxpy es posible con datos mal escalados.
+
+## Añadido el 2026-11-19 (antes de publicar la etiqueta)
+
+### Volatilidad objetivo como restricción
+
+`optimizar_volatilidad_objetivo(mu, sigma, volatilidad_objetivo, peso_maximo)` resuelve
+`max µ'w  s.a.  w'Σw <= σ*², 1'w = 1, 0 <= w <= peso_maximo`, el punto de la frontera eficiente
+long-only con la volatilidad pedida. Sirve con cualquier estimador de µ, también Black-Litterman:
+el estimador fija la rentabilidad esperada y la restricción fija el riesgo.
+
+| Dónde | Cómo se activa |
+|---|---|
+| `crear_modelo_personalizado` | `optimizer_type="efficient_risk"` con `optimizer_config={"target_volatility": 0.12}` |
+| `MaxSharpeQPOptimizer` | `volatilidad_objetivo=0.12` (sin él, max-Sharpe como antes) |
+| `MichaudOptimizer` / `estimar_mu_michaud` | `volatilidad_objetivo=0.12`: cada réplica resuelve el problema con σ acotada |
+| Estrategias `bayes_stein`, `bl_prior`, `michaud` (UI) | parámetro `volatilidad_objetivo` > 0 (0 = max-Sharpe) |
+
+Estados en `optimizer_metadata["method"]`: `volatilidad_objetivo` (restricción activa),
+`volatilidad_objetivo_holgada` (σ* supera la de la cartera de máxima rentabilidad, que es la que se
+devuelve), `gmv_volatilidad_inalcanzable` (σ* por debajo de la mínima varianza: se devuelve la GMV con
+un aviso; para bajar más hace falta liquidez) y `gmv_fallback` (fallo del solver).
+
+### Motor de backtest
+
+- **Rebalanceo en días hábiles**: la fecha programada que cae en fin de semana o festivo pasa al primer
+  día de trading siguiente (convención de bt `RunMonthly` y zipline `date_rules.month_start`). Antes se
+  perdía: un mensual de 3 años hacía unos 27 rebalanceos en vez de 36. **Cambia los resultados**
+  de los backtests mensuales, trimestrales y semanales respecto a la 0.3.0.
+- `BacktestResult.rotaciones`: rotación real de cada rebalanceo (de los pesos a la deriva al objetivo).
+  El turnover de los experimentos la usa; antes comparaba pesos objetivo y una cartera de pesos fijos
+  salía con 0 %.

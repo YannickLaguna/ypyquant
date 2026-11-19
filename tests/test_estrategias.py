@@ -319,3 +319,16 @@ def test_cargador_cache_usa_parquet_y_no_vuelve_a_descargar(tmp_path, monkeypatc
     sin_red = CargadorPreciosCache(tmp_path, descargar=False)
     assert sin_red("ZZZ", "2020-01-01", "2020-12-31") is None
     assert not sin_red("AAA", "2019-06-01", "2020-12-31").empty
+
+
+@pytest.mark.parametrize("estrategia", ["bayes_stein", "bl_prior", "michaud"])
+def test_estrategias_tfm_con_volatilidad_objetivo(estrategia):
+    # El toggle de la UI: con volatilidad_objetivo > 0 la cartera se optimiza a esa σ (no max-Sharpe)
+    extra = {"n_replicas": 6} if estrategia == "michaud" else {}
+    base = ejecutar_experimento(_config(estrategia=estrategia, parametros=extra), CargadorSintetico())
+    fija = ejecutar_experimento(
+        _config(estrategia=estrategia, parametros={**extra, "volatilidad_objetivo": 0.08}), CargadorSintetico()
+    )
+    assert fija.metricas["n_rebalanceos"] == base.metricas["n_rebalanceos"] > 0
+    assert not fija.pesos.empty
+    assert not fija.pesos["peso"].round(6).equals(base.pesos["peso"].round(6))
