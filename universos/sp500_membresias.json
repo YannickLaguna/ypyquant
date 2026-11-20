@@ -1,0 +1,7293 @@
+{
+ "indice": "SP500",
+ "fuente": "TFM.db, tabla tickers, columna index_memberships (solo entradas del índice SP500)",
+ "extraido": "2026-11-20",
+ "nota": "Cobertura fiable desde ~2000 (480-520 miembros por fecha); antes de 1999 las membresías son incompletas. Tickers en formato yfinance (BRK-B). Una empresa que cambió de ticker figura con el vigente.",
+ "n_tickers": 1214,
+ "miembros": {
+  "A": [
+   {
+    "date_added": "2000-06-05",
+    "date_removed": null
+   }
+  ],
+  "AABA": [
+   {
+    "date_added": "1999-12-08",
+    "date_removed": "2017-06-19"
+   }
+  ],
+  "AAL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-01-15"
+   }
+  ],
+  "AAMRQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2003-03-14"
+   }
+  ],
+  "AAP": [
+   {
+    "date_added": "2015-07-09",
+    "date_removed": "2023-08-25"
+   }
+  ],
+  "AAPL": [
+   {
+    "date_added": "1982-11-30",
+    "date_removed": null
+   }
+  ],
+  "ABBV": [
+   {
+    "date_added": "2012-12-31",
+    "date_removed": null
+   }
+  ],
+  "ABC": [
+   {
+    "date_added": "2001-08-30",
+    "date_removed": "2023-08-30"
+   }
+  ],
+  "ABI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-11-24"
+   }
+  ],
+  "ABKFQ": [
+   {
+    "date_added": "2000-12-11",
+    "date_removed": "2008-06-11"
+   }
+  ],
+  "ABMD": [
+   {
+    "date_added": "2018-05-31",
+    "date_removed": "2022-12-22"
+   }
+  ],
+  "ABNB": [
+   {
+    "date_added": "2023-09-18",
+    "date_removed": null
+   }
+  ],
+  "ABS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-06-02"
+   }
+  ],
+  "ABT": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "ABX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "ACAS": [
+   {
+    "date_added": "2007-07-09",
+    "date_removed": "2009-03-04"
+   }
+  ],
+  "ACGL": [
+   {
+    "date_added": "2022-11-01",
+    "date_removed": null
+   }
+  ],
+  "ACKH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-11-17"
+   }
+  ],
+  "ACN": [
+   {
+    "date_added": "2011-07-06",
+    "date_removed": null
+   }
+  ],
+  "ACS": [
+   {
+    "date_added": "2004-04-02",
+    "date_removed": "2010-02-08"
+   }
+  ],
+  "ACV": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-11-17"
+   }
+  ],
+  "ADBE": [
+   {
+    "date_added": "1997-05-05",
+    "date_removed": null
+   }
+  ],
+  "ADCT": [
+   {
+    "date_added": "1999-08-02",
+    "date_removed": "2007-07-02"
+   }
+  ],
+  "ADI": [
+   {
+    "date_added": "1999-10-12",
+    "date_removed": null
+   }
+  ],
+  "ADM": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "ADP": [
+   {
+    "date_added": "1981-03-31",
+    "date_removed": null
+   }
+  ],
+  "ADS": [
+   {
+    "date_added": "2013-12-23",
+    "date_removed": "2020-06-22"
+   }
+  ],
+  "ADSK": [
+   {
+    "date_added": "1989-12-01",
+    "date_removed": null
+   }
+  ],
+  "ADT": [
+   {
+    "date_added": "2012-10-02",
+    "date_removed": "2016-05-02"
+   }
+  ],
+  "AEE": [
+   {
+    "date_added": "1991-09-19",
+    "date_removed": null
+   }
+  ],
+  "AEP": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "AES": [
+   {
+    "date_added": "1998-10-02",
+    "date_removed": null
+   }
+  ],
+  "AET": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2018-11-29"
+   }
+  ],
+  "AFL": [
+   {
+    "date_added": "1999-05-28",
+    "date_removed": null
+   }
+  ],
+  "AFS-A": [
+   {
+    "date_added": "1998-04-08",
+    "date_removed": "2000-12-01"
+   }
+  ],
+  "AGC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-08-29"
+   }
+  ],
+  "AGN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-05-12"
+   }
+  ],
+  "AHM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-10-01"
+   }
+  ],
+  "AIG": [
+   {
+    "date_added": "1980-03-31",
+    "date_removed": null
+   }
+  ],
+  "AIT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-11"
+   }
+  ],
+  "AIV": [
+   {
+    "date_added": "2003-03-14",
+    "date_removed": "2020-12-21"
+   }
+  ],
+  "AIZ": [
+   {
+    "date_added": "2007-04-10",
+    "date_removed": null
+   }
+  ],
+  "AJG": [
+   {
+    "date_added": "2016-05-31",
+    "date_removed": null
+   }
+  ],
+  "AKAM": [
+   {
+    "date_added": "2007-07-12",
+    "date_removed": null
+   }
+  ],
+  "AKS": [
+   {
+    "date_added": "2008-07-01",
+    "date_removed": "2011-12-19"
+   }
+  ],
+  "AL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "ALB": [
+   {
+    "date_added": "2016-07-01",
+    "date_removed": null
+   }
+  ],
+  "ALGN": [
+   {
+    "date_added": "2017-06-19",
+    "date_removed": null
+   }
+  ],
+  "ALK": [
+   {
+    "date_added": "2016-05-13",
+    "date_removed": "2023-10-18"
+   }
+  ],
+  "ALL": [
+   {
+    "date_added": "1995-07-13",
+    "date_removed": null
+   }
+  ],
+  "ALLE": [
+   {
+    "date_added": "2013-12-02",
+    "date_removed": null
+   }
+  ],
+  "ALTR": [
+   {
+    "date_added": "2000-04-18",
+    "date_removed": "2015-12-28"
+   }
+  ],
+  "ALXN": [
+   {
+    "date_added": "2012-05-25",
+    "date_removed": "2021-07-21"
+   }
+  ],
+  "AM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-05-03"
+   }
+  ],
+  "AMAT": [
+   {
+    "date_added": "1995-03-16",
+    "date_removed": null
+   }
+  ],
+  "AMCC": [
+   {
+    "date_added": "2001-01-02",
+    "date_removed": "2006-05-18"
+   }
+  ],
+  "AMCR": [
+   {
+    "date_added": "2019-06-07",
+    "date_removed": null
+   }
+  ],
+  "AMD": [
+   {
+    "date_added": "2017-03-20",
+    "date_removed": null
+   }
+  ],
+  "AME": [
+   {
+    "date_added": "2013-09-23",
+    "date_removed": null
+   }
+  ],
+  "AMG": [
+   {
+    "date_added": "2014-07-01",
+    "date_removed": "2019-12-23"
+   }
+  ],
+  "AMGN": [
+   {
+    "date_added": "1992-01-02",
+    "date_removed": null
+   }
+  ],
+  "AMH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-09-15"
+   }
+  ],
+  "AMP": [
+   {
+    "date_added": "2005-10-03",
+    "date_removed": null
+   }
+  ],
+  "AMT": [
+   {
+    "date_added": "2007-11-19",
+    "date_removed": null
+   }
+  ],
+  "AMTM": [
+   {
+    "date_added": "2024-09-30",
+    "date_removed": "2024-12-23"
+   }
+  ],
+  "AMZN": [
+   {
+    "date_added": "2005-11-18",
+    "date_removed": null
+   }
+  ],
+  "AN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-01-04"
+   }
+  ],
+  "ANDV": [
+   {
+    "date_added": "2007-09-27",
+    "date_removed": "2018-10-01"
+   }
+  ],
+  "ANDW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-10-02"
+   }
+  ],
+  "ANET": [
+   {
+    "date_added": "2018-08-28",
+    "date_removed": null
+   }
+  ],
+  "ANF": [
+   {
+    "date_added": "2007-03-29",
+    "date_removed": "2013-12-23"
+   }
+  ],
+  "ANRZQ": [
+   {
+    "date_added": "2011-06-02",
+    "date_removed": "2012-10-02"
+   }
+  ],
+  "ANSS": [
+   {
+    "date_added": "2017-06-19",
+    "date_removed": "2025-07-18"
+   }
+  ],
+  "ANTM": [
+   {
+    "date_added": "2002-07-25",
+    "date_removed": "2022-06-28"
+   }
+  ],
+  "ANV": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-04-12"
+   }
+  ],
+  "AON": [
+   {
+    "date_added": "1996-04-23",
+    "date_removed": null
+   }
+  ],
+  "AOS": [
+   {
+    "date_added": "2017-07-26",
+    "date_removed": null
+   }
+  ],
+  "APA": [
+   {
+    "date_added": "1997-07-28",
+    "date_removed": null
+   }
+  ],
+  "APC": [
+   {
+    "date_added": "1997-07-28",
+    "date_removed": "2019-08-09"
+   }
+  ],
+  "APCC": [
+   {
+    "date_added": "2000-06-01",
+    "date_removed": "2007-02-15"
+   }
+  ],
+  "APD": [
+   {
+    "date_added": "1985-04-30",
+    "date_removed": null
+   }
+  ],
+  "APH": [
+   {
+    "date_added": "2008-09-30",
+    "date_removed": null
+   }
+  ],
+  "APO": [
+   {
+    "date_added": "2024-12-23",
+    "date_removed": null
+   }
+  ],
+  "APOL": [
+   {
+    "date_added": "2002-05-15",
+    "date_removed": "2013-07-01"
+   }
+  ],
+  "APP": [
+   {
+    "date_added": "2025-09-22",
+    "date_removed": null
+   }
+  ],
+  "APTV": [
+   {
+    "date_added": "2012-12-24",
+    "date_removed": null
+   }
+  ],
+  "AR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-27"
+   }
+  ],
+  "ARC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-04-18"
+   }
+  ],
+  "ARE": [
+   {
+    "date_added": "2017-03-20",
+    "date_removed": null
+   }
+  ],
+  "ARES": [
+   {
+    "date_added": "2025-12-11",
+    "date_removed": null
+   }
+  ],
+  "ARG": [
+   {
+    "date_added": "2009-09-09",
+    "date_removed": "2016-05-23"
+   }
+  ],
+  "ARNC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-04-06"
+   }
+  ],
+  "AS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-11-24"
+   }
+  ],
+  "ASC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-06-24"
+   }
+  ],
+  "ASH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-11-14"
+   }
+  ],
+  "ASN": [
+   {
+    "date_added": "2004-12-20",
+    "date_removed": "2007-10-08"
+   }
+  ],
+  "ASND": [
+   {
+    "date_added": "1998-06-12",
+    "date_removed": "1999-06-25"
+   }
+  ],
+  "ASO": [
+   {
+    "date_added": "1999-03-10",
+    "date_removed": "2006-11-06"
+   }
+  ],
+  "AT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-11-19"
+   }
+  ],
+  "ATGE": [
+   {
+    "date_added": "2009-06-09",
+    "date_removed": "2012-10-01"
+   }
+  ],
+  "ATI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2015-07-02"
+   }
+  ],
+  "ATO": [
+   {
+    "date_added": "2019-02-15",
+    "date_removed": null
+   }
+  ],
+  "ATVI": [
+   {
+    "date_added": "2015-08-31",
+    "date_removed": "2023-10-18"
+   }
+  ],
+  "AV": [
+   {
+    "date_added": "2000-10-02",
+    "date_removed": "2007-10-26"
+   }
+  ],
+  "AVB": [
+   {
+    "date_added": "2007-01-10",
+    "date_removed": null
+   }
+  ],
+  "AVGO": [
+   {
+    "date_added": "2014-05-08",
+    "date_removed": null
+   }
+  ],
+  "AVP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2015-03-23"
+   }
+  ],
+  "AVY": [
+   {
+    "date_added": "1987-12-31",
+    "date_removed": null
+   }
+  ],
+  "AW": [
+   {
+    "date_added": "1999-08-02",
+    "date_removed": "2008-12-05"
+   }
+  ],
+  "AWE": [
+   {
+    "date_added": "2001-07-09",
+    "date_removed": "2004-10-27"
+   }
+  ],
+  "AWK": [
+   {
+    "date_added": "2016-03-04",
+    "date_removed": null
+   }
+  ],
+  "AXON": [
+   {
+    "date_added": "2023-05-04",
+    "date_removed": null
+   }
+  ],
+  "AXP": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "AYE": [
+   {
+    "date_added": "2000-12-11",
+    "date_removed": "2011-02-28"
+   }
+  ],
+  "AYI": [
+   {
+    "date_added": "2016-05-03",
+    "date_removed": "2018-06-18"
+   }
+  ],
+  "AZA-A": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-06-25"
+   }
+  ],
+  "AZO": [
+   {
+    "date_added": "1997-01-02",
+    "date_removed": null
+   }
+  ],
+  "BA": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "BAC": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "BALL": [
+   {
+    "date_added": "1984-10-31",
+    "date_removed": null
+   }
+  ],
+  "BAX": [
+   {
+    "date_added": "1972-09-30",
+    "date_removed": null
+   }
+  ],
+  "BAY": [
+   {
+    "date_added": "1996-02-12",
+    "date_removed": "1998-08-31"
+   }
+  ],
+  "BBBY": [
+   {
+    "date_added": "1999-10-01",
+    "date_removed": "2017-07-26"
+   }
+  ],
+  "BBI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-01-12"
+   }
+  ],
+  "BBT": [
+   {
+    "date_added": "1997-12-04",
+    "date_removed": "2019-12-09"
+   }
+  ],
+  "BBWI": [
+   {
+    "date_added": "2021-08-03",
+    "date_removed": "2024-10-01"
+   }
+  ],
+  "BBY": [
+   {
+    "date_added": "1999-06-29",
+    "date_removed": null
+   }
+  ],
+  "BC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-06-23"
+   }
+  ],
+  "BCO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-01-22"
+   }
+  ],
+  "BCR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2017-12-29"
+   }
+  ],
+  "BDK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2010-03-15"
+   }
+  ],
+  "BDX": [
+   {
+    "date_added": "1972-09-30",
+    "date_removed": null
+   }
+  ],
+  "BE": [
+   {
+    "date_added": "2026-09-21",
+    "date_removed": null
+   }
+  ],
+  "BEAM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2014-05-01"
+   }
+  ],
+  "BEN": [
+   {
+    "date_added": "1998-04-30",
+    "date_removed": null
+   }
+  ],
+  "BEV": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-12-04"
+   }
+  ],
+  "BF-B": [
+   {
+    "date_added": "1982-10-31",
+    "date_removed": null
+   }
+  ],
+  "BFI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-08-02"
+   }
+  ],
+  "BFO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-10-03"
+   }
+  ],
+  "BG": [
+   {
+    "date_added": "2023-03-15",
+    "date_removed": null
+   }
+  ],
+  "BGEN": [
+   {
+    "date_added": "2000-01-31",
+    "date_removed": "2003-11-13"
+   }
+  ],
+  "BGG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-04-03"
+   }
+  ],
+  "BHF": [
+   {
+    "date_added": "2017-08-07",
+    "date_removed": "2019-04-02"
+   }
+  ],
+  "BHGE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2019-10-18"
+   }
+  ],
+  "BHMSQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-11"
+   }
+  ],
+  "BIG": [
+   {
+    "date_added": "1998-01-20",
+    "date_removed": "2013-02-14"
+   }
+  ],
+  "BIIB": [
+   {
+    "date_added": "2003-11-13",
+    "date_removed": null
+   }
+  ],
+  "BIO": [
+   {
+    "date_added": "2020-06-22",
+    "date_removed": "2024-09-23"
+   }
+  ],
+  "BJS": [
+   {
+    "date_added": "2002-05-15",
+    "date_removed": "2010-04-29"
+   }
+  ],
+  "BK": [
+   {
+    "date_added": "1995-03-31",
+    "date_removed": null
+   }
+  ],
+  "BKB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-01"
+   }
+  ],
+  "BKNG": [
+   {
+    "date_added": "2009-11-06",
+    "date_removed": null
+   }
+  ],
+  "BKR": [
+   {
+    "date_added": "2017-07-07",
+    "date_removed": null
+   }
+  ],
+  "BLDR": [
+   {
+    "date_added": "2023-12-18",
+    "date_removed": null
+   }
+  ],
+  "BLK": [
+   {
+    "date_added": "2011-04-04",
+    "date_removed": null
+   }
+  ],
+  "BLL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2022-05-10"
+   }
+  ],
+  "BLS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-01-03"
+   }
+  ],
+  "BLY": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-12-19"
+   }
+  ],
+  "BMC": [
+   {
+    "date_added": "1998-10-01",
+    "date_removed": "2013-09-11"
+   }
+  ],
+  "BMET": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-07-12"
+   }
+  ],
+  "BMGCA": [
+   {
+    "date_added": "1996-07-22",
+    "date_removed": "1999-08-09"
+   }
+  ],
+  "BMS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2014-12-05"
+   }
+  ],
+  "BMY": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "BNI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2010-02-16"
+   }
+  ],
+  "BNL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-07-01"
+   }
+  ],
+  "BNY": [
+   {
+    "date_added": "1995-03-31",
+    "date_removed": null
+   }
+  ],
+  "BOAT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-01-07"
+   }
+  ],
+  "BOL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-10-29"
+   }
+  ],
+  "BR": [
+   {
+    "date_added": "2018-06-18",
+    "date_removed": null
+   }
+  ],
+  "BRCM": [
+   {
+    "date_added": "2000-07-03",
+    "date_removed": "2016-02-01"
+   }
+  ],
+  "BRK-B": [
+   {
+    "date_added": "2010-02-16",
+    "date_removed": null
+   }
+  ],
+  "BRL": [
+   {
+    "date_added": "2006-02-27",
+    "date_removed": "2008-12-23"
+   }
+  ],
+  "BRO": [
+   {
+    "date_added": "2021-09-20",
+    "date_removed": null
+   }
+  ],
+  "BSC": [
+   {
+    "date_added": "1998-07-01",
+    "date_removed": "2008-06-02"
+   }
+  ],
+  "BSX": [
+   {
+    "date_added": "1995-02-24",
+    "date_removed": null
+   }
+  ],
+  "BT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-06-04"
+   }
+  ],
+  "BTUUQ": [
+   {
+    "date_added": "2006-11-20",
+    "date_removed": "2014-09-22"
+   }
+  ],
+  "BUD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-11-18"
+   }
+  ],
+  "BVSN": [
+   {
+    "date_added": "2000-11-06",
+    "date_removed": "2001-09-04"
+   }
+  ],
+  "BWA": [
+   {
+    "date_added": "2011-12-19",
+    "date_removed": "2025-04-24"
+   }
+  ],
+  "BX": [
+   {
+    "date_added": "2023-09-18",
+    "date_removed": null
+   }
+  ],
+  "BXLT": [
+   {
+    "date_added": "2015-07-01",
+    "date_removed": "2016-06-03"
+   }
+  ],
+  "BXP": [
+   {
+    "date_added": "2006-04-03",
+    "date_removed": null
+   }
+  ],
+  "C": [
+   {
+    "date_added": "1988-05-31",
+    "date_removed": null
+   }
+  ],
+  "CA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2018-11-06"
+   }
+  ],
+  "CAG": [
+   {
+    "date_added": "1983-08-31",
+    "date_removed": null
+   }
+  ],
+  "CAH": [
+   {
+    "date_added": "1997-05-27",
+    "date_removed": null
+   }
+  ],
+  "CAL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-07-22"
+   }
+  ],
+  "CAM": [
+   {
+    "date_added": "2008-01-29",
+    "date_removed": "2016-04-04"
+   }
+  ],
+  "CAR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-08-01"
+   }
+  ],
+  "CARR": [
+   {
+    "date_added": "2020-04-03",
+    "date_removed": null
+   }
+  ],
+  "CASY": [
+   {
+    "date_added": "2026-04-09",
+    "date_removed": null
+   }
+  ],
+  "CAT": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CB": [
+   {
+    "date_added": "2010-07-15",
+    "date_removed": null
+   }
+  ],
+  "CBB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-01-28"
+   }
+  ],
+  "CBE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-09-09"
+   }
+  ],
+  "CBH": [
+   {
+    "date_added": "2006-06-06",
+    "date_removed": "2008-03-31"
+   }
+  ],
+  "CBOE": [
+   {
+    "date_added": "2017-03-01",
+    "date_removed": null
+   }
+  ],
+  "CBRE": [
+   {
+    "date_added": "2006-11-10",
+    "date_removed": null
+   }
+  ],
+  "CBS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2019-12-05"
+   }
+  ],
+  "CBSS": [
+   {
+    "date_added": "2004-12-20",
+    "date_removed": "2007-09-07"
+   }
+  ],
+  "CCB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-02-12"
+   }
+  ],
+  "CCE": [
+   {
+    "date_added": "1998-10-08",
+    "date_removed": "2016-05-31"
+   }
+  ],
+  "CCEP": [
+   {
+    "date_added": "2016-01-04",
+    "date_removed": "2016-05-31"
+   }
+  ],
+  "CCI": [
+   {
+    "date_added": "2012-03-14",
+    "date_removed": null
+   }
+  ],
+  "CCK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-11"
+   }
+  ],
+  "CCL": [
+   {
+    "date_added": "1998-12-22",
+    "date_removed": null
+   }
+  ],
+  "CCTYQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-03-31"
+   }
+  ],
+  "CCU": [
+   {
+    "date_added": "1997-09-02",
+    "date_removed": "2008-07-31"
+   }
+  ],
+  "CDAY": [
+   {
+    "date_added": "2021-09-20",
+    "date_removed": "2024-02-01"
+   }
+  ],
+  "CDNS": [
+   {
+    "date_added": "2017-09-18",
+    "date_removed": null
+   }
+  ],
+  "CDW": [
+   {
+    "date_added": "2019-09-23",
+    "date_removed": null
+   }
+  ],
+  "CE": [
+   {
+    "date_added": "2001-04-02",
+    "date_removed": "2004-02-27"
+   }
+  ],
+  "CEG": [
+   {
+    "date_added": "2022-02-02",
+    "date_removed": null
+   }
+  ],
+  "CELG": [
+   {
+    "date_added": "2006-11-06",
+    "date_removed": "2019-11-21"
+   }
+  ],
+  "CEN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-04-02"
+   }
+  ],
+  "CEPH": [
+   {
+    "date_added": "2008-11-17",
+    "date_removed": "2011-10-14"
+   }
+  ],
+  "CERN": [
+   {
+    "date_added": "2010-04-30",
+    "date_removed": "2022-06-08"
+   }
+  ],
+  "CF": [
+   {
+    "date_added": "2008-08-27",
+    "date_removed": null
+   }
+  ],
+  "CFC": [
+   {
+    "date_added": "1997-06-18",
+    "date_removed": "2008-07-01"
+   }
+  ],
+  "CFG": [
+   {
+    "date_added": "2016-01-29",
+    "date_removed": null
+   }
+  ],
+  "CFL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-04-28"
+   }
+  ],
+  "CFN": [
+   {
+    "date_added": "2009-09-01",
+    "date_removed": "2015-03-17"
+   }
+  ],
+  "CG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-11-02"
+   }
+  ],
+  "CGP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-01-30"
+   }
+  ],
+  "CHA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-19"
+   }
+  ],
+  "CHD": [
+   {
+    "date_added": "2015-12-29",
+    "date_removed": null
+   }
+  ],
+  "CHIR": [
+   {
+    "date_added": "2000-11-24",
+    "date_removed": "2006-04-20"
+   }
+  ],
+  "CHK": [
+   {
+    "date_added": "2006-03-03",
+    "date_removed": "2018-03-19"
+   }
+  ],
+  "CHRS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-04-08"
+   }
+  ],
+  "CHRW": [
+   {
+    "date_added": "2007-03-02",
+    "date_removed": null
+   }
+  ],
+  "CHTR": [
+   {
+    "date_added": "2016-09-08",
+    "date_removed": null
+   }
+  ],
+  "CI": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "CIEN": [
+   {
+    "date_added": "2026-02-09",
+    "date_removed": null
+   }
+  ],
+  "CIN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-04-03"
+   }
+  ],
+  "CINF": [
+   {
+    "date_added": "1997-12-18",
+    "date_removed": null
+   }
+  ],
+  "CIT-A": [
+   {
+    "date_added": "2000-07-17",
+    "date_removed": "2001-06-04"
+   }
+  ],
+  "CITGQ": [
+   {
+    "date_added": "2004-10-27",
+    "date_removed": "2009-07-27"
+   }
+  ],
+  "CL": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CLF": [
+   {
+    "date_added": "2009-12-21",
+    "date_removed": "2014-04-02"
+   }
+  ],
+  "CLX": [
+   {
+    "date_added": "1969-03-31",
+    "date_removed": null
+   }
+  ],
+  "CMA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2024-06-24"
+   }
+  ],
+  "CMB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-04-01"
+   }
+  ],
+  "CMCSA": [
+   {
+    "date_added": "2002-11-19",
+    "date_removed": null
+   }
+  ],
+  "CMCSK": [
+   {
+    "date_added": "2015-09-21",
+    "date_removed": "2015-12-14"
+   }
+  ],
+  "CME": [
+   {
+    "date_added": "2006-08-11",
+    "date_removed": null
+   }
+  ],
+  "CMG": [
+   {
+    "date_added": "2011-04-28",
+    "date_removed": null
+   }
+  ],
+  "CMI": [
+   {
+    "date_added": "1965-03-31",
+    "date_removed": null
+   }
+  ],
+  "CMS": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CMVT": [
+   {
+    "date_added": "1999-10-27",
+    "date_removed": "2007-02-01"
+   }
+  ],
+  "CMX": [
+   {
+    "date_added": "2004-03-25",
+    "date_removed": "2007-03-23"
+   }
+  ],
+  "CNC": [
+   {
+    "date_added": "2016-03-30",
+    "date_removed": null
+   }
+  ],
+  "CNG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-01-31"
+   }
+  ],
+  "CNP": [
+   {
+    "date_added": "1985-07-31",
+    "date_removed": null
+   }
+  ],
+  "CNW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-12-03"
+   }
+  ],
+  "CNX": [
+   {
+    "date_added": "2006-06-28",
+    "date_removed": "2016-03-04"
+   }
+  ],
+  "CNXT": [
+   {
+    "date_added": "2000-01-31",
+    "date_removed": "2002-06-26"
+   }
+  ],
+  "COC-B": [
+   {
+    "date_added": "1999-08-09",
+    "date_removed": "2002-09-03"
+   }
+  ],
+  "COF": [
+   {
+    "date_added": "1998-07-01",
+    "date_removed": null
+   }
+  ],
+  "COG": [
+   {
+    "date_added": "2008-06-23",
+    "date_removed": "2021-10-04"
+   }
+  ],
+  "COHR": [
+   {
+    "date_added": "2026-03-23",
+    "date_removed": null
+   }
+  ],
+  "COIN": [
+   {
+    "date_added": "2025-05-19",
+    "date_removed": null
+   }
+  ],
+  "COL": [
+   {
+    "date_added": "2001-07-02",
+    "date_removed": "2018-11-27"
+   }
+  ],
+  "COMS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-07-28"
+   }
+  ],
+  "COO": [
+   {
+    "date_added": "2016-09-23",
+    "date_removed": null
+   }
+  ],
+  "COP": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "COR": [
+   {
+    "date_added": "2001-08-30",
+    "date_removed": null
+   }
+  ],
+  "COST": [
+   {
+    "date_added": "1993-10-01",
+    "date_removed": null
+   }
+  ],
+  "COTY": [
+   {
+    "date_added": "2016-10-03",
+    "date_removed": "2020-09-21"
+   }
+  ],
+  "COV": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-08-16"
+   }
+  ],
+  "CPAY": [
+   {
+    "date_added": "2018-06-20",
+    "date_removed": null
+   }
+  ],
+  "CPB": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CPGX": [
+   {
+    "date_added": "2015-07-02",
+    "date_removed": "2016-07-01"
+   }
+  ],
+  "CPNLQ": [
+   {
+    "date_added": "2000-12-01",
+    "date_removed": "2005-12-02"
+   }
+  ],
+  "CPQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-05-06"
+   }
+  ],
+  "CPRI": [
+   {
+    "date_added": "2016-01-04",
+    "date_removed": "2020-05-12"
+   }
+  ],
+  "CPRT": [
+   {
+    "date_added": "2018-07-02",
+    "date_removed": null
+   }
+  ],
+  "CPT": [
+   {
+    "date_added": "2022-04-04",
+    "date_removed": null
+   }
+  ],
+  "CPWR": [
+   {
+    "date_added": "1999-01-04",
+    "date_removed": "2012-01-03"
+   }
+  ],
+  "CR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-12-20"
+   }
+  ],
+  "CRH": [
+   {
+    "date_added": "2025-12-22",
+    "date_removed": null
+   }
+  ],
+  "CRL": [
+   {
+    "date_added": "2021-05-14",
+    "date_removed": null
+   }
+  ],
+  "CRM": [
+   {
+    "date_added": "2008-09-15",
+    "date_removed": null
+   }
+  ],
+  "CRR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-05-27"
+   }
+  ],
+  "CRWD": [
+   {
+    "date_added": "2024-06-24",
+    "date_removed": null
+   }
+  ],
+  "CSCO": [
+   {
+    "date_added": "1993-12-01",
+    "date_removed": null
+   }
+  ],
+  "CSE": [
+   {
+    "date_added": "1996-01-22",
+    "date_removed": "1999-11-15"
+   }
+  ],
+  "CSGP": [
+   {
+    "date_added": "2022-09-19",
+    "date_removed": null
+   }
+  ],
+  "CSR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-16"
+   }
+  ],
+  "CSRA": [
+   {
+    "date_added": "2015-11-30",
+    "date_removed": "2018-04-04"
+   }
+  ],
+  "CSX": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CTAS": [
+   {
+    "date_added": "2001-03-01",
+    "date_removed": null
+   }
+  ],
+  "CTB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-07-18"
+   }
+  ],
+  "CTL": [
+   {
+    "date_added": "1999-03-25",
+    "date_removed": "2020-09-18"
+   }
+  ],
+  "CTLT": [
+   {
+    "date_added": "2020-09-21",
+    "date_removed": "2024-12-23"
+   }
+  ],
+  "CTRA": [
+   {
+    "date_added": "2008-06-23",
+    "date_removed": null
+   }
+  ],
+  "CTSH": [
+   {
+    "date_added": "2006-11-17",
+    "date_removed": null
+   }
+  ],
+  "CTVA": [
+   {
+    "date_added": "2019-06-03",
+    "date_removed": null
+   }
+  ],
+  "CTX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-08-19"
+   }
+  ],
+  "CTXS": [
+   {
+    "date_added": "1999-12-01",
+    "date_removed": "2022-10-03"
+   }
+  ],
+  "CVC": [
+   {
+    "date_added": "2010-12-20",
+    "date_removed": "2016-06-21"
+   }
+  ],
+  "CVG": [
+   {
+    "date_added": "2000-06-13",
+    "date_removed": "2009-12-21"
+   }
+  ],
+  "CVH": [
+   {
+    "date_added": "2005-08-30",
+    "date_removed": "2013-05-07"
+   }
+  ],
+  "CVNA": [
+   {
+    "date_added": "2025-12-22",
+    "date_removed": null
+   }
+  ],
+  "CVS": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CVX": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "CXO": [
+   {
+    "date_added": "2016-02-22",
+    "date_removed": "2021-01-21"
+   }
+  ],
+  "CYM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-18"
+   }
+  ],
+  "CYR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-03-28"
+   }
+  ],
+  "CZR": [
+   {
+    "date_added": "2021-03-22",
+    "date_removed": "2025-09-22"
+   }
+  ],
+  "D": [
+   {
+    "date_added": "2016-11-30",
+    "date_removed": null
+   }
+  ],
+  "DAL": [
+   {
+    "date_added": "2013-09-11",
+    "date_removed": null
+   }
+  ],
+  "DALRQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-08-19"
+   }
+  ],
+  "DASH": [
+   {
+    "date_added": "2025-03-24",
+    "date_removed": null
+   }
+  ],
+  "DAY": [
+   {
+    "date_added": "2024-02-01",
+    "date_removed": null
+   }
+  ],
+  "DCNAQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-03-03"
+   }
+  ],
+  "DD": [
+   {
+    "date_added": "2019-06-03",
+    "date_removed": null
+   }
+  ],
+  "DDOG": [
+   {
+    "date_added": "2025-07-09",
+    "date_removed": null
+   }
+  ],
+  "DDR": [
+   {
+    "date_added": "2007-03-23",
+    "date_removed": "2009-03-30"
+   }
+  ],
+  "DDS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-10-22"
+   }
+  ],
+  "DE": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "DEC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-06-12"
+   }
+  ],
+  "DECK": [
+   {
+    "date_added": "2024-03-18",
+    "date_removed": null
+   }
+  ],
+  "DELL": [
+   {
+    "date_added": "2024-09-23",
+    "date_removed": null
+   }
+  ],
+  "DF": [
+   {
+    "date_added": "2006-04-03",
+    "date_removed": "2013-05-24"
+   }
+  ],
+  "DFS": [
+   {
+    "date_added": "2007-07-02",
+    "date_removed": "2025-05-19"
+   }
+  ],
+  "DG": [
+   {
+    "date_added": "2012-12-03",
+    "date_removed": null
+   }
+  ],
+  "DGN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-13"
+   }
+  ],
+  "DGX": [
+   {
+    "date_added": "2002-12-12",
+    "date_removed": null
+   }
+  ],
+  "DHI": [
+   {
+    "date_added": "2005-06-22",
+    "date_removed": null
+   }
+  ],
+  "DHR": [
+   {
+    "date_added": "1998-11-18",
+    "date_removed": null
+   }
+  ],
+  "DI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-09-30"
+   }
+  ],
+  "DIGI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-08-28"
+   }
+  ],
+  "DIS": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "DISCA": [
+   {
+    "date_added": "2010-03-01",
+    "date_removed": "2022-04-11"
+   }
+  ],
+  "DISCK": [
+   {
+    "date_added": "2014-08-07",
+    "date_removed": "2022-04-11"
+   }
+  ],
+  "DISH": [
+   {
+    "date_added": "2017-03-13",
+    "date_removed": "2023-06-20"
+   }
+  ],
+  "DJ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-12-14"
+   }
+  ],
+  "DLR": [
+   {
+    "date_added": "2016-05-18",
+    "date_removed": null
+   }
+  ],
+  "DLTR": [
+   {
+    "date_added": "2011-12-19",
+    "date_removed": null
+   }
+  ],
+  "DLX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-12-20"
+   }
+  ],
+  "DNB": [
+   {
+    "date_added": "2008-12-02",
+    "date_removed": "2017-04-05"
+   }
+  ],
+  "DNR": [
+   {
+    "date_added": "2009-04-02",
+    "date_removed": "2015-03-23"
+   }
+  ],
+  "DO": [
+   {
+    "date_added": "2009-02-26",
+    "date_removed": "2016-10-03"
+   }
+  ],
+  "DOC": [
+   {
+    "date_added": "2008-03-31",
+    "date_removed": null
+   }
+  ],
+  "DOV": [
+   {
+    "date_added": "1985-10-31",
+    "date_removed": null
+   }
+  ],
+  "DOW": [
+   {
+    "date_added": "2019-04-01",
+    "date_removed": null
+   }
+  ],
+  "DPHIQ": [
+   {
+    "date_added": "1999-05-28",
+    "date_removed": "2005-10-11"
+   }
+  ],
+  "DPZ": [
+   {
+    "date_added": "2020-05-12",
+    "date_removed": null
+   }
+  ],
+  "DRE": [
+   {
+    "date_added": "2017-07-26",
+    "date_removed": "2022-10-03"
+   }
+  ],
+  "DRI": [
+   {
+    "date_added": "1995-05-31",
+    "date_removed": null
+   }
+  ],
+  "DTE": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "DTV": [
+   {
+    "date_added": "2006-12-04",
+    "date_removed": "2015-07-27"
+   }
+  ],
+  "DUK": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "DVA": [
+   {
+    "date_added": "2008-07-31",
+    "date_removed": null
+   }
+  ],
+  "DVN": [
+   {
+    "date_added": "2000-08-30",
+    "date_removed": null
+   }
+  ],
+  "DWD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-06-02"
+   }
+  ],
+  "DWDP": [
+   {
+    "date_added": "2017-09-01",
+    "date_removed": "2019-06-03"
+   }
+  ],
+  "DXC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2015-12-01"
+   }
+  ],
+  "DXCM": [
+   {
+    "date_added": "2020-05-12",
+    "date_removed": null
+   }
+  ],
+  "DYN": [
+   {
+    "date_added": "2000-10-03",
+    "date_removed": "2009-12-21"
+   }
+  ],
+  "EA": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": null
+   }
+  ],
+  "EBAY": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": null
+   }
+  ],
+  "EC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-06-06"
+   }
+  ],
+  "ECH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-07-10"
+   }
+  ],
+  "ECHO": [
+   {
+    "date_added": "2026-03-23",
+    "date_removed": null
+   }
+  ],
+  "ECL": [
+   {
+    "date_added": "1989-01-31",
+    "date_removed": null
+   }
+  ],
+  "ECO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-01-20"
+   }
+  ],
+  "ED": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "EDS": [
+   {
+    "date_added": "1998-08-11",
+    "date_removed": "2008-08-26"
+   }
+  ],
+  "EFU": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-11-02"
+   }
+  ],
+  "EFX": [
+   {
+    "date_added": "1997-06-19",
+    "date_removed": null
+   }
+  ],
+  "EG": [
+   {
+    "date_added": "2017-06-19",
+    "date_removed": null
+   }
+  ],
+  "EHC": [
+   {
+    "date_added": "1997-01-08",
+    "date_removed": "2003-03-21"
+   }
+  ],
+  "EIX": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "EKDKQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2010-12-20"
+   }
+  ],
+  "EL": [
+   {
+    "date_added": "2006-01-05",
+    "date_removed": null
+   }
+  ],
+  "ELV": [
+   {
+    "date_added": "2002-07-25",
+    "date_removed": null
+   }
+  ],
+  "EMC": [
+   {
+    "date_added": "1996-03-28",
+    "date_removed": "2016-09-07"
+   }
+  ],
+  "EME": [
+   {
+    "date_added": "2025-09-22",
+    "date_removed": null
+   }
+  ],
+  "EMN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2025-11-04"
+   }
+  ],
+  "EMR": [
+   {
+    "date_added": "1965-03-31",
+    "date_removed": null
+   }
+  ],
+  "ENDP": [
+   {
+    "date_added": "2015-01-27",
+    "date_removed": "2017-03-02"
+   }
+  ],
+  "ENPH": [
+   {
+    "date_added": "2021-01-07",
+    "date_removed": "2025-09-22"
+   }
+  ],
+  "ENRNQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-11-30"
+   }
+  ],
+  "ENS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-08-06"
+   }
+  ],
+  "EOG": [
+   {
+    "date_added": "2000-11-02",
+    "date_removed": null
+   }
+  ],
+  "EOP": [
+   {
+    "date_added": "2001-10-10",
+    "date_removed": "2007-02-12"
+   }
+  ],
+  "EP": [
+   {
+    "date_added": "1999-10-26",
+    "date_removed": "2012-05-25"
+   }
+  ],
+  "EPAM": [
+   {
+    "date_added": "2021-12-14",
+    "date_removed": null
+   }
+  ],
+  "EQ": [
+   {
+    "date_added": "2006-05-18",
+    "date_removed": "2009-07-01"
+   }
+  ],
+  "EQIX": [
+   {
+    "date_added": "2015-03-20",
+    "date_removed": null
+   }
+  ],
+  "EQR": [
+   {
+    "date_added": "2001-12-03",
+    "date_removed": null
+   }
+  ],
+  "EQT": [
+   {
+    "date_added": "2022-10-03",
+    "date_removed": null
+   }
+  ],
+  "ERIE": [
+   {
+    "date_added": "2024-09-23",
+    "date_removed": null
+   }
+  ],
+  "ES": [
+   {
+    "date_added": "2009-07-24",
+    "date_removed": null
+   }
+  ],
+  "ESRX": [
+   {
+    "date_added": "2003-09-26",
+    "date_removed": "2018-12-21"
+   }
+  ],
+  "ESS": [
+   {
+    "date_added": "2014-04-02",
+    "date_removed": null
+   }
+  ],
+  "ESV": [
+   {
+    "date_added": "2007-01-04",
+    "date_removed": "2009-12-23"
+   }
+  ],
+  "ETFC": [
+   {
+    "date_added": "2004-04-01",
+    "date_removed": "2020-10-07"
+   }
+  ],
+  "ETN": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "ETR": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "ETS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-08-06"
+   }
+  ],
+  "ETSY": [
+   {
+    "date_added": "2020-09-21",
+    "date_removed": "2024-09-23"
+   }
+  ],
+  "EVHC": [
+   {
+    "date_added": "2016-12-02",
+    "date_removed": "2018-10-11"
+   }
+  ],
+  "EVRG": [
+   {
+    "date_added": "2018-06-05",
+    "date_removed": null
+   }
+  ],
+  "EW": [
+   {
+    "date_added": "2011-04-01",
+    "date_removed": null
+   }
+  ],
+  "EXC": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "EXE": [
+   {
+    "date_added": "2025-03-24",
+    "date_removed": null
+   }
+  ],
+  "EXPD": [
+   {
+    "date_added": "2007-10-10",
+    "date_removed": null
+   }
+  ],
+  "EXPE": [
+   {
+    "date_added": "2007-10-02",
+    "date_removed": null
+   }
+  ],
+  "EXR": [
+   {
+    "date_added": "2016-01-19",
+    "date_removed": null
+   }
+  ],
+  "F": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "FANG": [
+   {
+    "date_added": "2018-12-03",
+    "date_removed": null
+   }
+  ],
+  "FAST": [
+   {
+    "date_added": "2008-09-15",
+    "date_removed": null
+   }
+  ],
+  "FB": [
+   {
+    "date_added": "2013-12-23",
+    "date_removed": "2022-06-09"
+   }
+  ],
+  "FBF": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-04-01"
+   }
+  ],
+  "FBHS": [
+   {
+    "date_added": "2016-06-24",
+    "date_removed": "2022-12-19"
+   }
+  ],
+  "FBO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-03-13"
+   }
+  ],
+  "FCN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-10-02"
+   }
+  ],
+  "FCPT": [
+   {
+    "date_added": "2015-11-10",
+    "date_removed": "2015-11-17"
+   }
+  ],
+  "FCX": [
+   {
+    "date_added": "2011-07-01",
+    "date_removed": null
+   }
+  ],
+  "FDC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-09-25"
+   }
+  ],
+  "FDO": [
+   {
+    "date_added": "2001-08-06",
+    "date_removed": "2015-07-07"
+   }
+  ],
+  "FDS": [
+   {
+    "date_added": "2021-12-20",
+    "date_removed": null
+   }
+  ],
+  "FDX": [
+   {
+    "date_added": "1980-12-31",
+    "date_removed": null
+   }
+  ],
+  "FDXF": [
+   {
+    "date_added": "2026-06-01",
+    "date_removed": null
+   }
+  ],
+  "FE": [
+   {
+    "date_added": "1997-11-28",
+    "date_removed": null
+   }
+  ],
+  "FERG": [
+   {
+    "date_added": "2026-08-05",
+    "date_removed": null
+   }
+  ],
+  "FFIV": [
+   {
+    "date_added": "2010-12-20",
+    "date_removed": null
+   }
+  ],
+  "FG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-04-27"
+   }
+  ],
+  "FHN": [
+   {
+    "date_added": "2002-05-06",
+    "date_removed": "2013-06-24"
+   }
+  ],
+  "FI": [
+   {
+    "date_added": "2023-06-07",
+    "date_removed": "2025-11-11"
+   }
+  ],
+  "FICO": [
+   {
+    "date_added": "2023-03-20",
+    "date_removed": null
+   }
+  ],
+  "FII": [
+   {
+    "date_added": "2003-04-16",
+    "date_removed": "2013-01-02"
+   }
+  ],
+  "FIS": [
+   {
+    "date_added": "2006-11-10",
+    "date_removed": null
+   }
+  ],
+  "FISV": [
+   {
+    "date_added": "2001-04-02",
+    "date_removed": null
+   }
+  ],
+  "FITB": [
+   {
+    "date_added": "1996-03-29",
+    "date_removed": null
+   }
+  ],
+  "FIX": [
+   {
+    "date_added": "2025-12-22",
+    "date_removed": null
+   }
+  ],
+  "FJ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-11-24"
+   }
+  ],
+  "FL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-01-04"
+   }
+  ],
+  "FLEX": [
+   {
+    "date_added": "2026-06-22",
+    "date_removed": null
+   }
+  ],
+  "FLIR": [
+   {
+    "date_added": "2009-01-02",
+    "date_removed": "2021-05-14"
+   }
+  ],
+  "FLMIQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-12-24"
+   }
+  ],
+  "FLR": [
+   {
+    "date_added": "2000-12-22",
+    "date_removed": "2019-06-03"
+   }
+  ],
+  "FLS": [
+   {
+    "date_added": "2008-10-02",
+    "date_removed": "2021-03-22"
+   }
+  ],
+  "FLT": [
+   {
+    "date_added": "2018-06-20",
+    "date_removed": "2024-03-25"
+   }
+  ],
+  "FLTWQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-01-31"
+   }
+  ],
+  "FMC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-01-02"
+   }
+  ],
+  "FMCC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-09-11"
+   }
+  ],
+  "FMY": [
+   {
+    "date_added": "1998-07-10",
+    "date_removed": "1999-05-28"
+   }
+  ],
+  "FNMA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-09-11"
+   }
+  ],
+  "FOSL": [
+   {
+    "date_added": "2012-04-04",
+    "date_removed": "2016-01-05"
+   }
+  ],
+  "FOX": [
+   {
+    "date_added": "2019-03-19",
+    "date_removed": null
+   }
+  ],
+  "FOXA": [
+   {
+    "date_added": "2019-03-19",
+    "date_removed": null
+   }
+  ],
+  "FPC": [
+   {
+    "date_added": "1999-06-22",
+    "date_removed": "2000-12-01"
+   }
+  ],
+  "FRC": [
+   {
+    "date_added": "2019-01-02",
+    "date_removed": "2023-05-04"
+   }
+  ],
+  "FRO": [
+   {
+    "date_added": "1997-01-02",
+    "date_removed": "1999-09-29"
+   }
+  ],
+  "FRT": [
+   {
+    "date_added": "2016-02-01",
+    "date_removed": null
+   }
+  ],
+  "FRX": [
+   {
+    "date_added": "2000-11-22",
+    "date_removed": "2014-07-01"
+   }
+  ],
+  "FSH": [
+   {
+    "date_added": "2004-08-03",
+    "date_removed": "2006-11-10"
+   }
+  ],
+  "FSL": [
+   {
+    "date_added": "2004-12-03",
+    "date_removed": "2006-12-04"
+   }
+  ],
+  "FSLR": [
+   {
+    "date_added": "2022-12-19",
+    "date_removed": null
+   }
+  ],
+  "FTI": [
+   {
+    "date_added": "2009-06-05",
+    "date_removed": "2021-02-12"
+   }
+  ],
+  "FTL-A": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-01"
+   }
+  ],
+  "FTNT": [
+   {
+    "date_added": "2018-10-11",
+    "date_removed": null
+   }
+  ],
+  "FTR": [
+   {
+    "date_added": "2001-02-27",
+    "date_removed": "2017-03-20"
+   }
+  ],
+  "FTV": [
+   {
+    "date_added": "2016-07-01",
+    "date_removed": null
+   }
+  ],
+  "FWLT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-01-31"
+   }
+  ],
+  "G": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-10-03"
+   }
+  ],
+  "GAPTQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-08-30"
+   }
+  ],
+  "GAS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-12-12"
+   }
+  ],
+  "GD": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "GDDY": [
+   {
+    "date_added": "2024-06-24",
+    "date_removed": null
+   }
+  ],
+  "GDT": [
+   {
+    "date_added": "1996-12-19",
+    "date_removed": "2006-04-24"
+   }
+  ],
+  "GDW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-10-02"
+   }
+  ],
+  "GE": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "GEHC": [
+   {
+    "date_added": "2023-01-04",
+    "date_removed": null
+   }
+  ],
+  "GEN": [
+   {
+    "date_added": "2003-03-25",
+    "date_removed": null
+   }
+  ],
+  "GENZ": [
+   {
+    "date_added": "2001-12-14",
+    "date_removed": "2011-04-04"
+   }
+  ],
+  "GEV": [
+   {
+    "date_added": "2024-04-02",
+    "date_removed": null
+   }
+  ],
+  "GFS-A": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-07-16"
+   }
+  ],
+  "GGP": [
+   {
+    "date_added": "2007-07-02",
+    "date_removed": "2008-11-13"
+   }
+  ],
+  "GHC": [
+   {
+    "date_added": "2007-12-31",
+    "date_removed": "2014-09-22"
+   }
+  ],
+  "GIDL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-07-17"
+   }
+  ],
+  "GILD": [
+   {
+    "date_added": "2004-07-01",
+    "date_removed": null
+   }
+  ],
+  "GIS": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "GL": [
+   {
+    "date_added": "1989-04-30",
+    "date_removed": null
+   }
+  ],
+  "GLD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-05-06"
+   }
+  ],
+  "GLK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-07-05"
+   }
+  ],
+  "GLW": [
+   {
+    "date_added": "1995-02-27",
+    "date_removed": null
+   }
+  ],
+  "GM": [
+   {
+    "date_added": "2013-06-06",
+    "date_removed": null
+   }
+  ],
+  "GMCR": [
+   {
+    "date_added": "2014-03-24",
+    "date_removed": "2016-03-03"
+   }
+  ],
+  "GME": [
+   {
+    "date_added": "2007-12-14",
+    "date_removed": "2016-04-25"
+   }
+  ],
+  "GNRC": [
+   {
+    "date_added": "2021-03-22",
+    "date_removed": null
+   }
+  ],
+  "GNT": [
+   {
+    "date_added": "1996-03-13",
+    "date_removed": "1998-07-01"
+   }
+  ],
+  "GNW": [
+   {
+    "date_added": "2005-12-02",
+    "date_removed": "2015-11-18"
+   }
+  ],
+  "GOOG": [
+   {
+    "date_added": "2014-04-03",
+    "date_removed": null
+   }
+  ],
+  "GOOGL": [
+   {
+    "date_added": "2006-04-03",
+    "date_removed": null
+   }
+  ],
+  "GP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-12-20"
+   }
+  ],
+  "GPC": [
+   {
+    "date_added": "1973-12-31",
+    "date_removed": null
+   }
+  ],
+  "GPN": [
+   {
+    "date_added": "2016-04-25",
+    "date_removed": null
+   }
+  ],
+  "GPS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2022-02-02"
+   }
+  ],
+  "GPU": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-11-07"
+   }
+  ],
+  "GR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2012-07-27"
+   }
+  ],
+  "GRA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-11"
+   }
+  ],
+  "GRMN": [
+   {
+    "date_added": "2012-12-12",
+    "date_removed": null
+   }
+  ],
+  "GRN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-12-22"
+   }
+  ],
+  "GS": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": null
+   }
+  ],
+  "GSX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-10-07"
+   }
+  ],
+  "GT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2019-02-27"
+   }
+  ],
+  "GTE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-07-03"
+   }
+  ],
+  "GTW": [
+   {
+    "date_added": "1998-04-27",
+    "date_removed": "2006-08-01"
+   }
+  ],
+  "GWF": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-07-02"
+   }
+  ],
+  "GWW": [
+   {
+    "date_added": "1981-06-30",
+    "date_removed": null
+   }
+  ],
+  "GX": [
+   {
+    "date_added": "1999-09-29",
+    "date_removed": "2001-10-10"
+   }
+  ],
+  "H": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-06-29"
+   }
+  ],
+  "HAL": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "HAR": [
+   {
+    "date_added": "2006-02-01",
+    "date_removed": "2017-03-13"
+   }
+  ],
+  "HAS": [
+   {
+    "date_added": "1984-09-30",
+    "date_removed": null
+   }
+  ],
+  "HBAN": [
+   {
+    "date_added": "1997-08-28",
+    "date_removed": null
+   }
+  ],
+  "HBI": [
+   {
+    "date_added": "2015-03-23",
+    "date_removed": "2021-12-20"
+   }
+  ],
+  "HBOC": [
+   {
+    "date_added": "1997-10-23",
+    "date_removed": "1999-01-13"
+   }
+  ],
+  "HCA": [
+   {
+    "date_added": "2015-01-27",
+    "date_removed": null
+   }
+  ],
+  "HCBK": [
+   {
+    "date_added": "2007-02-15",
+    "date_removed": "2015-11-02"
+   }
+  ],
+  "HCP": [
+   {
+    "date_added": "2008-03-31",
+    "date_removed": "2019-11-05"
+   }
+  ],
+  "HCR": [
+   {
+    "date_added": "1998-09-28",
+    "date_removed": "2007-11-09"
+   }
+  ],
+  "HD": [
+   {
+    "date_added": "1988-03-31",
+    "date_removed": null
+   }
+  ],
+  "HDLM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-03-08"
+   }
+  ],
+  "HES": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2025-07-23"
+   }
+  ],
+  "HET": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-01-29"
+   }
+  ],
+  "HFC": [
+   {
+    "date_added": "2018-06-18",
+    "date_removed": "2021-06-04"
+   }
+  ],
+  "HFS": [
+   {
+    "date_added": "1996-08-16",
+    "date_removed": "1997-12-18"
+   }
+  ],
+  "HI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2003-03-31"
+   }
+  ],
+  "HIG": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "HII": [
+   {
+    "date_added": "2018-01-03",
+    "date_removed": null
+   }
+  ],
+  "HLT": [
+   {
+    "date_added": "2017-06-19",
+    "date_removed": null
+   }
+  ],
+  "HM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-12-17"
+   }
+  ],
+  "HMA": [
+   {
+    "date_added": "2001-11-07",
+    "date_removed": "2007-03-02"
+   }
+  ],
+  "HNZ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2013-06-07"
+   }
+  ],
+  "HOG": [
+   {
+    "date_added": "2000-01-31",
+    "date_removed": "2020-06-22"
+   }
+  ],
+  "HOLX": [
+   {
+    "date_added": "2016-03-30",
+    "date_removed": null
+   }
+  ],
+  "HON": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "HONA": [
+   {
+    "date_added": "2026-06-29",
+    "date_removed": null
+   }
+  ],
+  "HOOD": [
+   {
+    "date_added": "2025-09-22",
+    "date_removed": null
+   }
+  ],
+  "HOT": [
+   {
+    "date_added": "2000-11-17",
+    "date_removed": "2016-09-23"
+   }
+  ],
+  "HP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-12-31"
+   }
+  ],
+  "HPC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-11-14"
+   }
+  ],
+  "HPE": [
+   {
+    "date_added": "2015-11-02",
+    "date_removed": null
+   }
+  ],
+  "HPH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-06-09"
+   }
+  ],
+  "HPQ": [
+   {
+    "date_added": "1974-12-31",
+    "date_removed": null
+   }
+  ],
+  "HRB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-09-21"
+   }
+  ],
+  "HRL": [
+   {
+    "date_added": "2009-03-04",
+    "date_removed": null
+   }
+  ],
+  "HRS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-11-08"
+   }
+  ],
+  "HSH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2012-06-29"
+   }
+  ],
+  "HSIC": [
+   {
+    "date_added": "2015-03-17",
+    "date_removed": null
+   }
+  ],
+  "HSP": [
+   {
+    "date_added": "2004-05-03",
+    "date_removed": "2015-09-03"
+   }
+  ],
+  "HST": [
+   {
+    "date_added": "2007-03-20",
+    "date_removed": null
+   }
+  ],
+  "HSY": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "HUBB": [
+   {
+    "date_added": "2023-10-18",
+    "date_removed": null
+   }
+  ],
+  "HUM": [
+   {
+    "date_added": "2012-12-10",
+    "date_removed": null
+   }
+  ],
+  "HWM": [
+   {
+    "date_added": "2016-10-21",
+    "date_removed": null
+   }
+  ],
+  "I": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-04-01"
+   }
+  ],
+  "IAC": [
+   {
+    "date_added": "2006-12-01",
+    "date_removed": "2008-08-21"
+   }
+  ],
+  "IBKR": [
+   {
+    "date_added": "2025-08-28",
+    "date_removed": null
+   }
+  ],
+  "IBM": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "ICE": [
+   {
+    "date_added": "2007-09-26",
+    "date_removed": null
+   }
+  ],
+  "IDXX": [
+   {
+    "date_added": "2017-01-05",
+    "date_removed": null
+   }
+  ],
+  "IEX": [
+   {
+    "date_added": "2019-08-09",
+    "date_removed": null
+   }
+  ],
+  "IFF": [
+   {
+    "date_added": "1976-03-31",
+    "date_removed": null
+   }
+  ],
+  "IGT": [
+   {
+    "date_added": "2001-09-04",
+    "date_removed": "2014-06-20"
+   }
+  ],
+  "IKN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-29"
+   }
+  ],
+  "ILMN": [
+   {
+    "date_added": "2015-11-19",
+    "date_removed": null
+   }
+  ],
+  "IMNX": [
+   {
+    "date_added": "2001-09-21",
+    "date_removed": "2002-07-16"
+   }
+  ],
+  "INCLF": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "INCY": [
+   {
+    "date_added": "2017-02-28",
+    "date_removed": null
+   }
+  ],
+  "INFO": [
+   {
+    "date_added": "2017-06-02",
+    "date_removed": "2022-03-02"
+   }
+  ],
+  "INGR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-07-28"
+   }
+  ],
+  "INTC": [
+   {
+    "date_added": "1976-12-31",
+    "date_removed": null
+   }
+  ],
+  "INTU": [
+   {
+    "date_added": "2000-12-05",
+    "date_removed": null
+   }
+  ],
+  "INVH": [
+   {
+    "date_added": "2022-09-19",
+    "date_removed": null
+   }
+  ],
+  "IP": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "IPG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2025-11-28"
+   }
+  ],
+  "IPGP": [
+   {
+    "date_added": "2018-03-07",
+    "date_removed": "2022-06-21"
+   }
+  ],
+  "IQV": [
+   {
+    "date_added": "2017-08-29",
+    "date_removed": null
+   }
+  ],
+  "IR": [
+   {
+    "date_added": "2020-03-03",
+    "date_removed": null
+   }
+  ],
+  "IRM": [
+   {
+    "date_added": "2009-01-06",
+    "date_removed": null
+   }
+  ],
+  "ISRG": [
+   {
+    "date_added": "2008-06-02",
+    "date_removed": null
+   }
+  ],
+  "IT": [
+   {
+    "date_added": "2017-04-05",
+    "date_removed": null
+   }
+  ],
+  "ITT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-11-01"
+   }
+  ],
+  "ITW": [
+   {
+    "date_added": "1986-02-28",
+    "date_removed": null
+   }
+  ],
+  "IVZ": [
+   {
+    "date_added": "2008-08-21",
+    "date_removed": null
+   }
+  ],
+  "J": [
+   {
+    "date_added": "2007-10-26",
+    "date_removed": null
+   }
+  ],
+  "JAVA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2010-01-27"
+   }
+  ],
+  "JBHT": [
+   {
+    "date_added": "2015-07-01",
+    "date_removed": null
+   }
+  ],
+  "JBL": [
+   {
+    "date_added": "2023-12-18",
+    "date_removed": null
+   }
+  ],
+  "JCI": [
+   {
+    "date_added": "2010-08-27",
+    "date_removed": null
+   }
+  ],
+  "JCP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2013-12-02"
+   }
+  ],
+  "JEC": [
+   {
+    "date_added": "2007-10-26",
+    "date_removed": "2019-12-10"
+   }
+  ],
+  "JEF": [
+   {
+    "date_added": "2007-08-27",
+    "date_removed": "2019-09-26"
+   }
+  ],
+  "JH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-04-01"
+   }
+  ],
+  "JHF": [
+   {
+    "date_added": "2001-06-29",
+    "date_removed": "2004-04-29"
+   }
+  ],
+  "JKHY": [
+   {
+    "date_added": "2018-11-13",
+    "date_removed": null
+   }
+  ],
+  "JNJ": [
+   {
+    "date_added": "1973-06-30",
+    "date_removed": null
+   }
+  ],
+  "JNPR": [
+   {
+    "date_added": "2006-06-02",
+    "date_removed": "2025-07-09"
+   }
+  ],
+  "JNS": [
+   {
+    "date_added": "2000-07-13",
+    "date_removed": "2011-11-23"
+   }
+  ],
+  "JNY": [
+   {
+    "date_added": "2001-12-17",
+    "date_removed": "2009-03-04"
+   }
+  ],
+  "JOS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-05-10"
+   }
+  ],
+  "JOY": [
+   {
+    "date_added": "2011-02-28",
+    "date_removed": "2015-10-08"
+   }
+  ],
+  "JP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-04-03"
+   }
+  ],
+  "JPM": [
+   {
+    "date_added": "1975-06-30",
+    "date_removed": null
+   }
+  ],
+  "JWN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-06-22"
+   }
+  ],
+  "K": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2025-12-11"
+   }
+  ],
+  "KATE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-12-02"
+   }
+  ],
+  "KBH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-12-21"
+   }
+  ],
+  "KDP": [
+   {
+    "date_added": "2022-06-21",
+    "date_removed": null
+   }
+  ],
+  "KEY": [
+   {
+    "date_added": "1994-03-01",
+    "date_removed": null
+   }
+  ],
+  "KEYS": [
+   {
+    "date_added": "2018-11-06",
+    "date_removed": null
+   }
+  ],
+  "KG": [
+   {
+    "date_added": "2000-10-03",
+    "date_removed": "2010-12-20"
+   }
+  ],
+  "KHC": [
+   {
+    "date_added": "2015-07-06",
+    "date_removed": null
+   }
+  ],
+  "KIM": [
+   {
+    "date_added": "2006-04-04",
+    "date_removed": null
+   }
+  ],
+  "KKR": [
+   {
+    "date_added": "2024-06-24",
+    "date_removed": null
+   }
+  ],
+  "KLAC": [
+   {
+    "date_added": "1997-09-30",
+    "date_removed": null
+   }
+  ],
+  "KM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-01-17"
+   }
+  ],
+  "KMB": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "KMG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-08-11"
+   }
+  ],
+  "KMI": [
+   {
+    "date_added": "2012-05-25",
+    "date_removed": null
+   }
+  ],
+  "KMX": [
+   {
+    "date_added": "2010-06-28",
+    "date_removed": "2025-10-31"
+   }
+  ],
+  "KO": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "KORS": [
+   {
+    "date_added": "2013-11-13",
+    "date_removed": "2018-09-19"
+   }
+  ],
+  "KR": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "KRB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-01-03"
+   }
+  ],
+  "KRFT": [
+   {
+    "date_added": "2012-10-02",
+    "date_removed": "2015-07-06"
+   }
+  ],
+  "KRI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-06-28"
+   }
+  ],
+  "KSE": [
+   {
+    "date_added": "2000-08-21",
+    "date_removed": "2007-08-27"
+   }
+  ],
+  "KSS": [
+   {
+    "date_added": "1998-08-14",
+    "date_removed": "2020-09-21"
+   }
+  ],
+  "KSU": [
+   {
+    "date_added": "1999-04-05",
+    "date_removed": "2000-07-13"
+   }
+  ],
+  "KVUE": [
+   {
+    "date_added": "2023-08-25",
+    "date_removed": null
+   }
+  ],
+  "KWP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-11-16"
+   }
+  ],
+  "L": [
+   {
+    "date_added": "1995-05-31",
+    "date_removed": null
+   }
+  ],
+  "LB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2021-08-03"
+   }
+  ],
+  "LDG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-07-02"
+   }
+  ],
+  "LDOS": [
+   {
+    "date_added": "2019-08-09",
+    "date_removed": null
+   }
+  ],
+  "LDW-B": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-12-08"
+   }
+  ],
+  "LEG": [
+   {
+    "date_added": "1999-10-18",
+    "date_removed": "2021-12-20"
+   }
+  ],
+  "LEHMQ": [
+   {
+    "date_added": "1998-01-12",
+    "date_removed": "2008-09-17"
+   }
+  ],
+  "LEN": [
+   {
+    "date_added": "2005-10-04",
+    "date_removed": null
+   }
+  ],
+  "LH": [
+   {
+    "date_added": "2004-11-01",
+    "date_removed": null
+   }
+  ],
+  "LHX": [
+   {
+    "date_added": "2008-09-22",
+    "date_removed": null
+   }
+  ],
+  "LIFE": [
+   {
+    "date_added": "2008-11-24",
+    "date_removed": "2014-01-24"
+   }
+  ],
+  "LII": [
+   {
+    "date_added": "2024-12-23",
+    "date_removed": null
+   }
+  ],
+  "LIN": [
+   {
+    "date_added": "1992-07-01",
+    "date_removed": null
+   }
+  ],
+  "LITE": [
+   {
+    "date_added": "2026-03-23",
+    "date_removed": null
+   }
+  ],
+  "LKQ": [
+   {
+    "date_added": "2016-05-23",
+    "date_removed": "2025-12-22"
+   }
+  ],
+  "LLL": [
+   {
+    "date_added": "2004-12-01",
+    "date_removed": "2019-07-01"
+   }
+  ],
+  "LLTC": [
+   {
+    "date_added": "2000-04-03",
+    "date_removed": "2017-03-13"
+   }
+  ],
+  "LLX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-10-23"
+   }
+  ],
+  "LLY": [
+   {
+    "date_added": "1970-12-31",
+    "date_removed": null
+   }
+  ],
+  "LM": [
+   {
+    "date_added": "2006-04-24",
+    "date_removed": "2016-12-02"
+   }
+  ],
+  "LMT": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "LNC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2023-09-18"
+   }
+  ],
+  "LNT": [
+   {
+    "date_added": "2016-07-01",
+    "date_removed": null
+   }
+  ],
+  "LO": [
+   {
+    "date_added": "2008-06-11",
+    "date_removed": "2015-06-12"
+   }
+  ],
+  "LOR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-04-23"
+   }
+  ],
+  "LOW": [
+   {
+    "date_added": "1984-02-29",
+    "date_removed": null
+   }
+  ],
+  "LPX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-11-10"
+   }
+  ],
+  "LRCX": [
+   {
+    "date_added": "2012-06-29",
+    "date_removed": null
+   }
+  ],
+  "LSI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2014-05-07"
+   }
+  ],
+  "LU": [
+   {
+    "date_added": "1996-10-01",
+    "date_removed": "2006-12-01"
+   }
+  ],
+  "LUB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-01-02"
+   }
+  ],
+  "LULU": [
+   {
+    "date_added": "2023-10-18",
+    "date_removed": null
+   }
+  ],
+  "LUMN": [
+   {
+    "date_added": "2020-09-18",
+    "date_removed": "2023-03-20"
+   }
+  ],
+  "LUV": [
+   {
+    "date_added": "1994-07-01",
+    "date_removed": null
+   }
+  ],
+  "LVLT": [
+   {
+    "date_added": "2014-11-05",
+    "date_removed": "2017-10-13"
+   }
+  ],
+  "LVS": [
+   {
+    "date_added": "2019-10-03",
+    "date_removed": null
+   }
+  ],
+  "LW": [
+   {
+    "date_added": "2018-12-03",
+    "date_removed": null
+   }
+  ],
+  "LXK": [
+   {
+    "date_added": "1999-08-13",
+    "date_removed": "2012-10-01"
+   }
+  ],
+  "LYB": [
+   {
+    "date_added": "2012-09-05",
+    "date_removed": null
+   }
+  ],
+  "LYV": [
+   {
+    "date_added": "2019-12-23",
+    "date_removed": null
+   }
+  ],
+  "M": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-04-06"
+   }
+  ],
+  "MA": [
+   {
+    "date_added": "2008-07-18",
+    "date_removed": null
+   }
+  ],
+  "MAA": [
+   {
+    "date_added": "2016-12-02",
+    "date_removed": null
+   }
+  ],
+  "MAC": [
+   {
+    "date_added": "2013-05-09",
+    "date_removed": "2019-12-23"
+   }
+  ],
+  "MAR": [
+   {
+    "date_added": "1998-05-29",
+    "date_removed": null
+   }
+  ],
+  "MAS": [
+   {
+    "date_added": "1981-06-30",
+    "date_removed": null
+   }
+  ],
+  "MAT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2019-06-07"
+   }
+  ],
+  "MAY": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-08-29"
+   }
+  ],
+  "MBI": [
+   {
+    "date_added": "1996-12-03",
+    "date_removed": "2009-12-21"
+   }
+  ],
+  "MCD": [
+   {
+    "date_added": "1970-06-30",
+    "date_removed": null
+   }
+  ],
+  "MCHP": [
+   {
+    "date_added": "2007-09-07",
+    "date_removed": null
+   }
+  ],
+  "MCIC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-09-15"
+   }
+  ],
+  "MCK": [
+   {
+    "date_added": "1999-01-13",
+    "date_removed": null
+   }
+  ],
+  "MCO": [
+   {
+    "date_added": "1998-07-01",
+    "date_removed": null
+   }
+  ],
+  "MD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-08-01"
+   }
+  ],
+  "MDLZ": [
+   {
+    "date_added": "2012-10-02",
+    "date_removed": null
+   }
+  ],
+  "MDP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-01-04"
+   }
+  ],
+  "MDR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2003-08-20"
+   }
+  ],
+  "MDT": [
+   {
+    "date_added": "1986-10-31",
+    "date_removed": null
+   }
+  ],
+  "MEA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-01-30"
+   }
+  ],
+  "MEDI": [
+   {
+    "date_added": "2000-06-16",
+    "date_removed": "2007-06-01"
+   }
+  ],
+  "MEE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-22"
+   }
+  ],
+  "MEL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-07-02"
+   }
+  ],
+  "MER": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-01-02"
+   }
+  ],
+  "MERQ": [
+   {
+    "date_added": "2000-06-29",
+    "date_removed": "2006-01-04"
+   }
+  ],
+  "MET": [
+   {
+    "date_added": "2000-12-11",
+    "date_removed": null
+   }
+  ],
+  "META": [
+   {
+    "date_added": "2013-12-23",
+    "date_removed": null
+   }
+  ],
+  "MFE": [
+   {
+    "date_added": "2008-12-23",
+    "date_removed": "2011-03-01"
+   }
+  ],
+  "MGM": [
+   {
+    "date_added": "2017-07-26",
+    "date_removed": null
+   }
+  ],
+  "MHK": [
+   {
+    "date_added": "2013-12-23",
+    "date_removed": "2025-12-22"
+   }
+  ],
+  "MHS": [
+   {
+    "date_added": "2003-08-20",
+    "date_removed": "2012-04-02"
+   }
+  ],
+  "MI": [
+   {
+    "date_added": "2002-02-11",
+    "date_removed": "2011-07-06"
+   }
+  ],
+  "MII": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-06-22"
+   }
+  ],
+  "MIL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2010-07-15"
+   }
+  ],
+  "MIR": [
+   {
+    "date_added": "1997-08-07",
+    "date_removed": "2000-06-01"
+   }
+  ],
+  "MJN": [
+   {
+    "date_added": "2009-12-21",
+    "date_removed": "2017-06-15"
+   }
+  ],
+  "MKC": [
+   {
+    "date_added": "2003-03-20",
+    "date_removed": null
+   }
+  ],
+  "MKG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-10-18"
+   }
+  ],
+  "MKTX": [
+   {
+    "date_added": "2019-07-01",
+    "date_removed": "2025-09-22"
+   }
+  ],
+  "MLM": [
+   {
+    "date_added": "2014-07-02",
+    "date_removed": null
+   }
+  ],
+  "MMC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2026-01-14"
+   }
+  ],
+  "MMI": [
+   {
+    "date_added": "2011-01-04",
+    "date_removed": "2012-05-22"
+   }
+  ],
+  "MMM": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "MNK": [
+   {
+    "date_added": "2014-08-19",
+    "date_removed": "2017-07-26"
+   }
+  ],
+  "MNR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-09-28"
+   }
+  ],
+  "MNST": [
+   {
+    "date_added": "2012-06-28",
+    "date_removed": null
+   }
+  ],
+  "MO": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "MOB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-12-01"
+   }
+  ],
+  "MOH": [
+   {
+    "date_added": "2022-03-02",
+    "date_removed": null
+   }
+  ],
+  "MOLX": [
+   {
+    "date_added": "1999-12-01",
+    "date_removed": "2013-12-09"
+   }
+  ],
+  "MON": [
+   {
+    "date_added": "2002-08-14",
+    "date_removed": "2018-06-07"
+   }
+  ],
+  "MOS": [
+   {
+    "date_added": "2011-09-26",
+    "date_removed": null
+   }
+  ],
+  "MPC": [
+   {
+    "date_added": "2011-07-01",
+    "date_removed": null
+   }
+  ],
+  "MPWR": [
+   {
+    "date_added": "2021-02-12",
+    "date_removed": null
+   }
+  ],
+  "MRK": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "MRNA": [
+   {
+    "date_added": "2021-07-21",
+    "date_removed": null
+   }
+  ],
+  "MRO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2024-11-26"
+   }
+  ],
+  "MRSH": [
+   {
+    "date_added": "1987-08-31",
+    "date_removed": null
+   }
+  ],
+  "MRVL": [
+   {
+    "date_added": "2026-06-22",
+    "date_removed": null
+   }
+  ],
+  "MS": [
+   {
+    "date_added": "1993-07-29",
+    "date_removed": null
+   }
+  ],
+  "MSCI": [
+   {
+    "date_added": "2018-04-04",
+    "date_removed": null
+   }
+  ],
+  "MSFT": [
+   {
+    "date_added": "1994-06-01",
+    "date_removed": null
+   }
+  ],
+  "MSI": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "MST": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-08-14"
+   }
+  ],
+  "MTB": [
+   {
+    "date_added": "2004-02-23",
+    "date_removed": null
+   }
+  ],
+  "MTCH": [
+   {
+    "date_added": "2021-09-20",
+    "date_removed": null
+   }
+  ],
+  "MTD": [
+   {
+    "date_added": "2016-09-06",
+    "date_removed": null
+   }
+  ],
+  "MTG": [
+   {
+    "date_added": "1996-07-19",
+    "date_removed": "2008-10-31"
+   }
+  ],
+  "MTL": [
+   {
+    "date_added": "1998-02-23",
+    "date_removed": "1999-09-20"
+   }
+  ],
+  "MTLQQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-06-03"
+   }
+  ],
+  "MTW": [
+   {
+    "date_added": "2007-11-16",
+    "date_removed": "2009-09-01"
+   }
+  ],
+  "MU": [
+   {
+    "date_added": "1994-09-27",
+    "date_removed": null
+   }
+  ],
+  "MUR": [
+   {
+    "date_added": "2005-08-15",
+    "date_removed": "2017-07-26"
+   }
+  ],
+  "MWI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-05-28"
+   }
+  ],
+  "MWV": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2015-07-02"
+   }
+  ],
+  "MWW": [
+   {
+    "date_added": "2001-06-04",
+    "date_removed": "2011-12-19"
+   }
+  ],
+  "MXIM": [
+   {
+    "date_added": "2000-05-10",
+    "date_removed": "2007-09-27"
+   }
+  ],
+  "MYG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-04-03"
+   }
+  ],
+  "MYL": [
+   {
+    "date_added": "2004-04-23",
+    "date_removed": "2020-11-17"
+   }
+  ],
+  "MZIAQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-29"
+   }
+  ],
+  "NAE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-08-07"
+   }
+  ],
+  "NAV": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-12-20"
+   }
+  ],
+  "NAVI": [
+   {
+    "date_added": "2014-05-01",
+    "date_removed": "2018-06-05"
+   }
+  ],
+  "NBL": [
+   {
+    "date_added": "2007-10-08",
+    "date_removed": "2020-10-12"
+   }
+  ],
+  "NBR": [
+   {
+    "date_added": "2000-10-18",
+    "date_removed": "2015-03-23"
+   }
+  ],
+  "NC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-05"
+   }
+  ],
+  "NCC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-01-02"
+   }
+  ],
+  "NCE": [
+   {
+    "date_added": "1998-11-03",
+    "date_removed": "2000-08-21"
+   }
+  ],
+  "NCLH": [
+   {
+    "date_added": "2017-10-13",
+    "date_removed": null
+   }
+  ],
+  "NCR": [
+   {
+    "date_added": "2000-01-04",
+    "date_removed": "2007-10-01"
+   }
+  ],
+  "NDAQ": [
+   {
+    "date_added": "2008-10-22",
+    "date_removed": null
+   }
+  ],
+  "NDSN": [
+   {
+    "date_added": "2022-02-15",
+    "date_removed": null
+   }
+  ],
+  "NE": [
+   {
+    "date_added": "2001-01-16",
+    "date_removed": "2009-03-27"
+   }
+  ],
+  "NEE": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "NEM": [
+   {
+    "date_added": "1969-06-30",
+    "date_removed": null
+   }
+  ],
+  "NFB": [
+   {
+    "date_added": "2002-07-17",
+    "date_removed": "2006-12-01"
+   }
+  ],
+  "NFLX": [
+   {
+    "date_added": "2010-12-20",
+    "date_removed": null
+   }
+  ],
+  "NFX": [
+   {
+    "date_added": "2010-12-20",
+    "date_removed": "2019-02-15"
+   }
+  ],
+  "NGH": [
+   {
+    "date_added": "1998-09-16",
+    "date_removed": "2000-12-12"
+   }
+  ],
+  "NI": [
+   {
+    "date_added": "2000-11-02",
+    "date_removed": null
+   }
+  ],
+  "NKE": [
+   {
+    "date_added": "1988-11-30",
+    "date_removed": null
+   }
+  ],
+  "NKTR": [
+   {
+    "date_added": "2018-03-19",
+    "date_removed": "2019-10-03"
+   }
+  ],
+  "NLC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-08-02"
+   }
+  ],
+  "NLOK": [
+   {
+    "date_added": "2019-11-05",
+    "date_removed": "2022-11-08"
+   }
+  ],
+  "NLSN": [
+   {
+    "date_added": "2013-07-09",
+    "date_removed": "2022-10-12"
+   }
+  ],
+  "NLV": [
+   {
+    "date_added": "1996-04-01",
+    "date_removed": "2000-01-06"
+   }
+  ],
+  "NMK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-02-01"
+   }
+  ],
+  "NOC": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "NOV": [
+   {
+    "date_added": "2005-03-14",
+    "date_removed": "2021-09-20"
+   }
+  ],
+  "NOVL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-04-28"
+   }
+  ],
+  "NOW": [
+   {
+    "date_added": "2019-11-21",
+    "date_removed": null
+   }
+  ],
+  "NRG": [
+   {
+    "date_added": "2010-01-29",
+    "date_removed": null
+   }
+  ],
+  "NRTLQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "NSC": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "NSI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-12-03"
+   }
+  ],
+  "NSM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-09-26"
+   }
+  ],
+  "NTAP": [
+   {
+    "date_added": "1999-06-25",
+    "date_removed": null
+   }
+  ],
+  "NTRS": [
+   {
+    "date_added": "1998-01-30",
+    "date_removed": null
+   }
+  ],
+  "NUE": [
+   {
+    "date_added": "1985-04-30",
+    "date_removed": null
+   }
+  ],
+  "NVDA": [
+   {
+    "date_added": "2001-11-30",
+    "date_removed": null
+   }
+  ],
+  "NVLS": [
+   {
+    "date_added": "2000-06-19",
+    "date_removed": "2012-06-05"
+   }
+  ],
+  "NVR": [
+   {
+    "date_added": "2019-09-26",
+    "date_removed": null
+   }
+  ],
+  "NWL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2023-09-18"
+   }
+  ],
+  "NWS": [
+   {
+    "date_added": "2015-09-18",
+    "date_removed": null
+   }
+  ],
+  "NWSA": [
+   {
+    "date_added": "2013-08-01",
+    "date_removed": null
+   }
+  ],
+  "NXPI": [
+   {
+    "date_added": "2021-03-22",
+    "date_removed": null
+   }
+  ],
+  "NXTL": [
+   {
+    "date_added": "1998-04-01",
+    "date_removed": "2005-08-15"
+   }
+  ],
+  "NYN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-08-15"
+   }
+  ],
+  "NYT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2010-12-20"
+   }
+  ],
+  "NYX": [
+   {
+    "date_added": "2007-10-25",
+    "date_removed": "2013-11-13"
+   }
+  ],
+  "O": [
+   {
+    "date_added": "2015-04-07",
+    "date_removed": null
+   }
+  ],
+  "OAT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-08-03"
+   }
+  ],
+  "ODFL": [
+   {
+    "date_added": "2019-12-09",
+    "date_removed": null
+   }
+  ],
+  "ODP": [
+   {
+    "date_added": "1999-06-24",
+    "date_removed": "2010-12-20"
+   }
+  ],
+  "OGN": [
+   {
+    "date_added": "2021-06-04",
+    "date_removed": "2023-10-18"
+   }
+  ],
+  "OI": [
+   {
+    "date_added": "1997-08-04",
+    "date_removed": "2000-12-11"
+   }
+  ],
+  "OK": [
+   {
+    "date_added": "1999-12-02",
+    "date_removed": "2001-04-02"
+   }
+  ],
+  "OKE": [
+   {
+    "date_added": "2010-03-15",
+    "date_removed": null
+   }
+  ],
+  "OKTA": [
+   {
+    "date_added": "2026-11-04",
+    "date_removed": null
+   }
+  ],
+  "OM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-10-01"
+   }
+  ],
+  "OMC": [
+   {
+    "date_added": "1997-12-31",
+    "date_removed": null
+   }
+  ],
+  "OMX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-06-23"
+   }
+  ],
+  "ON": [
+   {
+    "date_added": "2022-06-21",
+    "date_removed": null
+   }
+  ],
+  "ONE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-07-01"
+   }
+  ],
+  "ORCL": [
+   {
+    "date_added": "1989-08-31",
+    "date_removed": null
+   }
+  ],
+  "ORLY": [
+   {
+    "date_added": "2009-03-27",
+    "date_removed": null
+   }
+  ],
+  "ORX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-03-01"
+   }
+  ],
+  "OTIS": [
+   {
+    "date_added": "2020-04-03",
+    "date_removed": null
+   }
+  ],
+  "OWENQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-10-02"
+   }
+  ],
+  "OXY": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "P": [
+   {
+    "date_added": "2026-09-21",
+    "date_removed": null
+   }
+  ],
+  "PAC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-04-01"
+   }
+  ],
+  "PALM": [
+   {
+    "date_added": "2000-07-28",
+    "date_removed": "2002-08-14"
+   }
+  ],
+  "PANW": [
+   {
+    "date_added": "2023-06-20",
+    "date_removed": null
+   }
+  ],
+  "PARA": [
+   {
+    "date_added": "2022-02-17",
+    "date_removed": "2025-08-08"
+   }
+  ],
+  "PAS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-01-30"
+   }
+  ],
+  "PAYC": [
+   {
+    "date_added": "2020-01-28",
+    "date_removed": null
+   }
+  ],
+  "PAYX": [
+   {
+    "date_added": "1998-10-01",
+    "date_removed": null
+   }
+  ],
+  "PBCT": [
+   {
+    "date_added": "2008-11-13",
+    "date_removed": "2022-04-04"
+   }
+  ],
+  "PBG": [
+   {
+    "date_added": "2001-05-14",
+    "date_removed": "2010-03-01"
+   }
+  ],
+  "PBI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2017-03-01"
+   }
+  ],
+  "PBY": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-04-03"
+   }
+  ],
+  "PCAR": [
+   {
+    "date_added": "1980-12-31",
+    "date_removed": null
+   }
+  ],
+  "PCG": [
+   {
+    "date_added": "2022-10-03",
+    "date_removed": null
+   }
+  ],
+  "PCH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-07-09"
+   }
+  ],
+  "PCL": [
+   {
+    "date_added": "2002-01-17",
+    "date_removed": "2016-02-22"
+   }
+  ],
+  "PCP": [
+   {
+    "date_added": "2007-06-01",
+    "date_removed": "2016-02-01"
+   }
+  ],
+  "PCS": [
+   {
+    "date_added": "1998-11-24",
+    "date_removed": "2004-04-23"
+   }
+  ],
+  "PD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-03-20"
+   }
+  ],
+  "PDCO": [
+   {
+    "date_added": "2005-10-11",
+    "date_removed": "2018-03-19"
+   }
+  ],
+  "PDG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "PEAK": [
+   {
+    "date_added": "2019-11-05",
+    "date_removed": "2024-03-04"
+   }
+  ],
+  "PEG": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "PEL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-06-19"
+   }
+  ],
+  "PENN": [
+   {
+    "date_added": "2021-03-22",
+    "date_removed": "2022-09-19"
+   }
+  ],
+  "PEP": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "PET": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-06-29"
+   }
+  ],
+  "PETM": [
+   {
+    "date_added": "2012-10-05",
+    "date_removed": "2015-03-12"
+   }
+  ],
+  "PFE": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "PFG": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": null
+   }
+  ],
+  "PG": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "PGL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-02-22"
+   }
+  ],
+  "PGN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2012-07-02"
+   }
+  ],
+  "PGR": [
+   {
+    "date_added": "1997-08-04",
+    "date_removed": null
+   }
+  ],
+  "PH": [
+   {
+    "date_added": "1985-11-30",
+    "date_removed": null
+   }
+  ],
+  "PHA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2003-04-16"
+   }
+  ],
+  "PHB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-04"
+   }
+  ],
+  "PHM": [
+   {
+    "date_added": "1984-04-30",
+    "date_removed": null
+   }
+  ],
+  "PKG": [
+   {
+    "date_added": "2017-07-26",
+    "date_removed": null
+   }
+  ],
+  "PKI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2023-05-16"
+   }
+  ],
+  "PLD": [
+   {
+    "date_added": "2003-07-17",
+    "date_removed": null
+   }
+  ],
+  "PLL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2015-08-31"
+   }
+  ],
+  "PLTR": [
+   {
+    "date_added": "2024-09-23",
+    "date_removed": null
+   }
+  ],
+  "PM": [
+   {
+    "date_added": "2008-03-31",
+    "date_removed": null
+   }
+  ],
+  "PMCS": [
+   {
+    "date_added": "2001-08-03",
+    "date_removed": "2007-07-02"
+   }
+  ],
+  "PMI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-05-31"
+   }
+  ],
+  "PNC": [
+   {
+    "date_added": "1988-04-30",
+    "date_removed": null
+   }
+  ],
+  "PNR": [
+   {
+    "date_added": "2012-10-01",
+    "date_removed": null
+   }
+  ],
+  "PNU": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-04-03"
+   }
+  ],
+  "PNW": [
+   {
+    "date_added": "1999-10-04",
+    "date_removed": null
+   }
+  ],
+  "PODD": [
+   {
+    "date_added": "2023-03-15",
+    "date_removed": null
+   }
+  ],
+  "POM": [
+   {
+    "date_added": "2007-11-09",
+    "date_removed": "2016-03-24"
+   }
+  ],
+  "POOL": [
+   {
+    "date_added": "2020-10-07",
+    "date_removed": null
+   }
+  ],
+  "PPG": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "PPL": [
+   {
+    "date_added": "2001-10-01",
+    "date_removed": null
+   }
+  ],
+  "PPW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-11-30"
+   }
+  ],
+  "PRD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-12"
+   }
+  ],
+  "PRGO": [
+   {
+    "date_added": "2011-12-19",
+    "date_removed": "2021-09-20"
+   }
+  ],
+  "PRU": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": null
+   }
+  ],
+  "PSA": [
+   {
+    "date_added": "2005-08-19",
+    "date_removed": null
+   }
+  ],
+  "PSFT": [
+   {
+    "date_added": "1998-10-02",
+    "date_removed": "2004-12-29"
+   }
+  ],
+  "PSKY": [
+   {
+    "date_added": "1994-09-30",
+    "date_removed": null
+   }
+  ],
+  "PSX": [
+   {
+    "date_added": "2012-05-01",
+    "date_removed": null
+   }
+  ],
+  "PTC": [
+   {
+    "date_added": "2021-04-20",
+    "date_removed": null
+   }
+  ],
+  "PTV": [
+   {
+    "date_added": "1999-11-05",
+    "date_removed": "2010-11-17"
+   }
+  ],
+  "PVH": [
+   {
+    "date_added": "2013-02-14",
+    "date_removed": "2022-09-19"
+   }
+  ],
+  "PVN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-10-03"
+   }
+  ],
+  "PVT": [
+   {
+    "date_added": "1998-08-31",
+    "date_removed": "1999-07-01"
+   }
+  ],
+  "PWER": [
+   {
+    "date_added": "2000-10-23",
+    "date_removed": "2005-03-14"
+   }
+  ],
+  "PWJ": [
+   {
+    "date_added": "1999-06-04",
+    "date_removed": "2000-11-06"
+   }
+  ],
+  "PWR": [
+   {
+    "date_added": "2009-07-01",
+    "date_removed": null
+   }
+  ],
+  "PX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2018-10-31"
+   }
+  ],
+  "PXD": [
+   {
+    "date_added": "2008-09-24",
+    "date_removed": "2024-05-08"
+   }
+  ],
+  "PYPL": [
+   {
+    "date_added": "2015-07-20",
+    "date_removed": null
+   }
+  ],
+  "PZE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-12-31"
+   }
+  ],
+  "Q": [
+   {
+    "date_added": "2025-11-03",
+    "date_removed": null
+   }
+  ],
+  "QCOM": [
+   {
+    "date_added": "1999-07-22",
+    "date_removed": null
+   }
+  ],
+  "QEP": [
+   {
+    "date_added": "2010-07-01",
+    "date_removed": "2015-07-01"
+   }
+  ],
+  "QLGC": [
+   {
+    "date_added": "2000-12-12",
+    "date_removed": "2011-01-18"
+   }
+  ],
+  "QRVO": [
+   {
+    "date_added": "2015-06-12",
+    "date_removed": "2024-12-23"
+   }
+  ],
+  "QTRN": [
+   {
+    "date_added": "1999-11-16",
+    "date_removed": "2003-09-26"
+   }
+  ],
+  "R": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2017-06-19"
+   }
+  ],
+  "RAD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-07-27"
+   }
+  ],
+  "RAI": [
+   {
+    "date_added": "2002-09-04",
+    "date_removed": "2017-07-25"
+   }
+  ],
+  "RAL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-12-13"
+   }
+  ],
+  "RATL": [
+   {
+    "date_added": "2002-02-01",
+    "date_removed": "2003-02-21"
+   }
+  ],
+  "RBD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-03-25"
+   }
+  ],
+  "RBK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-02-01"
+   }
+  ],
+  "RCL": [
+   {
+    "date_added": "2014-12-05",
+    "date_removed": null
+   }
+  ],
+  "RDC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2014-08-19"
+   }
+  ],
+  "RDDT": [
+   {
+    "date_added": "2026-08-18",
+    "date_removed": null
+   }
+  ],
+  "RDS-A": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "RE": [
+   {
+    "date_added": "2017-06-19",
+    "date_removed": "2023-07-10"
+   }
+  ],
+  "REG": [
+   {
+    "date_added": "2017-03-02",
+    "date_removed": null
+   }
+  ],
+  "REGN": [
+   {
+    "date_added": "2013-05-01",
+    "date_removed": null
+   }
+  ],
+  "RF": [
+   {
+    "date_added": "1998-08-28",
+    "date_removed": null
+   }
+  ],
+  "RHI": [
+   {
+    "date_added": "2000-12-05",
+    "date_removed": "2024-06-24"
+   }
+  ],
+  "RHT": [
+   {
+    "date_added": "2009-07-27",
+    "date_removed": "2019-07-15"
+   }
+  ],
+  "RIG": [
+   {
+    "date_added": "1999-12-31",
+    "date_removed": "2008-12-19"
+   }
+  ],
+  "RJF": [
+   {
+    "date_added": "2017-03-20",
+    "date_removed": null
+   }
+  ],
+  "RL": [
+   {
+    "date_added": "2007-02-02",
+    "date_removed": null
+   }
+  ],
+  "RLM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-05-04"
+   }
+  ],
+  "RMD": [
+   {
+    "date_added": "2017-07-26",
+    "date_removed": null
+   }
+  ],
+  "RML": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-12"
+   }
+  ],
+  "RNB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-01-03"
+   }
+  ],
+  "ROH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-04-02"
+   }
+  ],
+  "ROK": [
+   {
+    "date_added": "2000-03-12",
+    "date_removed": null
+   }
+  ],
+  "ROL": [
+   {
+    "date_added": "2018-10-01",
+    "date_removed": null
+   }
+  ],
+  "ROP": [
+   {
+    "date_added": "2009-12-23",
+    "date_removed": null
+   }
+  ],
+  "ROST": [
+   {
+    "date_added": "2009-12-21",
+    "date_removed": null
+   }
+  ],
+  "RRC": [
+   {
+    "date_added": "2007-12-21",
+    "date_removed": "2018-06-18"
+   }
+  ],
+  "RRD": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2012-12-12"
+   }
+  ],
+  "RSG": [
+   {
+    "date_added": "2008-12-05",
+    "date_removed": null
+   }
+  ],
+  "RSHCQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-07-01"
+   }
+  ],
+  "RTN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-04-06"
+   }
+  ],
+  "RTX": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "RVTY": [
+   {
+    "date_added": "1985-05-31",
+    "date_removed": null
+   }
+  ],
+  "RX": [
+   {
+    "date_added": "1996-11-04",
+    "date_removed": "2010-02-26"
+   }
+  ],
+  "RYAN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-01-02"
+   }
+  ],
+  "RYC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-08-13"
+   }
+  ],
+  "RYI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-07-01"
+   }
+  ],
+  "S": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2013-07-09"
+   }
+  ],
+  "SAF": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-09-23"
+   }
+  ],
+  "SAI": [
+   {
+    "date_added": "1997-07-17",
+    "date_removed": "1999-01-04"
+   }
+  ],
+  "SANM": [
+   {
+    "date_added": "2000-06-21",
+    "date_removed": "2007-07-02"
+   }
+  ],
+  "SAPE": [
+   {
+    "date_added": "2000-05-05",
+    "date_removed": "2002-05-13"
+   }
+  ],
+  "SB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-11-28"
+   }
+  ],
+  "SBAC": [
+   {
+    "date_added": "2017-09-01",
+    "date_removed": null
+   }
+  ],
+  "SBL": [
+   {
+    "date_added": "2000-12-11",
+    "date_removed": "2007-01-10"
+   }
+  ],
+  "SBNY": [
+   {
+    "date_added": "2021-12-20",
+    "date_removed": "2023-03-15"
+   }
+  ],
+  "SBUX": [
+   {
+    "date_added": "2000-06-07",
+    "date_removed": null
+   }
+  ],
+  "SCG": [
+   {
+    "date_added": "2009-01-02",
+    "date_removed": "2019-01-02"
+   }
+  ],
+  "SCHW": [
+   {
+    "date_added": "1997-06-02",
+    "date_removed": null
+   }
+  ],
+  "SCI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-03-16"
+   }
+  ],
+  "SDS": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": "2005-08-12"
+   }
+  ],
+  "SE": [
+   {
+    "date_added": "2007-01-03",
+    "date_removed": "2017-02-27"
+   }
+  ],
+  "SEBL": [
+   {
+    "date_added": "2000-05-05",
+    "date_removed": "2006-02-01"
+   }
+  ],
+  "SEDG": [
+   {
+    "date_added": "2021-12-20",
+    "date_removed": "2023-10-18"
+   }
+  ],
+  "SEE": [
+   {
+    "date_added": "1998-04-01",
+    "date_removed": "2023-10-18"
+   }
+  ],
+  "SEG": [
+   {
+    "date_added": "1996-08-16",
+    "date_removed": "2000-11-22"
+   }
+  ],
+  "SFA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2006-02-27"
+   }
+  ],
+  "SFS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-07-28"
+   }
+  ],
+  "SGID": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-21"
+   }
+  ],
+  "SGP": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-11-04"
+   }
+  ],
+  "SHLD": [
+   {
+    "date_added": "2005-03-28",
+    "date_removed": "2012-09-05"
+   }
+  ],
+  "SHN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-01-02"
+   }
+  ],
+  "SHW": [
+   {
+    "date_added": "1964-06-30",
+    "date_removed": null
+   }
+  ],
+  "SIAL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2015-11-18"
+   }
+  ],
+  "SIG": [
+   {
+    "date_added": "2015-07-29",
+    "date_removed": "2018-03-19"
+   }
+  ],
+  "SII": [
+   {
+    "date_added": "2006-10-02",
+    "date_removed": "2010-08-27"
+   }
+  ],
+  "SIVB": [
+   {
+    "date_added": "2018-03-19",
+    "date_removed": "2023-03-15"
+   }
+  ],
+  "SJM": [
+   {
+    "date_added": "2008-11-06",
+    "date_removed": null
+   }
+  ],
+  "SK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-04-01"
+   }
+  ],
+  "SKYD": [
+   {
+    "date_added": "1994-09-30",
+    "date_removed": null
+   }
+  ],
+  "SLB": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "SLG": [
+   {
+    "date_added": "2015-03-23",
+    "date_removed": "2021-03-22"
+   }
+  ],
+  "SLM": [
+   {
+    "date_added": "1998-07-01",
+    "date_removed": "2014-05-01"
+   }
+  ],
+  "SLR": [
+   {
+    "date_added": "1998-12-31",
+    "date_removed": "2007-10-02"
+   }
+  ],
+  "SMCI": [
+   {
+    "date_added": "2024-03-18",
+    "date_removed": null
+   }
+  ],
+  "SMI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-12"
+   }
+  ],
+  "SMS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-08"
+   }
+  ],
+  "SNA": [
+   {
+    "date_added": "1982-09-30",
+    "date_removed": null
+   }
+  ],
+  "SNDK": [
+   {
+    "date_added": "2025-11-28",
+    "date_removed": null
+   }
+  ],
+  "SNI": [
+   {
+    "date_added": "2008-07-01",
+    "date_removed": "2018-03-07"
+   }
+  ],
+  "SNPS": [
+   {
+    "date_added": "2017-03-16",
+    "date_removed": null
+   }
+  ],
+  "SNT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-10-26"
+   }
+  ],
+  "SNV": [
+   {
+    "date_added": "1997-12-01",
+    "date_removed": "2008-01-02"
+   }
+  ],
+  "SO": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "SOLS": [
+   {
+    "date_added": "2025-10-30",
+    "date_removed": "2025-12-22"
+   }
+  ],
+  "SOLV": [
+   {
+    "date_added": "2024-04-01",
+    "date_removed": null
+   }
+  ],
+  "SOTR": [
+   {
+    "date_added": "1999-03-01",
+    "date_removed": "2004-11-01"
+   }
+  ],
+  "SOV": [
+   {
+    "date_added": "2004-07-01",
+    "date_removed": "2009-01-30"
+   }
+  ],
+  "SPG": [
+   {
+    "date_added": "2002-06-26",
+    "date_removed": null
+   }
+  ],
+  "SPGI": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "SPLS": [
+   {
+    "date_added": "1998-10-07",
+    "date_removed": "2017-09-13"
+   }
+  ],
+  "SRCL": [
+   {
+    "date_added": "2008-11-19",
+    "date_removed": "2018-12-03"
+   }
+  ],
+  "SRE": [
+   {
+    "date_added": "2017-03-17",
+    "date_removed": null
+   }
+  ],
+  "SRR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-10-07"
+   }
+  ],
+  "SSP": [
+   {
+    "date_added": "2005-12-20",
+    "date_removed": "2008-07-01"
+   }
+  ],
+  "STE": [
+   {
+    "date_added": "2019-12-23",
+    "date_removed": null
+   }
+  ],
+  "STI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2019-12-09"
+   }
+  ],
+  "STJ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2017-01-05"
+   }
+  ],
+  "STLD": [
+   {
+    "date_added": "2022-12-22",
+    "date_removed": null
+   }
+  ],
+  "STO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-11-18"
+   }
+  ],
+  "STR": [
+   {
+    "date_added": "2006-12-01",
+    "date_removed": "2010-07-01"
+   }
+  ],
+  "STT": [
+   {
+    "date_added": "2003-03-14",
+    "date_removed": null
+   }
+  ],
+  "STX": [
+   {
+    "date_added": "2012-07-02",
+    "date_removed": null
+   }
+  ],
+  "STZ": [
+   {
+    "date_added": "2005-07-01",
+    "date_removed": null
+   }
+  ],
+  "SUB": [
+   {
+    "date_added": "1998-01-28",
+    "date_removed": "2001-03-01"
+   }
+  ],
+  "SUN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2012-10-05"
+   }
+  ],
+  "SUNEQ": [
+   {
+    "date_added": "2007-05-31",
+    "date_removed": "2011-12-19"
+   }
+  ],
+  "SVU": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2012-05-01"
+   }
+  ],
+  "SW": [
+   {
+    "date_added": "2024-07-08",
+    "date_removed": null
+   }
+  ],
+  "SWK": [
+   {
+    "date_added": "1982-09-30",
+    "date_removed": null
+   }
+  ],
+  "SWKS": [
+   {
+    "date_added": "2015-03-12",
+    "date_removed": null
+   }
+  ],
+  "SWN": [
+   {
+    "date_added": "2008-06-06",
+    "date_removed": "2017-04-04"
+   }
+  ],
+  "SWY": [
+   {
+    "date_added": "1998-11-13",
+    "date_removed": "2015-01-27"
+   }
+  ],
+  "SXCL": [
+   {
+    "date_added": "1999-10-01",
+    "date_removed": "2001-05-14"
+   }
+  ],
+  "SYF": [
+   {
+    "date_added": "2015-11-18",
+    "date_removed": null
+   }
+  ],
+  "SYK": [
+   {
+    "date_added": "2000-12-12",
+    "date_removed": null
+   }
+  ],
+  "SYMC": [
+   {
+    "date_added": "2003-03-31",
+    "date_removed": "2019-11-05"
+   }
+  ],
+  "SYY": [
+   {
+    "date_added": "1986-12-31",
+    "date_removed": null
+   }
+  ],
+  "T": [
+   {
+    "date_added": "1983-11-30",
+    "date_removed": null
+   }
+  ],
+  "TA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-07-22"
+   }
+  ],
+  "TAP": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "TCOMA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-03-10"
+   }
+  ],
+  "TDC": [
+   {
+    "date_added": "2007-10-01",
+    "date_removed": "2017-06-19"
+   }
+  ],
+  "TDG": [
+   {
+    "date_added": "2016-06-03",
+    "date_removed": null
+   }
+  ],
+  "TDM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-09-02"
+   }
+  ],
+  "TDY": [
+   {
+    "date_added": "2020-06-22",
+    "date_removed": null
+   }
+  ],
+  "TE": [
+   {
+    "date_added": "2001-10-10",
+    "date_removed": "2016-07-01"
+   }
+  ],
+  "TECH": [
+   {
+    "date_added": "2021-08-30",
+    "date_removed": null
+   }
+  ],
+  "TEG": [
+   {
+    "date_added": "2007-02-22",
+    "date_removed": "2015-06-30"
+   }
+  ],
+  "TEK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-11-16"
+   }
+  ],
+  "TEL": [
+   {
+    "date_added": "2011-10-17",
+    "date_removed": null
+   }
+  ],
+  "TEN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-11-05"
+   }
+  ],
+  "TER": [
+   {
+    "date_added": "2020-09-21",
+    "date_removed": null
+   }
+  ],
+  "TEX": [
+   {
+    "date_added": "2006-12-20",
+    "date_removed": "2008-11-06"
+   }
+  ],
+  "TFC": [
+   {
+    "date_added": "1997-12-04",
+    "date_removed": null
+   }
+  ],
+  "TFX": [
+   {
+    "date_added": "2019-01-18",
+    "date_removed": "2025-04-24"
+   }
+  ],
+  "TGNA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2017-06-02"
+   }
+  ],
+  "TGT": [
+   {
+    "date_added": "1976-12-31",
+    "date_removed": null
+   }
+  ],
+  "THC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2016-04-18"
+   }
+  ],
+  "THY": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-10-16"
+   }
+  ],
+  "TIE": [
+   {
+    "date_added": "2007-10-29",
+    "date_removed": "2012-12-24"
+   }
+  ],
+  "TIF": [
+   {
+    "date_added": "2000-06-21",
+    "date_removed": "2021-01-07"
+   }
+  ],
+  "TIN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-12-31"
+   }
+  ],
+  "TJX": [
+   {
+    "date_added": "1985-09-30",
+    "date_removed": null
+   }
+  ],
+  "TKO": [
+   {
+    "date_added": "2025-03-24",
+    "date_removed": null
+   }
+  ],
+  "TKR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-08-07"
+   }
+  ],
+  "TLAB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2011-12-21"
+   }
+  ],
+  "TMC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-13"
+   }
+  ],
+  "TMC-A": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-13"
+   }
+  ],
+  "TMK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2019-08-08"
+   }
+  ],
+  "TMO": [
+   {
+    "date_added": "2004-08-03",
+    "date_removed": null
+   }
+  ],
+  "TMUS": [
+   {
+    "date_added": "2019-07-15",
+    "date_removed": null
+   }
+  ],
+  "TNB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-08-03"
+   }
+  ],
+  "TOS": [
+   {
+    "date_added": "1999-09-20",
+    "date_removed": "2001-09-17"
+   }
+  ],
+  "TOY": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-07-22"
+   }
+  ],
+  "TPL": [
+   {
+    "date_added": "2024-11-26",
+    "date_removed": null
+   }
+  ],
+  "TPR": [
+   {
+    "date_added": "2004-09-01",
+    "date_removed": null
+   }
+  ],
+  "TRB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-12-21"
+   }
+  ],
+  "TRGP": [
+   {
+    "date_added": "2022-10-12",
+    "date_removed": null
+   }
+  ],
+  "TRIP": [
+   {
+    "date_added": "2011-12-21",
+    "date_removed": "2019-12-23"
+   }
+  ],
+  "TRMB": [
+   {
+    "date_added": "2021-01-21",
+    "date_removed": null
+   }
+  ],
+  "TROW": [
+   {
+    "date_added": "2019-07-29",
+    "date_removed": null
+   }
+  ],
+  "TRV": [
+   {
+    "date_added": "2002-08-21",
+    "date_removed": null
+   }
+  ],
+  "TRW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-12-12"
+   }
+  ],
+  "TSCO": [
+   {
+    "date_added": "2014-01-24",
+    "date_removed": null
+   }
+  ],
+  "TSG": [
+   {
+    "date_added": "2000-03-16",
+    "date_removed": "2007-04-02"
+   }
+  ],
+  "TSLA": [
+   {
+    "date_added": "2020-12-21",
+    "date_removed": null
+   }
+  ],
+  "TSN": [
+   {
+    "date_added": "2005-08-10",
+    "date_removed": null
+   }
+  ],
+  "TSS": [
+   {
+    "date_added": "2008-01-02",
+    "date_removed": "2019-09-23"
+   }
+  ],
+  "TT": [
+   {
+    "date_added": "2010-11-17",
+    "date_removed": null
+   }
+  ],
+  "TTD": [
+   {
+    "date_added": "2025-07-18",
+    "date_removed": null
+   }
+  ],
+  "TTWO": [
+   {
+    "date_added": "2018-03-19",
+    "date_removed": null
+   }
+  ],
+  "TUP": [
+   {
+    "date_added": "1996-05-31",
+    "date_removed": "2004-03-25"
+   }
+  ],
+  "TWC": [
+   {
+    "date_added": "2009-03-30",
+    "date_removed": "2016-05-18"
+   }
+  ],
+  "TWLO": [
+   {
+    "date_added": "2026-10-06",
+    "date_removed": null
+   }
+  ],
+  "TWTR": [
+   {
+    "date_added": "2018-06-07",
+    "date_removed": "2022-11-01"
+   }
+  ],
+  "TWX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2018-06-15"
+   }
+  ],
+  "TX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-10-10"
+   }
+  ],
+  "TXN": [
+   {
+    "date_added": "2001-03-12",
+    "date_removed": null
+   }
+  ],
+  "TXT": [
+   {
+    "date_added": "1978-12-31",
+    "date_removed": null
+   }
+  ],
+  "TXU": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2007-10-10"
+   }
+  ],
+  "TYL": [
+   {
+    "date_added": "2020-06-22",
+    "date_removed": null
+   }
+  ],
+  "UA": [
+   {
+    "date_added": "2016-04-08",
+    "date_removed": "2022-06-21"
+   }
+  ],
+  "UAA": [
+   {
+    "date_added": "2014-05-01",
+    "date_removed": "2022-06-21"
+   }
+  ],
+  "UAL": [
+   {
+    "date_added": "2015-09-03",
+    "date_removed": null
+   }
+  ],
+  "UAWGQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-05-15"
+   }
+  ],
+  "UBER": [
+   {
+    "date_added": "2023-12-18",
+    "date_removed": null
+   }
+  ],
+  "UCC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1999-05-03"
+   }
+  ],
+  "UCL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2005-08-11"
+   }
+  ],
+  "UCM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-10-23"
+   }
+  ],
+  "UDR": [
+   {
+    "date_added": "2016-03-07",
+    "date_removed": null
+   }
+  ],
+  "UHS": [
+   {
+    "date_added": "2014-09-20",
+    "date_removed": null
+   }
+  ],
+  "UIS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-11-11"
+   }
+  ],
+  "UK": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2001-02-07"
+   }
+  ],
+  "ULTA": [
+   {
+    "date_added": "2016-04-18",
+    "date_removed": null
+   }
+  ],
+  "UMG": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-15"
+   }
+  ],
+  "UN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-07-22"
+   }
+  ],
+  "UNH": [
+   {
+    "date_added": "1994-07-01",
+    "date_removed": null
+   }
+  ],
+  "UNM": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2021-09-20"
+   }
+  ],
+  "UNP": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "UPC": [
+   {
+    "date_added": "1998-10-01",
+    "date_removed": "2004-07-01"
+   }
+  ],
+  "UPR": [
+   {
+    "date_added": "1996-10-16",
+    "date_removed": "2000-07-17"
+   }
+  ],
+  "UPS": [
+   {
+    "date_added": "2002-07-22",
+    "date_removed": null
+   }
+  ],
+  "URBN": [
+   {
+    "date_added": "2010-02-08",
+    "date_removed": "2017-03-20"
+   }
+  ],
+  "URI": [
+   {
+    "date_added": "2014-09-20",
+    "date_removed": null
+   }
+  ],
+  "USB": [
+   {
+    "date_added": "1999-11-01",
+    "date_removed": null
+   }
+  ],
+  "USBC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-08-04"
+   }
+  ],
+  "USH": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1997-06-18"
+   }
+  ],
+  "USHC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-07-19"
+   }
+  ],
+  "USS": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-10-02"
+   }
+  ],
+  "UST": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-01-06"
+   }
+  ],
+  "USW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-07-03"
+   }
+  ],
+  "UTX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2020-04-03"
+   }
+  ],
+  "UVN": [
+   {
+    "date_added": "2001-02-07",
+    "date_removed": "2007-03-29"
+   }
+  ],
+  "V": [
+   {
+    "date_added": "2009-12-21",
+    "date_removed": null
+   }
+  ],
+  "VAR": [
+   {
+    "date_added": "2007-02-12",
+    "date_removed": "2021-04-20"
+   }
+  ],
+  "VAT": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-09-06"
+   }
+  ],
+  "VEEV": [
+   {
+    "date_added": "2026-05-07",
+    "date_removed": null
+   }
+  ],
+  "VFC": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2024-04-03"
+   }
+  ],
+  "VIAB": [
+   {
+    "date_added": "2006-01-03",
+    "date_removed": "2019-12-05"
+   }
+  ],
+  "VIAC": [
+   {
+    "date_added": "2019-12-05",
+    "date_removed": "2022-02-17"
+   }
+  ],
+  "VIAV": [
+   {
+    "date_added": "2000-07-27",
+    "date_removed": "2013-12-23"
+   }
+  ],
+  "VICI": [
+   {
+    "date_added": "2022-06-08",
+    "date_removed": null
+   }
+  ],
+  "VLO": [
+   {
+    "date_added": "2002-12-20",
+    "date_removed": null
+   }
+  ],
+  "VLTO": [
+   {
+    "date_added": "2023-10-02",
+    "date_removed": null
+   }
+  ],
+  "VMC": [
+   {
+    "date_added": "1999-06-30",
+    "date_removed": null
+   }
+  ],
+  "VMRK": [
+   {
+    "date_added": "2001-12-03",
+    "date_removed": null
+   }
+  ],
+  "VNO": [
+   {
+    "date_added": "2005-08-12",
+    "date_removed": "2023-01-04"
+   }
+  ],
+  "VNT": [
+   {
+    "date_added": "2020-10-12",
+    "date_removed": "2021-03-22"
+   }
+  ],
+  "VO": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-12-11"
+   }
+  ],
+  "VRSK": [
+   {
+    "date_added": "2015-10-08",
+    "date_removed": null
+   }
+  ],
+  "VRSN": [
+   {
+    "date_added": "2006-02-01",
+    "date_removed": null
+   }
+  ],
+  "VRT": [
+   {
+    "date_added": "2026-03-23",
+    "date_removed": null
+   }
+  ],
+  "VRTS": [
+   {
+    "date_added": "2000-04-03",
+    "date_removed": "2005-07-05"
+   }
+  ],
+  "VRTX": [
+   {
+    "date_added": "2013-09-23",
+    "date_removed": null
+   }
+  ],
+  "VST": [
+   {
+    "date_added": "2024-05-08",
+    "date_removed": null
+   }
+  ],
+  "VSTNQ": [
+   {
+    "date_added": "2000-06-29",
+    "date_removed": "2006-01-03"
+   }
+  ],
+  "VTR": [
+   {
+    "date_added": "2009-03-04",
+    "date_removed": null
+   }
+  ],
+  "VTRS": [
+   {
+    "date_added": "2004-04-23",
+    "date_removed": null
+   }
+  ],
+  "VTSS": [
+   {
+    "date_added": "2000-12-12",
+    "date_removed": "2002-08-21"
+   }
+  ],
+  "VYLR": [
+   {
+    "date_added": "2026-10-01",
+    "date_removed": null
+   }
+  ],
+  "VZ": [
+   {
+    "date_added": "1983-11-30",
+    "date_removed": null
+   }
+  ],
+  "WAB": [
+   {
+    "date_added": "2019-02-27",
+    "date_removed": null
+   }
+  ],
+  "WAI": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-08-11"
+   }
+  ],
+  "WAMUQ": [
+   {
+    "date_added": "1997-07-02",
+    "date_removed": "2008-09-30"
+   }
+  ],
+  "WAT": [
+   {
+    "date_added": "2002-01-02",
+    "date_removed": null
+   }
+  ],
+  "WB": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-01-02"
+   }
+  ],
+  "WBA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2025-08-28"
+   }
+  ],
+  "WBD": [
+   {
+    "date_added": "2022-04-11",
+    "date_removed": null
+   }
+  ],
+  "WCG": [
+   {
+    "date_added": "2018-09-17",
+    "date_removed": "2020-01-28"
+   }
+  ],
+  "WCOEQ": [
+   {
+    "date_added": "1996-04-01",
+    "date_removed": "2002-05-15"
+   }
+  ],
+  "WDAY": [
+   {
+    "date_added": "2024-12-23",
+    "date_removed": null
+   }
+  ],
+  "WDC": [
+   {
+    "date_added": "2009-07-01",
+    "date_removed": null
+   }
+  ],
+  "WEC": [
+   {
+    "date_added": "2008-10-31",
+    "date_removed": null
+   }
+  ],
+  "WELL": [
+   {
+    "date_added": "2009-01-30",
+    "date_removed": null
+   }
+  ],
+  "WEN": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-09-30"
+   }
+  ],
+  "WFC": [
+   {
+    "date_added": "1976-06-30",
+    "date_removed": null
+   }
+  ],
+  "WFM": [
+   {
+    "date_added": "2006-01-03",
+    "date_removed": "2017-08-28"
+   }
+  ],
+  "WFT": [
+   {
+    "date_added": "2005-07-22",
+    "date_removed": "2009-02-26"
+   }
+  ],
+  "WHR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2024-03-18"
+   }
+  ],
+  "WIN": [
+   {
+    "date_added": "2006-07-18",
+    "date_removed": "2015-04-07"
+   }
+  ],
+  "WLA": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2000-06-20"
+   }
+  ],
+  "WLL": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2002-02-11"
+   }
+  ],
+  "WLP": [
+   {
+    "date_added": "1999-06-09",
+    "date_removed": "2004-12-01"
+   }
+  ],
+  "WLTW": [
+   {
+    "date_added": "2016-01-05",
+    "date_removed": "2022-01-10"
+   }
+  ],
+  "WM": [
+   {
+    "date_added": "1998-08-31",
+    "date_removed": null
+   }
+  ],
+  "WMB": [
+   {
+    "date_added": "1975-03-31",
+    "date_removed": null
+   }
+  ],
+  "WMT": [
+   {
+    "date_added": "1982-08-31",
+    "date_removed": null
+   }
+  ],
+  "WMX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1998-07-17"
+   }
+  ],
+  "WNDXQ": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-12-03"
+   }
+  ],
+  "WOR": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2004-12-20"
+   }
+  ],
+  "WPX": [
+   {
+    "date_added": "2012-01-03",
+    "date_removed": "2014-03-24"
+   }
+  ],
+  "WRB": [
+   {
+    "date_added": "2019-12-05",
+    "date_removed": null
+   }
+  ],
+  "WRK": [
+   {
+    "date_added": "2015-07-02",
+    "date_removed": "2024-07-08"
+   }
+  ],
+  "WSM": [
+   {
+    "date_added": "2025-03-24",
+    "date_removed": null
+   }
+  ],
+  "WST": [
+   {
+    "date_added": "2020-05-22",
+    "date_removed": null
+   }
+  ],
+  "WTW": [
+   {
+    "date_added": "2016-01-05",
+    "date_removed": null
+   }
+  ],
+  "WU": [
+   {
+    "date_added": "2006-10-02",
+    "date_removed": "2021-12-20"
+   }
+  ],
+  "WWY": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2008-10-07"
+   }
+  ],
+  "WY": [
+   {
+    "date_added": "1979-10-01",
+    "date_removed": null
+   }
+  ],
+  "WYE": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2009-10-16"
+   }
+  ],
+  "WYND": [
+   {
+    "date_added": "2006-08-01",
+    "date_removed": "2018-05-31"
+   }
+  ],
+  "WYNN": [
+   {
+    "date_added": "2008-11-14",
+    "date_removed": null
+   }
+  ],
+  "X": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2014-07-02"
+   }
+  ],
+  "XEC": [
+   {
+    "date_added": "2014-06-20",
+    "date_removed": "2020-03-03"
+   }
+  ],
+  "XEL": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "XL": [
+   {
+    "date_added": "2001-09-04",
+    "date_removed": "2018-09-12"
+   }
+  ],
+  "XLNX": [
+   {
+    "date_added": "1999-11-08",
+    "date_removed": "2022-02-15"
+   }
+  ],
+  "XOM": [
+   {
+    "date_added": "1957-03-04",
+    "date_removed": null
+   }
+  ],
+  "XRAY": [
+   {
+    "date_added": "2008-11-14",
+    "date_removed": "2024-04-03"
+   }
+  ],
+  "XRX": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "2021-03-22"
+   }
+  ],
+  "XTO": [
+   {
+    "date_added": "2004-12-29",
+    "date_removed": "2010-06-28"
+   }
+  ],
+  "XYL": [
+   {
+    "date_added": "2011-11-01",
+    "date_removed": null
+   }
+  ],
+  "XYZ": [
+   {
+    "date_added": "2025-07-23",
+    "date_removed": null
+   }
+  ],
+  "YNR": [
+   {
+    "date_added": "2000-01-06",
+    "date_removed": "2000-10-03"
+   }
+  ],
+  "YRCW": [
+   {
+    "date_added": "1996-01-02",
+    "date_removed": "1996-11-04"
+   }
+  ],
+  "YUM": [
+   {
+    "date_added": "1997-10-06",
+    "date_removed": null
+   }
+  ],
+  "ZBH": [
+   {
+    "date_added": "2001-08-07",
+    "date_removed": null
+   }
+  ],
+  "ZBRA": [
+   {
+    "date_added": "2019-12-23",
+    "date_removed": null
+   }
+  ],
+  "ZION": [
+   {
+    "date_added": "2001-06-25",
+    "date_removed": "2024-03-18"
+   }
+  ],
+  "ZTS": [
+   {
+    "date_added": "2013-06-21",
+    "date_removed": null
+   }
+  ]
+ }
+}

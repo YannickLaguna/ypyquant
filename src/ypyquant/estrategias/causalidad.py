@@ -29,16 +29,17 @@ tests/test_causalidad.py y las estrategias de usuario (úsala en sus tests).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
-from ypyquant.estrategias.base import Estrategia
+from ypyquant.estrategias.base import Estrategia, FiltroUniverso
 
 TOLERANCIA_PESOS = 1e-9
+FabricaFiltroUniverso = Callable[[dict[str, pd.DataFrame]], FiltroUniverso]  # datos -> filtro de universo
 MODOS_VENENO = ("ruido", "nan")
 DESVIACION_RUIDO = 0.3  # desviación log del multiplicador aleatorio de precios
 
@@ -80,9 +81,11 @@ def envenenar_futuro(
 
 
 def _pesos_en_fechas(clase: type[Estrategia], parametros: BaseModel | dict[str, Any] | None,
-                     datos: dict[str, pd.DataFrame], fechas: Sequence[pd.Timestamp]) -> list[dict[str, float]]:
+                     datos: dict[str, pd.DataFrame], fechas: Sequence[pd.Timestamp],
+                     fabrica_filtro_universo: FabricaFiltroUniverso | None = None) -> list[dict[str, float]]:
     """Pesos de una instancia nueva en cada fecha (en orden, como en una simulación: el estado persiste)."""
-    funcion = clase(parametros).como_funcion()
+    filtro = fabrica_filtro_universo(datos) if fabrica_filtro_universo else None
+    funcion = clase(parametros).como_funcion(filtro_universo=filtro)
     return [funcion(fecha, datos) for fecha in fechas]
 
 
@@ -102,6 +105,7 @@ def verificar_sin_lookahead(
     datos: dict[str, pd.DataFrame],
     fechas_muestra: Sequence[pd.Timestamp | str],
     semilla: int = 0,
+    fabrica_filtro_universo: FabricaFiltroUniverso | None = None,
 ) -> list[str]:
     """
     Contrasta que los pesos en `fechas_muestra` no dependen de datos posteriores a cada fecha.
@@ -113,15 +117,19 @@ def verificar_sin_lookahead(
 
     Devuelve la lista de mensajes (vacía = limpia). Los datos de entrada no se modifican. Si la
     estrategia falla con los datos reales la excepción se propaga (no es un problema de causalidad).
+
+    `fabrica_filtro_universo` (opcional): `datos -> FiltroUniverso`, p. ej. `UniversoPuntoEnElTiempo.crear_filtro`.
+    Se vuelve a invocar con los datos envenenados en cada contraste, de modo que también se comprueba
+    que la elegibilidad del universo no mira al futuro.
     """
     fechas = sorted(pd.Timestamp(f) for f in fechas_muestra)
-    reales = _pesos_en_fechas(clase, parametros, datos, fechas)
+    reales = _pesos_en_fechas(clase, parametros, datos, fechas, fabrica_filtro_universo)
     errores: list[str] = []
     for posicion, fecha in enumerate(fechas):
         for modo in MODOS_VENENO:
             veneno = envenenar_futuro(datos, fecha, semilla, modo)
             try:
-                envenenado = _pesos_en_fechas(clase, parametros, veneno, fechas[: posicion + 1])[-1]
+                envenenado = _pesos_en_fechas(clase, parametros, veneno, fechas[: posicion + 1], fabrica_filtro_universo)[-1]
             except Exception as error:  # noqa: BLE001 - una excepción solo con el futuro envenenado también delata look-ahead
                 errores.append(f"look-ahead en {fecha:%Y-%m-%d}: la estrategia falla con el futuro envenenado "
                                f"({modo}): {type(error).__name__}: {error}")
