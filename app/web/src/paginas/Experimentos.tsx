@@ -12,7 +12,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useBorrarExperimentos, useExperimentos } from '../api/hooks'
 import type { EstadoExperimento, ResumenExperimento } from '../api/tipos'
-import { CajaError, Cargando, Insignia, Vacio } from '../componentes/Estado'
+import { CajaError, Cargando, Insignia, InsigniaTfm, Vacio } from '../componentes/Estado'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, fechaCorta, porcentaje, ratio, resumenParametros, resumenUniverso } from '../lib/formato'
 
@@ -110,6 +110,7 @@ export default function Experimentos() {
       render: (e) => (
         <Link to={`/experimentos/${e.id}`} className="font-medium text-acento hover:underline">
           {e.estrategia}
+          <InsigniaTfm estrategia={e.estrategia} />
           <span className="block max-w-[16rem] truncate text-xs font-normal text-suave" title={resumenParametros(e.parametros)}>
             {e.etiqueta || resumenParametros(e.parametros)}
           </span>

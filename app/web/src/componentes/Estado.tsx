@@ -1,5 +1,6 @@
 /**
- * Estados de interfaz reutilizables: carga, vacío y error, más la insignia de estado de experimento.
+ * Estados de interfaz reutilizables: carga, vacío y error, más la insignia de estado de experimento
+ * y la insignia «TFM · importado» (`InsigniaTfm`, `esImportadoTfm`) de los experimentos importados.
  * Responsabilidad: que cada página trate de forma uniforme «cargando / no hay nada / falló» con
  * roles ARIA (status/alert) y mensajes accionables.
  * Se relaciona con: todas las páginas (paginas/*) y api/cliente.ts (ErrorApi).
@@ -58,6 +59,24 @@ export function Insignia({ estado }: { estado: EstadoExperimento }) {
   return (
     <span className={`inline-block rounded border px-1.5 py-0.5 text-xs font-medium ${ESTILOS[estado]}`}>
       {ETIQUETAS[estado]}
+    </span>
+  )
+}
+
+/** Es un experimento importado del TFM original (estrategia `tfm_*`, sin código en el registro). */
+export function esImportadoTfm(estrategia: string): boolean {
+  return estrategia.startsWith('tfm_')
+}
+
+/** Insignia «TFM · importado» de los experimentos importados (resultados originales, solo lectura). */
+export function InsigniaTfm({ estrategia }: { estrategia: string }) {
+  if (!esImportadoTfm(estrategia)) return null
+  return (
+    <span
+      className="ml-1.5 inline-block rounded border border-aviso/60 px-1.5 py-0.5 align-middle text-xs font-medium text-aviso"
+      title="Importado del TFM original (solo lectura): no se puede relanzar"
+    >
+      TFM · importado
     </span>
   )
 }

@@ -110,6 +110,24 @@ Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUAN
 
 `ulcer` (índice Ulcer, %), `martin` (ratio de Martin = CAGR % / Ulcer %) y `costes_sobre_ganancia_bruta` = comisiones_totales / (capital_final − capital_inicial + comisiones_totales); `null` si la ganancia bruta es ≤ 0. **Un valor > 0,5 indica que los costes se comen la mitad del edge.**
 
+## Experimentos TFM (línea base importada)
+
+Son los **resultados originales del TFM** (`rejilla_v2`) importados al almacén para compararlos con iteraciones posteriores. No se recalculan: se leen los Parquet del TFM (solo lectura) y se escriben experimentos con el mismo formato que un backtest (`tfm-<estrategia>-n<N>-t<T>-media`, estrategia `tfm_<estrategia>`, que no está en el registro: sin código y no se pueden relanzar). Llevan la insignia «TFM · importado» en Experimentos, Comparar y el detalle.
+
+```
+uv run python scripts/importar_tfm.py                    # (N,T) = (20,12), (80,36), (150,120) x 6 estrategias = 18
+uv run python scripts/importar_tfm.py --celdas todas     # las 20 celdas (120 experimentos)
+uv run python scripts/importar_tfm.py --celda 80,36 --estrategia mpt_bayes_stein
+uv run python scripts/importar_tfm.py --replica 3        # una réplica (con pesos si b < 20) en vez de la media
+```
+
+Reimportar omite los existentes salvo `--forzar`. Opciones: `--origen` (carpeta `rejilla_v2`; por defecto `TFM_DIR`/data/reportes/rejilla_v2), `--almacen`, `--sin-benchmark`, `--cache-precios`.
+
+- **Serie**: media de `r_neto` sobre las 100 réplicas en cada mes (la que da `sharpe_serie_promediada`), equity desde 100 000, con punto base en el cierre del mes anterior. Las fechas son el último día de negociación de cada mes (el TFM etiqueta el mes por su primer día) para que `GET /api/comparar`, que intersecta fechas, comparta cierres de mes con los backtests diarios. Se rebasa a 100 en la primera fecha común.
+- **Métricas**: mismos nombres y funciones que los experimentos normales (rf = 0, 12 periodos/año), más `sharpe_media_desv`, `sharpe_exceso_rf` y las del TFM con prefijo `tfm_` (`tfm_sharpe_media_replicas`, `tfm_sharpe_serie_promediada`...). `sharpe` es CAGR/volatilidad (definición de la UI); el del TFM es √12·media/desv. de los retornos netos **sin restar la rf** (verificado: coincide con `sharpe_serie_promediada` a 1e-9).
+- **Sesgos conocidos** (van en los `avisos` de cada experimento): universo con look-ahead/supervivencia (filtro de cobertura sobre la ventana OOS; ver `docs/migracion-v0.4.0.md`), costes de 10 pb ex post y motor distinto del de la interfaz. La serie promediada diversifica el ruido de selección del universo: su Sharpe supera al de una réplica (`tfm_sharpe_media_replicas`).
+- **Procedencia**: origen, commit del repo `tfm`, ruta y SHA-256 de los Parquet fuente y fecha de importación. Sin benchmark SPY cargable no hay alfa/beta (se avisa).
+
 ## Barridos y validación
 
 Un **barrido** es una rejilla de experimentos con identidad propia (`barrido-<10 hex>`, misma configuración = mismo id) en `data/barridos/<id>/`: `barrido.json` (configuración, combinaciones con su id de experimento y su posición en la rejilla, estado, progreso y tareas), `validacion.json`, `walk_forward.json` (+ `walk_forward_oos.parquet`), `permutacion_in_sample.json` / `permutacion_walk_forward.json` (+ `.parquet`) y `reservado.json`. Los experimentos siguen en `data/experimentos/`; un barrido solo guarda sus ids.

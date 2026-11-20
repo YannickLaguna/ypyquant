@@ -145,6 +145,11 @@ export interface Procedencia {
   cvxpy?: string | null
   hash_precios?: string | null
   ejecutado?: string | null
+  /** Solo en experimentos importados (p. ej. «importado del TFM»): datos de origen en vez de commit y precios. */
+  origen?: string | null
+  commit_tfm?: string | null
+  archivos?: Record<string, { ruta: string; sha256: string }>
+  importado?: string | null
 }
 
 export interface DetalleExperimento extends ResumenExperimento {

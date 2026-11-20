@@ -8,7 +8,7 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useComparacion, useExperimentos } from '../api/hooks'
-import { CajaError, Cargando, Vacio } from '../componentes/Estado'
+import { CajaError, Cargando, InsigniaTfm, Vacio } from '../componentes/Estado'
 import { GraficoSeries, type SerieGrafico } from '../componentes/Graficos'
 import { dinero, entero, porcentaje, ratio, resumenParametros } from '../lib/formato'
 import { colorToken, PALETA_SERIES } from '../lib/tema'
@@ -80,7 +80,7 @@ export default function Comparar() {
                 <label className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 hover:bg-elevado">
                   <input type="checkbox" className="mt-1 accent-[rgb(var(--acento))]" checked={ids.includes(e.id)} onChange={() => alternar(e.id)} />
                   <span className="min-w-0">
-                    <span className="num block truncate">{e.id}</span>
+                    <span className="num block truncate">{e.id}<InsigniaTfm estrategia={e.estrategia} /></span>
                     <span className="block truncate text-xs text-suave">{e.etiqueta || resumenParametros(e.parametros)}</span>
                   </span>
                 </label>

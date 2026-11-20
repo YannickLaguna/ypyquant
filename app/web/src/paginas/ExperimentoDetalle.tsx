@@ -4,6 +4,8 @@
  * Responsabilidad: mostrar los estados pendiente/en curso (sondeo automático), error (con traza) y
  * hecho; permitir borrar el experimento; mostrar la procedencia (commit, versiones, hash de datos) en
  * un bloque plegable y las métricas de coste/riesgo (Ulcer, Martin, costes sobre ganancia bruta).
+ * Los experimentos importados del TFM (estrategia `tfm_*`) llevan la insignia «TFM · importado» y una
+ * nota de solo lectura; esta página no ofrece relanzar ningún experimento.
  * Se relaciona con: api/hooks.ts (useExperimento, useBorrarExperimento), componentes/Graficos.tsx,
  * componentes/TablaOrdenable.tsx y componentes/Piezas.tsx.
  */
@@ -11,7 +13,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useBorrarExperimento, useExperimento } from '../api/hooks'
 import type { OperacionFila } from '../api/tipos'
-import { CajaError, Cargando, Insignia } from '../componentes/Estado'
+import { CajaError, Cargando, esImportadoTfm, Insignia, InsigniaTfm } from '../componentes/Estado'
 import { GraficoPesos, GraficoSeries, type MarcaGrafico, type SerieGrafico } from '../componentes/Graficos'
 import { Kpi } from '../componentes/Piezas'
 import ProcedenciaExperimento from '../componentes/ProcedenciaExperimento'
@@ -41,6 +43,10 @@ const FILAS_METRICAS: [string, string, (v: number | null | undefined) => string]
   ['information_ratio', 'Information ratio', ratio],
   ['benchmark_cagr', 'CAGR benchmark', porcentaje],
   ['benchmark_sharpe', 'Sharpe benchmark', ratio],
+  ['sharpe_exceso_rf', 'Sharpe en exceso de rf', ratio],
+  ['sharpe_media_desv', 'Sharpe √12·media/desv. (rf = 0)', ratio],
+  ['tfm_sharpe_serie_promediada', 'TFM · Sharpe serie promediada', ratio],
+  ['tfm_sharpe_media_replicas', 'TFM · Sharpe medio de réplicas', ratio],
   ['turnover_medio', 'Turnover por rebalanceo', porcentaje],
   ['turnover_anual', 'Turnover anual', porcentaje],
   ['n_rebalanceos', 'Rebalanceos', entero],
@@ -118,6 +124,7 @@ export default function ExperimentoDetalle() {
           <h1 className="flex flex-wrap items-center gap-2">
             <span className="num break-all">{data.id}</span>
             <Insignia estado={data.estado} />
+            <InsigniaTfm estrategia={data.estrategia} />
           </h1>
           <p className="text-suave">
             {fechaCorta(data.fecha_inicio)} → {fechaCorta(data.fecha_fin)} · {resumenUniverso(data.universo)} · rebalanceo {data.frecuencia_rebalanceo} · benchmark {data.benchmark}
@@ -126,6 +133,13 @@ export default function ExperimentoDetalle() {
         </div>
         <button type="button" className="boton boton-peligro" onClick={eliminar} disabled={borrar.isPending}>Borrar</button>
       </header>
+
+      {esImportadoTfm(data.estrategia) && (
+        <p role="note" className="rounded-lg border border-borde p-3 text-sm text-suave">
+          Experimento importado del TFM original: son los resultados originales, no un backtest de esta interfaz, así que
+          no se puede relanzar ni tiene código de estrategia. Úsalo como línea base en <Link to="/comparar" className="text-acento underline">Comparar</Link>.
+        </p>
+      )}
 
       {(data.estado === 'pendiente' || data.estado === 'en_curso') && <Cargando texto={data.estado === 'pendiente' ? 'En cola…' : 'Calculando el backtest…'} />}
 
