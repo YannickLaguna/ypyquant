@@ -26,7 +26,14 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import rutas_barridos, rutas_configuraciones, rutas_estrategias, rutas_experimentos, rutas_marcos, rutas_paper
+from app.api import (
+    rutas_barridos,
+    rutas_configuraciones,
+    rutas_estrategias,
+    rutas_experimentos,
+    rutas_marcos,
+    rutas_paper,
+)
 from app.api.contexto import Contexto
 from app.api.paper import BotControl, ServicioAlpaca
 from ypyquant.data.matriz_precios import CargadorPrecios
