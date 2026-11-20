@@ -304,3 +304,41 @@ def test_rotacion_de_pesos_iguales_refleja_la_deriva(cargador):
     assert rot0 == pytest.approx(1.0, abs=0.01)  # compra inicial: todo el capital
     rotaciones = [t for _, t in r.rotaciones[1:]]
     assert all(0.0 < t < 0.02 for t in rotaciones)
+
+
+# ---------------------------------------------------------------------------
+# Pseudo-ticker CASH (plan fase 0.1): efectivo parcial sin tocar el motor
+# ---------------------------------------------------------------------------
+
+def _motor_trimestral(cargador):
+    cfg = BacktestConfig(start_date=INICIO, end_date=FIN, initial_capital=10000, rebalance_frequency='quarterly',
+                         commission_rate=0.001, slippage_pct=0.001, user_currency='USD')
+    return BacktestEngine(cfg, cargador_precios=cargador)
+
+
+def test_cash_deja_ese_tramo_en_efectivo_sin_operar_sobre_el_pseudo_ticker(cargador):
+    """Un peso para `CASH` (ticker sin precio) se salta en la compra: ese tramo queda en caja."""
+    e = _motor_trimestral(cargador)
+    e._reset_estado()  # mismos métodos que usa run_backtest, primer rebalanceo "a mano"
+    e.portfolio_value = e.cash = 10000.0
+    e._execute_rebalance({'AAA': 0.5, 'CASH': 0.5}, {'AAA': 100.0}, pd.Timestamp(INICIO))
+    assert e.cash == pytest.approx(5000.0, rel=0.01)  # 50 % del capital (menos la comisión de la compra)
+    assert set(e.positions) == {'AAA'}
+    assert all(t.ticker != 'CASH' for t in e.trades)
+
+
+def test_cash_en_un_backtest_completo_nunca_se_opera(cargador):
+    e = _motor_trimestral(cargador)
+    resultado = e.run_backtest(lambda fecha, datos: {'AAA': 0.5, 'CASH': 0.5}, list(CRECIMIENTO))
+    assert all(t.ticker != 'CASH' for t in e.trades)
+    assert 'CASH' not in e.positions
+    # Con la mitad en efectivo (sin rendimiento) el retorno queda muy por debajo del +100 % de AAA solo
+    assert 0.3 < resultado.total_return_pct < 0.7
+    assert e.cash > 0.25 * e.portfolio_value
+
+
+def test_sanear_pesos_conserva_cash_y_normaliza():
+    from ypyquant.estrategias.base import sanear_pesos
+    pesos = sanear_pesos({'AAA': 0.3, 'CASH': 0.3, 'BBB': 0.0, 'XXX': float('nan')})
+    assert set(pesos) == {'AAA', 'CASH'}
+    assert pesos['CASH'] == pytest.approx(0.5)
