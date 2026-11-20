@@ -3,10 +3,11 @@
  * Responsabilidad: ordenar por una columna con valor numérico/texto, mensaje de vacío y scroll horizontal.
  * Con `filasVisibles` muestra solo las N primeras (DESPUÉS de ordenar) y un botón «Ver las N» / «Ver menos»
  * para desplegar el resto: patrón «20 + ver todas» de las tablas largas (operaciones, órdenes, fills).
+ * Con `alOrdenar` avisa al padre del orden mostrado (lo usa Experimentos para la selección por rango con Mayús).
  * Se relaciona con: paginas/Experimentos.tsx, Comparar.tsx, ExperimentoDetalle.tsx, PaperTrading.tsx,
  * BarridoDetalle.tsx y lib/formato.ts (entero).
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { entero } from '../lib/formato'
 
 export interface Columna<T> {
@@ -27,9 +28,11 @@ interface Props<T> {
   titulo: string
   /** Si se indica y hay más filas, se muestran solo las primeras N y un botón para ver todas. */
   filasVisibles?: number
+  /** Recibe las filas en el orden mostrado cada vez que cambia (p. ej. para seleccionar rangos con Mayús). */
+  alOrdenar?: (filas: T[]) => void
 }
 
-export default function TablaOrdenable<T>({ columnas, filas, clave, ordenInicial, vacio = 'Sin datos', titulo, filasVisibles }: Props<T>) {
+export default function TablaOrdenable<T>({ columnas, filas, clave, ordenInicial, vacio = 'Sin datos', titulo, filasVisibles, alOrdenar }: Props<T>) {
   const [orden, setOrden] = useState(ordenInicial ?? null)
   const [verTodas, setVerTodas] = useState(false)
 
@@ -47,6 +50,10 @@ export default function TablaOrdenable<T>({ columnas, filas, clave, ordenInicial
       return orden.descendente ? -cmp : cmp
     })
   }, [filas, columnas, orden])
+
+  useEffect(() => {
+    alOrdenar?.(ordenadas)
+  }, [ordenadas, alOrdenar])
 
   const alternar = (c: Columna<T>) => {
     if (!c.valor) return

@@ -24,6 +24,7 @@ import type {
   PeticionPermutacion,
   PosicionPaper,
   RespuestaPermutacion,
+  ResultadoBorrado,
   ResultadoReservado,
   ResultadoValidacion,
   ResultadoWalkForward,
@@ -90,6 +91,15 @@ export function useBorrarExperimento() {
   const cliente = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => pedir<void>(`/api/experimentos/${encodeURIComponent(id)}`, { metodo: 'DELETE' }),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['experimentos'] }),
+  })
+}
+
+/** Borrado múltiple (selección de la tabla de experimentos); los que siguen en marcha no se tocan. */
+export function useBorrarExperimentos() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) => pedir<ResultadoBorrado>('/api/experimentos/borrar', { metodo: 'POST', cuerpo: { ids } }),
     onSuccess: () => cliente.invalidateQueries({ queryKey: ['experimentos'] }),
   })
 }

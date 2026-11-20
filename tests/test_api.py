@@ -95,6 +95,25 @@ def test_lanzar_leer_reutilizar_y_borrar_experimento(tmp_path):
 
     assert cliente.delete(f"/api/experimentos/{id_experimento}").status_code == 204
     assert cliente.delete(f"/api/experimentos/{id_experimento}").status_code == 404
+
+
+def test_borrar_varios_experimentos_omite_los_que_siguen_en_marcha(tmp_path):
+    cliente = _cliente(tmp_path)
+    ids = [cliente.post("/api/experimentos", json={**CONFIG, "parametros": {}, "comision": c}).json()["id"]
+           for c in (0.001, 0.002)]
+    for id_experimento in ids:
+        assert _esperar(cliente, id_experimento)["estado"] == "hecho"
+    # Un experimento «en curso» no se borra: el ejecutor seguiría escribiendo en su carpeta.
+    en_marcha = cliente.post("/api/experimentos", json={**CONFIG, "comision": 0.003}).json()["id"]
+    _esperar(cliente, en_marcha)
+    cliente.app.state.ctx.almacen.marcar_estado(en_marcha, "en_curso")
+
+    respuesta = cliente.post("/api/experimentos/borrar", json={"ids": [*ids, en_marcha, "no-existe"]})
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"borrados": ids, "en_marcha": [en_marcha], "no_encontrados": ["no-existe"]}
+    restantes = [e["id"] for e in cliente.get("/api/experimentos").json()["experimentos"]]
+    assert restantes == [en_marcha]
+    assert cliente.post("/api/experimentos/borrar", json={"ids": []}).status_code == 422
     assert cliente.get(f"/api/experimentos/{id_experimento}").status_code == 404
 
 

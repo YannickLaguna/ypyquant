@@ -70,6 +70,14 @@ export interface MetricasResumen {
   costes_sobre_ganancia_bruta?: number | null
 }
 
+/** Respuesta de `POST /api/experimentos/borrar`: qué pasó con cada id pedido. */
+export interface ResultadoBorrado {
+  borrados: string[]
+  /** Pendientes o en curso: no se borran porque el ejecutor seguiría escribiendo en su carpeta. */
+  en_marcha: string[]
+  no_encontrados: string[]
+}
+
 export interface ResumenExperimento {
   id: string
   estrategia: string

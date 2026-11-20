@@ -9,7 +9,8 @@ Responsabilidad:
   hay rejilla, es decir, con una sola combinación).
 - `GET /api/validadores`: nombres de los validadores por experimento (para `config.validaciones`).
 - `GET /api/experimentos` (filtros `estrategia`, `estado`, `texto`), `GET /api/experimentos/{id}`
-  (métricas, equity, drawdown, pesos y operaciones), `DELETE /api/experimentos/{id}`.
+  (métricas, equity, drawdown, pesos y operaciones), `DELETE /api/experimentos/{id}` y
+  `POST /api/experimentos/borrar` (`{"ids": [...]}`: borrado múltiple; omite los que siguen en marcha).
 - `GET /api/comparar?ids=a,b,c`: equity normalizada a base 100 y métricas lado a lado (DuckDB).
 
 Se relaciona con: app/api/contexto.py (almacén y ejecutor) y ypyquant.estrategias.experimentos
@@ -20,7 +21,7 @@ parámetros inválidos) se devuelven como 422/404 antes de encolar nada.
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.api.contexto import Contexto, lanzar_barrido, lanzar_experimento, obtener_contexto
 from ypyquant.estrategias.barridos import ConfiguracionBarrido
@@ -99,6 +100,35 @@ def borrar_experimento(id_experimento: str, ctx: Contexto = Depends(obtener_cont
         raise HTTPException(404, str(error)) from error
     if not existia:
         raise HTTPException(404, f"Experimento '{id_experimento}' no encontrado")
+
+
+class PeticionBorrarVarios(BaseModel):
+    """Lista de ids a borrar de una vez (selección múltiple de la interfaz)."""
+
+    ids: list[str] = Field(min_length=1, max_length=5000)
+
+
+@router.post("/experimentos/borrar")
+def borrar_varios_experimentos(peticion: PeticionBorrarVarios, ctx: Contexto = Depends(obtener_contexto)):
+    """
+    Borra varios experimentos y devuelve qué pasó con cada id: `borrados`, `en_marcha` (pendientes o en
+    curso: no se tocan porque el ejecutor seguiría escribiendo en su carpeta) y `no_encontrados`.
+    """
+    borrados, en_marcha, no_encontrados = [], [], []
+    for id_experimento in dict.fromkeys(peticion.ids):  # sin duplicados, conservando el orden
+        try:
+            estado = ctx.almacen.estado_de(id_experimento)
+        except ValueError:  # id con formato inválido
+            estado = None
+        if estado is None:
+            no_encontrados.append(id_experimento)
+        elif estado in ("pendiente", "en_curso"):
+            en_marcha.append(id_experimento)
+        elif ctx.almacen.borrar(id_experimento):
+            borrados.append(id_experimento)
+        else:
+            no_encontrados.append(id_experimento)
+    return {"borrados": borrados, "en_marcha": en_marcha, "no_encontrados": no_encontrados}
 
 
 @router.get("/comparar")

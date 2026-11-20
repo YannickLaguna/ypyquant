@@ -1,14 +1,16 @@
 /**
  * Página Experimentos: tabla ordenable y filtrable de backtests (estrategia, periodo, Sharpe, CAGR,
- * máx. drawdown, turnover, estado) con selección múltiple para comparar.
+ * máx. drawdown, turnover, estado) con selección múltiple para comparar o borrar.
  * Responsabilidad: filtrar por texto/estrategia/estado en cliente, refrescarse sola mientras haya
- * experimentos en curso y ofrecer «Comparar» con los marcados.
- * Se relaciona con: api/hooks.ts (useExperimentos), componentes/TablaOrdenable.tsx, paginas/Comparar.tsx
- * y paginas/ExperimentoDetalle.tsx.
+ * experimentos en curso, seleccionar (clic, rango con Mayús en el orden visible, «todos los filtrados»),
+ * «Comparar» con los marcados que están terminados y «Borrar» los marcados tras confirmar (los que siguen
+ * en marcha no se borran; se informa del resultado).
+ * Se relaciona con: api/hooks.ts (useExperimentos, useBorrarExperimentos), componentes/TablaOrdenable.tsx
+ * (alOrdenar: orden visible para los rangos), paginas/Comparar.tsx y paginas/ExperimentoDetalle.tsx.
  */
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useExperimentos } from '../api/hooks'
+import { useBorrarExperimentos, useExperimentos } from '../api/hooks'
 import type { EstadoExperimento, ResumenExperimento } from '../api/tipos'
 import { CajaError, Cargando, Insignia, Vacio } from '../componentes/Estado'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
@@ -31,18 +33,60 @@ export default function Experimentos() {
   const [estrategia, setEstrategia] = useState('')
   const [estado, setEstado] = useState('')
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
+  const borrado = useBorrarExperimentos()
+  // Orden en que la tabla muestra las filas (para los rangos con Mayús) y última casilla pulsada (ancla).
+  const ordenVisible = useRef<ResumenExperimento[]>([])
+  const ancla = useRef<string | null>(null)
+  const alOrdenar = useCallback((filas: ResumenExperimento[]) => {
+    ordenVisible.current = filas
+  }, [])
 
   const lista = data?.experimentos ?? []
   const estrategias = useMemo(() => [...new Set(lista.map((e) => e.estrategia))].sort(), [lista])
   const filtrados = useMemo(() => filtrarExperimentos(lista, texto, estrategia, estado), [lista, texto, estrategia, estado])
 
-  const alternar = (id: string) =>
+  // Seleccionados que siguen existiendo, en el orden visible (los ocultos por un filtro van al final).
+  const seleccion = useMemo(() => {
+    const existentes = lista.filter((e) => marcados.has(e.id))
+    const visibles = ordenVisible.current.filter((e) => marcados.has(e.id))
+    const idsVisibles = new Set(visibles.map((e) => e.id))
+    return [...visibles, ...existentes.filter((e) => !idsVisibles.has(e.id))]
+  }, [lista, marcados])
+  const paraComparar = seleccion.filter((e) => e.estado === 'hecho')
+
+  /** Clic en una casilla; con Mayús aplica el nuevo estado a todo el rango desde el ancla (orden visible). */
+  const marcar = (id: string, conMayus: boolean) => {
+    const visibles = ordenVisible.current.map((e) => e.id)
+    const desde = ancla.current ? visibles.indexOf(ancla.current) : -1
+    const hasta = visibles.indexOf(id)
+    const rango = conMayus && desde >= 0 && hasta >= 0
+      ? visibles.slice(Math.min(desde, hasta), Math.max(desde, hasta) + 1)
+      : [id]
+    const activar = !marcados.has(id)
     setMarcados((previos) => {
       const siguiente = new Set(previos)
-      if (siguiente.has(id)) siguiente.delete(id)
-      else siguiente.add(id)
+      for (const x of rango) {
+        if (activar) siguiente.add(x)
+        else siguiente.delete(x)
+      }
       return siguiente
     })
+    ancla.current = id
+  }
+
+  const seleccionarFiltrados = () => setMarcados((previos) => new Set([...previos, ...filtrados.map((e) => e.id)]))
+  const quitarSeleccion = () => {
+    setMarcados(new Set())
+    ancla.current = null
+  }
+
+  const borrarSeleccion = () => {
+    const n = seleccion.length
+    const aviso = `¿Borrar ${n} ${n === 1 ? 'experimento' : 'experimentos'}? Se eliminan sus resultados y no se puede deshacer. ` +
+      'Los que sigan en marcha no se borran.'
+    if (!window.confirm(aviso)) return
+    borrado.mutate(seleccion.map((e) => e.id), { onSuccess: quitarSeleccion })
+  }
 
   const columnas: Columna<ResumenExperimento>[] = [
     {
@@ -52,10 +96,10 @@ export default function Experimentos() {
         <input
           type="checkbox"
           className="h-4 w-4 accent-[rgb(var(--acento))]"
-          aria-label={`Seleccionar ${e.id} para comparar`}
+          aria-label={`Seleccionar ${e.id}`}
+          title="Mayús + clic: seleccionar un rango"
           checked={marcados.has(e.id)}
-          disabled={e.estado !== 'hecho'}
-          onChange={() => alternar(e.id)}
+          onChange={(evento) => marcar(e.id, (evento.nativeEvent as MouseEvent).shiftKey === true)}
         />
       ),
     },
@@ -89,15 +133,30 @@ export default function Experimentos() {
           <h1>Experimentos</h1>
           <p className="text-suave">Backtests reproducibles: misma configuración, mismo id.</p>
         </div>
-        <button
-          type="button"
-          className="boton boton-primario"
-          disabled={marcados.size < 2}
-          onClick={() => navegar(`/comparar?ids=${[...marcados].join(',')}`)}
-        >
-          Comparar ({marcados.size})
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="boton boton-primario"
+            disabled={paraComparar.length < 2}
+            title="Solo cuentan los experimentos terminados"
+            onClick={() => navegar(`/comparar?ids=${paraComparar.map((e) => e.id).join(',')}`)}
+          >
+            Comparar ({paraComparar.length})
+          </button>
+          <button type="button" className="boton text-neg" disabled={seleccion.length === 0 || borrado.isPending} onClick={borrarSeleccion}>
+            {borrado.isPending ? 'Borrando…' : `Borrar (${seleccion.length})`}
+          </button>
+        </div>
       </header>
+
+      {borrado.data && (
+        <p role="status" aria-label="Resultado del borrado" className="text-sm text-suave">
+          Borrados: {borrado.data.borrados.length}.
+          {borrado.data.en_marcha.length > 0 && ` En marcha (no se borran): ${borrado.data.en_marcha.length}.`}
+          {borrado.data.no_encontrados.length > 0 && ` No encontrados: ${borrado.data.no_encontrados.length}.`}
+        </p>
+      )}
+      {borrado.error && <CajaError error={borrado.error} />}
 
       <div className="flex flex-wrap gap-2" role="search">
         <label className="sr-only" htmlFor="f-texto">Buscar</label>
@@ -112,6 +171,14 @@ export default function Experimentos() {
           <option value="">Todos los estados</option>
           {['hecho', 'en_curso', 'pendiente', 'error'].map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
         </select>
+        <button type="button" className="boton" disabled={filtrados.length === 0} onClick={seleccionarFiltrados}>
+          Seleccionar los {filtrados.length} filtrados
+        </button>
+        {marcados.size > 0 && (
+          <button type="button" className="boton" onClick={quitarSeleccion}>
+            Quitar selección
+          </button>
+        )}
       </div>
 
       {isPending ? (
@@ -129,6 +196,7 @@ export default function Experimentos() {
           filas={filtrados}
           clave={(e) => e.id}
           ordenInicial={{ clave: 'creado', descendente: true }}
+          alOrdenar={alOrdenar}
           vacio="Ningún experimento coincide con los filtros"
         />
       )}

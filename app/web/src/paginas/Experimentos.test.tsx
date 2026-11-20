@@ -92,19 +92,79 @@ describe('Experimentos', () => {
     expect(screen.getByText('Ningún experimento coincide con los filtros')).toBeInTheDocument()
   })
 
-  it('solo permite comparar experimentos terminados y navega con los ids elegidos', async () => {
+  it('solo compara experimentos terminados y navega con los ids elegidos', async () => {
     responder({ experimentos: EXPERIMENTOS })
     montar()
     await screen.findByRole('table', { name: 'Experimentos' })
-    expect(screen.getByLabelText('Seleccionar momentum-3 para comparar')).toBeDisabled()
     const comparar = screen.getByRole('button', { name: /Comparar/ })
     expect(comparar).toBeDisabled()
     const usuario = userEvent.setup()
-    await usuario.click(screen.getByLabelText('Seleccionar momentum-1 para comparar'))
-    await usuario.click(screen.getByLabelText('Seleccionar bayes_stein-2 para comparar'))
-    expect(comparar).toBeEnabled()
+    await usuario.click(screen.getByLabelText('Seleccionar momentum-1'))
+    await usuario.click(screen.getByLabelText('Seleccionar momentum-3')) // con error: se puede marcar (para borrar) pero no cuenta para comparar
+    expect(comparar).toBeDisabled()
+    await usuario.click(screen.getByLabelText('Seleccionar bayes_stein-2'))
+    expect(comparar).toHaveTextContent('Comparar (2)')
     await usuario.click(comparar)
     expect(await screen.findByText('vista comparar')).toBeInTheDocument()
+  })
+
+  it('con Mayús marca el rango en el orden visible y «Seleccionar todos» marca los filtrados', async () => {
+    responder({ experimentos: EXPERIMENTOS })
+    montar()
+    await screen.findByRole('table', { name: 'Experimentos' })
+    const usuario = userEvent.setup()
+    // Orden visible por creado desc: momentum-3, bayes_stein-2, momentum-1
+    await usuario.click(screen.getByLabelText('Seleccionar momentum-3'))
+    await usuario.keyboard('{Shift>}')
+    await usuario.click(screen.getByLabelText('Seleccionar momentum-1'))
+    await usuario.keyboard('{/Shift}')
+    expect(screen.getByLabelText('Seleccionar bayes_stein-2')).toBeChecked()
+    expect(screen.getByRole('button', { name: /Borrar/ })).toHaveTextContent('Borrar (3)')
+
+    await usuario.click(screen.getByRole('button', { name: 'Quitar selección' }))
+    expect(screen.getByLabelText('Seleccionar momentum-1')).not.toBeChecked()
+    await usuario.selectOptions(screen.getByLabelText('Estrategia'), 'momentum')
+    await usuario.click(screen.getByRole('button', { name: /Seleccionar los 2 filtrados/ }))
+    expect(screen.getByRole('button', { name: /Borrar/ })).toHaveTextContent('Borrar (2)')
+  })
+
+  it('borra los seleccionados tras confirmar y avisa de los que siguen en marcha', async () => {
+    const llamadas: { url: string; metodo: string; cuerpo: unknown }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, opciones: RequestInit = {}) => {
+      const metodo = opciones.method ?? 'GET'
+      llamadas.push({ url, metodo, cuerpo: opciones.body ? JSON.parse(String(opciones.body)) : null })
+      const cuerpo = metodo === 'POST'
+        ? { borrados: ['momentum-1'], en_marcha: ['bayes_stein-2'], no_encontrados: [] }
+        : { experimentos: EXPERIMENTOS }
+      return { ok: true, status: 200, json: async () => cuerpo }
+    }))
+    const confirmar = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    montar()
+    await screen.findByRole('table', { name: 'Experimentos' })
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByLabelText('Seleccionar momentum-1'))
+    await usuario.click(screen.getByLabelText('Seleccionar bayes_stein-2'))
+    await usuario.click(screen.getByRole('button', { name: /Borrar/ }))
+    expect(confirmar).toHaveBeenCalledWith(expect.stringContaining('2 experimentos'))
+    const borrado = llamadas.find((l) => l.metodo === 'POST')
+    expect(borrado?.url).toContain('/api/experimentos/borrar')
+    expect(borrado?.cuerpo).toEqual({ ids: ['bayes_stein-2', 'momentum-1'] })
+    expect(await screen.findByRole('status', { name: 'Resultado del borrado' })).toHaveTextContent(
+      'Borrados: 1. En marcha (no se borran): 1.',
+    )
+    confirmar.mockRestore()
+  })
+
+  it('no borra nada si se cancela la confirmación', async () => {
+    responder({ experimentos: EXPERIMENTOS })
+    const confirmar = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    montar()
+    await screen.findByRole('table', { name: 'Experimentos' })
+    const usuario = userEvent.setup()
+    await usuario.click(screen.getByLabelText('Seleccionar momentum-1'))
+    await usuario.click(screen.getByRole('button', { name: /Borrar/ }))
+    expect(vi.mocked(fetch).mock.calls.some(([, o]) => (o as RequestInit | undefined)?.method === 'POST')).toBe(false)
+    confirmar.mockRestore()
   })
 
   it('muestra el estado vacío', async () => {
