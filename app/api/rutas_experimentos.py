@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.api.contexto import Contexto, lanzar_barrido, lanzar_experimento, obtener_contexto
 from ypyquant.estrategias.barridos import ConfiguracionBarrido
-from ypyquant.estrategias.experimentos import VALIDADORES, ConfiguracionExperimento, expandir_rejilla
+from ypyquant.estrategias.experimentos import VALIDADORES, ConfiguracionExperimento, expandir_rejilla_con_omitidas
 
 router = APIRouter(prefix="/api", tags=["experimentos"])
 
@@ -57,20 +57,21 @@ def crear_experimento(config: ConfiguracionExperimento, forzar: bool = False, ct
 def crear_barrido(peticion: PeticionBarrido, forzar: bool = False, ctx: Contexto = Depends(obtener_contexto)):
     base = _validar(peticion.config)
     try:
-        configuraciones = expandir_rejilla(base, peticion.rejilla)
-    except ValidationError as error:
-        raise HTTPException(422, error.errors(include_url=False, include_context=False)) from error
+        configuraciones, omitidas = expandir_rejilla_con_omitidas(base, peticion.rejilla)
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
+    if not configuraciones:
+        motivos = "; ".join(dict.fromkeys(o["motivo"] for o in omitidas))
+        raise HTTPException(422, f"Ninguna combinación de la rejilla es válida ({motivos})")
     if peticion.rejilla:
         try:
             barrido = ConfiguracionBarrido(base=base, rejilla=peticion.rejilla)
         except ValueError as error:  # p. ej. un eje con lista vacía
             raise HTTPException(422, str(error)) from error
         id_barrido, ids, _ = lanzar_barrido(ctx, barrido, forzar)
-        return {"ids": ids, "total": len(ids), "barrido_id": id_barrido}
+        return {"ids": ids, "total": len(ids), "barrido_id": id_barrido, "omitidas": omitidas}
     ids = [lanzar_experimento(ctx, c, forzar)[0] for c in configuraciones]
-    return {"ids": ids, "total": len(ids), "barrido_id": None}
+    return {"ids": ids, "total": len(ids), "barrido_id": None, "omitidas": omitidas}
 
 
 @router.get("/validadores")

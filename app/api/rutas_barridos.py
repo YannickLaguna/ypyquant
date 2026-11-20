@@ -118,8 +118,13 @@ def crear_barrido(config: ConfiguracionBarrido, forzar: bool = False, ctx: Conte
         raise HTTPException(422, error.errors(include_url=False, include_context=False)) from error
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
+    omitidas = config.omitidas()
+    if not combinaciones:
+        motivos = "; ".join(dict.fromkeys(o["motivo"] for o in omitidas))
+        raise HTTPException(422, f"Ninguna combinación de la rejilla es válida ({motivos})")
     id_barrido, ids, reutilizado = lanzar_barrido(ctx, config, forzar)
-    return {"id": id_barrido, "ids": ids, "total": len(combinaciones), "reutilizado": reutilizado}
+    return {"id": id_barrido, "ids": ids, "total": len(combinaciones), "reutilizado": reutilizado,
+            "omitidas": omitidas}
 
 
 @router.get("/barridos")
@@ -141,7 +146,7 @@ def detalle_barrido(id_barrido: str, ctx: Contexto = Depends(obtener_contexto)):
     return {
         "id": id_barrido, "config": datos["config"], "estado": datos["estado"], "progreso": datos["progreso"],
         "creado": datos["creado"], "actualizado": datos["actualizado"], "ejes": config.rejilla,
-        "combinaciones": combinaciones, "superficie": superficie_registros(barrido) if datos["estado"] != "pendiente" else [],
+        "combinaciones": combinaciones, "omitidas": datos.get("omitidas", []), "superficie": superficie_registros(barrido) if datos["estado"] != "pendiente" else [],
         "tareas": datos["tareas"],
         **{nombre: almacen.leer_resultado(id_barrido, nombre) for nombre in RESULTADOS},
         "reservado": almacen.leer_resultado(id_barrido, "reservado") or [],

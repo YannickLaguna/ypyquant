@@ -14,7 +14,8 @@ Responsabilidad:
   `AlmacenExperimentos`).
 - Procedencia (`ResultadoExperimento.procedencia`, ver `procedencia.py`): commit, versiones, hash de
   los precios y fecha; no entra en la huella.
-- `expandir_rejilla(config, {param: [valores]})`: N configuraciones de un barrido de parámetros.
+- `expandir_rejilla(config, {param: [valores]})`: N configuraciones de un barrido de parámetros (estricta);
+  `expandir_rejilla_con_omitidas` omite y registra las combinaciones inválidas (p. ej. `rapida >= lenta`).
 - Punto de extensión de validación: `registrar_validador(nombre)` registra funciones
   `(ResultadoExperimento) -> dict`; las que pida `config.validaciones` se ejecutan y su salida va a
   `metricas['validacion'][nombre]`. Vienen registrados `rachas` (prueba de rachas sobre los signos
@@ -48,7 +49,7 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from ypyquant.data.matriz_precios import CargadorPrecios, extraer_serie_precios
 from ypyquant.estrategias.base import recortar_hasta
@@ -479,6 +480,40 @@ def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: Car
 # ----------------------------------------------------------------------------
 
 
+def _expandir(config: ConfiguracionExperimento, rejilla: dict[str, list[Any]],
+              tolerante: bool) -> tuple[list[ConfiguracionExperimento], list[dict[str, Any]]]:
+    """
+    Núcleo común de `expandir_rejilla` y `expandir_rejilla_con_omitidas`.
+
+    Con `tolerante=False` la primera combinación que no valida lanza `ValidationError` (comportamiento
+    histórico). Con `tolerante=True` se omite y se anota `{valores, motivo}` en la segunda lista.
+    """
+    if not rejilla:
+        return [config.normalizada()], []
+    claves = list(rejilla)
+    total = math.prod(len(valores) for valores in rejilla.values())
+    if total > MAX_COMBINACIONES_REJILLA:
+        raise ValueError(f"La rejilla tiene {total} combinaciones (máximo {MAX_COMBINACIONES_REJILLA})")
+    configuraciones: dict[str, ConfiguracionExperimento] = {}
+    omitidas: list[dict[str, Any]] = []
+    for combinacion in itertools.product(*(rejilla[k] for k in claves)):
+        campos = dict(zip(claves, combinacion, strict=True))
+        propios = {k: v for k, v in campos.items() if k in ConfiguracionExperimento.model_fields}
+        parametros = {**config.parametros, **{k: v for k, v in campos.items() if k not in propios}}
+        etiqueta = ", ".join(f"{k}={v}" for k, v in campos.items())
+        try:
+            nueva = ConfiguracionExperimento(**{**config.model_dump(), **propios, "parametros": parametros,
+                                                "etiqueta": etiqueta}).normalizada()
+        except ValidationError as error:
+            if not tolerante:
+                raise
+            motivo = "; ".join(str(e["msg"]).removeprefix("Value error, ") for e in error.errors(include_url=False))
+            omitidas.append({"valores": campos, "motivo": motivo})
+            continue
+        configuraciones.setdefault(nueva.huella(), nueva)
+    return list(configuraciones.values()), omitidas
+
+
 def expandir_rejilla(config: ConfiguracionExperimento, rejilla: dict[str, list[Any]]) -> list[ConfiguracionExperimento]:
     """
     Producto cartesiano de valores sobre una configuración base.
@@ -486,20 +521,19 @@ def expandir_rejilla(config: ConfiguracionExperimento, rejilla: dict[str, list[A
     Cada clave es un parámetro de la estrategia o un campo de la configuración (`comision`,
     `frecuencia_rebalanceo`, `fecha_inicio`...). Devuelve configuraciones normalizadas sin
     duplicados, con la `etiqueta` `clave=valor, ...`. Máximo `MAX_COMBINACIONES_REJILLA`.
+    Estricta: una combinación inválida lanza `ValidationError`; para tolerarlas ver
+    `expandir_rejilla_con_omitidas`.
     """
-    if not rejilla:
-        return [config.normalizada()]
-    claves = list(rejilla)
-    total = math.prod(len(valores) for valores in rejilla.values())
-    if total > MAX_COMBINACIONES_REJILLA:
-        raise ValueError(f"La rejilla tiene {total} combinaciones (máximo {MAX_COMBINACIONES_REJILLA})")
-    configuraciones: dict[str, ConfiguracionExperimento] = {}
-    for combinacion in itertools.product(*(rejilla[k] for k in claves)):
-        campos = dict(zip(claves, combinacion, strict=True))
-        propios = {k: v for k, v in campos.items() if k in ConfiguracionExperimento.model_fields}
-        parametros = {**config.parametros, **{k: v for k, v in campos.items() if k not in propios}}
-        etiqueta = ", ".join(f"{k}={v}" for k, v in campos.items())
-        nueva = ConfiguracionExperimento(**{**config.model_dump(), **propios, "parametros": parametros,
-                                            "etiqueta": etiqueta}).normalizada()
-        configuraciones.setdefault(nueva.huella(), nueva)
-    return list(configuraciones.values())
+    return _expandir(config, rejilla, tolerante=False)[0]
+
+
+def expandir_rejilla_con_omitidas(
+    config: ConfiguracionExperimento, rejilla: dict[str, list[Any]],
+) -> tuple[list[ConfiguracionExperimento], list[dict[str, Any]]]:
+    """
+    Como `expandir_rejilla`, pero las combinaciones que no validan (p. ej. `rapida >= lenta`) se omiten.
+
+    Devuelve `(configuraciones válidas, omitidas)`; cada omitida es `{valores: {eje: valor}, motivo: str}`.
+    El llamador decide qué hacer si no queda ninguna válida (la API responde 422).
+    """
+    return _expandir(config, rejilla, tolerante=True)
