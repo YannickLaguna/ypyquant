@@ -5,7 +5,8 @@ Responsabilidad:
 - `ServicioAlpaca`: lee cuenta, posiciones, órdenes e historial de equity con alpaca-py. Las claves
   vienen de `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (siempre `paper=True`). Sin claves lanza
   `SinClavesAlpaca` (la API responde 503 con un mensaje claro). Admite un `fabrica_cliente`
-  inyectable para los tests.
+  inyectable para los tests. Importa alpaca-py una sola vez bajo cerrojo (`_importar_alpaca`) para
+  evitar el bloqueo de importación entre hilos de la API.
 - `leer_fills`: fills registrados por el bot en `data/paper_trading/fills.jsonl`
   (`ypyquant.execution.nautilus.registro_fills`), si existe.
 - `BotControl`: arranca y para `python -m pipelines.paper_trading` con una estrategia del
@@ -55,6 +56,20 @@ def _texto(valor: Any) -> str | None:
     return str(getattr(valor, "value", valor))
 
 
+def _importar_alpaca() -> None:
+    """
+    Importa de una vez los módulos de alpaca-py que usa el servicio.
+
+    La API atiende las peticiones en hilos paralelos; al cargar la página de Paper trading llegan
+    varias a la vez y, si cada una importa por primera vez un módulo distinto de `alpaca.trading`
+    (client, enums, requests se importan entre sí), Python detecta un bloqueo cruzado de importación
+    (`_DeadlockError: deadlock detected by _ModuleLock`). Se llama bajo el cerrojo de `cliente()`.
+    """
+    import alpaca.trading.client  # noqa: F401
+    import alpaca.trading.enums  # noqa: F401
+    import alpaca.trading.requests  # noqa: F401
+
+
 class ServicioAlpaca:
     """
     Lectura de la cuenta paper de Alpaca.
@@ -89,6 +104,7 @@ class ServicioAlpaca:
     def cliente(self):
         with self._cerrojo:
             if self._cliente is None:
+                _importar_alpaca()
                 self._cliente = self._fabrica() if self._fabrica else self._cliente_real()
             return self._cliente
 
@@ -112,10 +128,11 @@ class ServicioAlpaca:
         } for p in self.cliente().get_all_positions()]
 
     def ordenes(self, limite: int = 100) -> list[dict[str, Any]]:
+        cliente = self.cliente()  # primero: garantiza que alpaca ya está importado (ver `_importar_alpaca`)
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
 
-        ordenes = self.cliente().get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limite))
+        ordenes = cliente.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limite))
         return [{
             "id": str(o.id), "ticker": o.symbol, "lado": _texto(o.side), "tipo": _texto(getattr(o, "order_type", None)),
             "cantidad": _numero(getattr(o, "qty", None)), "cantidad_ejecutada": _numero(getattr(o, "filled_qty", None)),
@@ -124,9 +141,10 @@ class ServicioAlpaca:
         } for o in ordenes]
 
     def historial_equity(self, periodo: str = "1M", marco: str = "1D") -> dict[str, Any]:
+        cliente = self.cliente()  # primero: garantiza que alpaca ya está importado (ver `_importar_alpaca`)
         from alpaca.trading.requests import GetPortfolioHistoryRequest
 
-        h = self.cliente().get_portfolio_history(GetPortfolioHistoryRequest(period=periodo, timeframe=marco))
+        h = cliente.get_portfolio_history(GetPortfolioHistoryRequest(period=periodo, timeframe=marco))
         fechas = [datetime.fromtimestamp(t, UTC).strftime("%Y-%m-%d %H:%M") for t in (h.timestamp or [])]
         return {"fechas": fechas, "equity": [_numero(v) for v in (h.equity or [])],
                 "pnl": [_numero(v) for v in (h.profit_loss or [])], "base": _numero(getattr(h, "base_value", None))}
