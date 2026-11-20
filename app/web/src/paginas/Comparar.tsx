@@ -1,16 +1,20 @@
 /**
  * Página Comparar: selección múltiple de experimentos terminados, equity normalizada (base 100)
  * superpuesta y tabla de métricas lado a lado con el mejor valor de cada fila resaltado.
- * Responsabilidad: la selección vive en la URL (`?ids=a,b`) para poder compartir/recargar la vista.
+ * Responsabilidad: la selección vive en la URL (`?ids=a,b`) para poder compartir/recargar la vista. Avisa «no es
+ * ceteris paribus» cuando los experimentos difieren del entorno (universo, fechas, frecuencia, costes...) o de los
+ * parámetros comunes (`ceteris_paribus` de `GET /api/comparar`); con `?comparativa=<id>` (viene de un marco) muestra
+ * además qué comunes se aplicaron a cada estrategia.
  * Se relaciona con: api/hooks.ts (useExperimentos, useComparacion), componentes/Graficos.tsx y
- * paginas/Experimentos.tsx (botón Comparar).
+ * lib/marcos.ts (texto del aviso), paginas/MarcoDetalle.tsx (enlace con `comparativa`) y paginas/Experimentos.tsx.
  */
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useComparacion, useExperimentos } from '../api/hooks'
+import { useComparacion, useComparativa, useExperimentos } from '../api/hooks'
 import { CajaError, Cargando, InsigniaTfm, Vacio } from '../componentes/Estado'
 import { GraficoSeries, type SerieGrafico } from '../componentes/Graficos'
 import { dinero, entero, porcentaje, ratio, resumenParametros } from '../lib/formato'
+import { resumenDiferencias } from '../lib/marcos'
 import { colorToken, PALETA_SERIES } from '../lib/tema'
 
 /** [clave, etiqueta, formato, mejor = 'max' | 'min'] */
@@ -34,6 +38,9 @@ export default function Comparar() {
   const ids = useMemo(() => (params.get('ids') ?? '').split(',').filter(Boolean), [params])
   const { data: lista, isPending: cargandoLista, error: errorLista } = useExperimentos({ estado: 'hecho' })
   const { data: comparacion, isFetching, error } = useComparacion(ids)
+  const { data: comparativa } = useComparativa(params.get('comparativa'))
+  const avisoCeteris = resumenDiferencias(comparacion?.ceteris_paribus?.diferencias)
+  const avisosMarco = comparativa ? comparativa.experimentos.flatMap((e) => e.informe.avisos) : []
 
   const alternar = (id: string) => {
     const siguiente = ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]
@@ -98,6 +105,22 @@ export default function Comparar() {
         isFetching && <Cargando texto="Comparando…" />
       ) : (
         <>
+          {avisoCeteris && (
+            <div role="status" className="rounded-lg border border-aviso/50 bg-aviso/10 p-3 text-aviso">
+              <p>{avisoCeteris}</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {comparacion.ceteris_paribus!.diferencias.map((d) => (
+                  <li key={d.campo}><span className="num">{d.campo}</span>: {Object.entries(d.valores).map(([id, v]) => `${id} = ${JSON.stringify(v)}`).join(' · ')}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {avisosMarco.length > 0 && (
+            <div role="status" className="rounded-lg border border-aviso/50 bg-aviso/10 p-3 text-aviso">
+              <p className="font-medium">Avisos del marco {comparativa!.id_marco}</p>
+              {avisosMarco.map((a) => <p key={a}>{a}</p>)}
+            </div>
+          )}
           <GraficoSeries titulo="Equity normalizada (base 100)" series={series} formatoValor={(v) => v.toFixed(1)} altura={360} />
           <div className="tarjeta overflow-x-auto">
             <table className="w-full text-sm" aria-label="Métricas lado a lado">
