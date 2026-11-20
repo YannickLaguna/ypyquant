@@ -279,16 +279,21 @@ class AlmacenExperimentos:
         validos = [i for i in ids if (self._carpeta(i) / "equity.parquet").exists()]
         if not validos:
             raise KeyError("Ninguno de los experimentos pedidos tiene resultados")
+        # Se rebasa a 100 en la primera fecha COMÚN (no en la primera de cada serie): así series con fechas
+        # de inicio distintas (p. ej. un experimento TFM importado desde 2009-12 y un backtest que empieza
+        # más tarde) arrancan juntas en 100 sobre el eje compartido.
         consulta = " UNION ALL ".join(
-            f"SELECT '{i}' AS id, fecha, equity / FIRST_VALUE(equity) OVER (ORDER BY fecha) * 100 AS valor, "
-            f"benchmark / FIRST_VALUE(benchmark) OVER (ORDER BY fecha) * 100 AS bench "
+            f"SELECT '{i}' AS id, fecha, equity, benchmark "
             f"FROM read_parquet('{self._rutas_parquet('equity', [i])[0]}')" for i in validos
         )
         con = duckdb.connect()
         try:
             largo = con.execute(
                 f"WITH t AS ({consulta}), comunes AS (SELECT fecha FROM t GROUP BY fecha HAVING COUNT(*) = {len(validos)}) "
-                "SELECT t.* FROM t JOIN comunes USING (fecha) ORDER BY id, fecha"
+                "SELECT t.id, t.fecha, "
+                "t.equity / FIRST_VALUE(t.equity) OVER (PARTITION BY t.id ORDER BY t.fecha) * 100 AS valor, "
+                "t.benchmark / FIRST_VALUE(t.benchmark) OVER (PARTITION BY t.id ORDER BY t.fecha) * 100 AS bench "
+                "FROM t JOIN comunes USING (fecha) ORDER BY t.id, t.fecha"
             ).df()
         finally:
             con.close()
