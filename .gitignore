@@ -60,6 +60,8 @@ data/reportes/
 data/experimentos/
 data/cache_precios/
 data/paper_trading/
+data/barridos/
+data/marcos/
 
 # Configuración local de Claude Code
 .claude/settings.local.json
