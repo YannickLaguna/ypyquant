@@ -20,7 +20,8 @@ import { claseSigno, dinero, entero, fechaCorta, porcentaje, ratio, resumenParam
 import { colorToken } from '../lib/tema'
 import { costesAltos } from '../lib/barridos'
 
-const FILAS_OPERACIONES = 100
+// Filas de operaciones visibles antes de «Ver las N» (se ordena todo y luego se recorta; ver TablaOrdenable)
+const FILAS_OPERACIONES = 20
 
 const FILAS_METRICAS: [string, string, (v: number | null | undefined) => string][] = [
   ['retorno_total', 'Retorno total', porcentaje],
@@ -55,7 +56,6 @@ export default function ExperimentoDetalle() {
   const { data, isPending, error } = useExperimento(id)
   const borrar = useBorrarExperimento()
   const [verMarcas, setVerMarcas] = useState(false)
-  const [todasOperaciones, setTodasOperaciones] = useState(false)
 
   const series = useMemo<SerieGrafico[]>(() => {
     if (!data) return []
@@ -105,7 +105,6 @@ export default function ExperimentoDetalle() {
     { clave: 'comision', titulo: 'Comisión', alinear: 'der', valor: (o) => o.comision, render: (o) => dinero(o.comision, 2) },
     { clave: 'pnl', titulo: 'PnL', alinear: 'der', valor: (o) => o.pnl, render: (o) => <span className={claseSigno(o.pnl)}>{dinero(o.pnl, 2)}</span> },
   ]
-  const operaciones = todasOperaciones ? data.operaciones : data.operaciones.slice(0, FILAS_OPERACIONES)
 
   const eliminar = () => {
     if (window.confirm(`¿Borrar el experimento ${data.id}?`)) borrar.mutate(data.id, { onSuccess: () => navegar('/experimentos') })
@@ -205,12 +204,7 @@ export default function ExperimentoDetalle() {
 
           <section aria-labelledby="h-ops" className="space-y-2">
             <h2 id="h-ops">Operaciones ({entero(data.operaciones.length)})</h2>
-            <TablaOrdenable titulo="Operaciones" columnas={columnasOperaciones} filas={operaciones} clave={(o) => `${o.fecha}-${o.ticker}-${o.lado}-${o.cantidad}`} vacio="Sin operaciones" />
-            {data.operaciones.length > FILAS_OPERACIONES && (
-              <button type="button" className="boton" onClick={() => setTodasOperaciones((v) => !v)}>
-                {todasOperaciones ? 'Ver menos' : `Ver las ${entero(data.operaciones.length)}`}
-              </button>
-            )}
+            <TablaOrdenable titulo="Operaciones" columnas={columnasOperaciones} filas={data.operaciones} clave={(o) => `${o.fecha}-${o.ticker}-${o.lado}-${o.cantidad}`} vacio="Sin operaciones" filasVisibles={FILAS_OPERACIONES} />
           </section>
         </>
       )}

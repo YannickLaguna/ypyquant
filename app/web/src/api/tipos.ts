@@ -194,6 +194,19 @@ export interface OrdenPaper {
   ejecutada: string | null
 }
 
+/** Fill real registrado por el bot en `data/paper_trading/fills.jsonl` (`GET /api/paper/fills`). */
+export interface FillPaper {
+  ticker: string
+  lado: string
+  cantidad: number
+  precio: number
+  comision: number
+  fecha: string
+  id_orden: string
+}
+
+export type FrecuenciaRebalanceo = 'daily' | 'weekly' | 'monthly' | 'quarterly'
+
 export interface HistorialPaper {
   fechas: string[]
   equity: (number | null)[]
@@ -209,6 +222,8 @@ export interface EstadoBot {
   parametros?: Record<string, unknown>
   tickers?: string[]
   intervalo_s?: number
+  dias_historico?: number
+  frecuencia_rebalanceo?: FrecuenciaRebalanceo
   inicio?: string
 }
 

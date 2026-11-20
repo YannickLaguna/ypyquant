@@ -7,7 +7,8 @@
  * combinación (★) y la alternativa por meseta (◆) y abre el experimento al pulsar una celda.
  * Se relaciona con: api/hooks.ts, lib/barridos.ts (matriz y mejores), componentes/MapaCalor.tsx,
  * componentes/PanelesValidacion.tsx, componentes/PanelesRobustez.tsx, componentes/TablaOrdenable.tsx
- * y paginas/ExperimentoDetalle.tsx (destino de las celdas).
+ * y paginas/ExperimentoDetalle.tsx (destino de las celdas). La tabla de combinaciones permite marcar
+ * varias y abrir paginas/Comparar.tsx con `/comparar?ids=a,b`.
  */
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -188,7 +189,7 @@ function SeccionMapa({ barrido }: { barrido: DetalleBarrido }) {
 
 // ---- Tabla de combinaciones -----------------------------------------------------------------
 
-function SeccionTabla({ superficie, metricaObjetivo }: { superficie: FilaSuperficie[]; metricaObjetivo: string }) {
+export function SeccionTabla({ superficie, metricaObjetivo }: { superficie: FilaSuperficie[]; metricaObjetivo: string }) {
   const metrica = (nombre: string, formato: (v: number | null | undefined) => string, titulo: string): Columna<FilaSuperficie> => ({
     clave: nombre,
     titulo,
@@ -196,7 +197,18 @@ function SeccionTabla({ superficie, metricaObjetivo }: { superficie: FilaSuperfi
     valor: (f) => f.metricas[nombre],
     render: (f) => formato(f.metricas[nombre]),
   })
+  const navegar = useNavigate()
+  // Ids marcados para comparar, en el orden en que se marcaron
+  const [marcados, setMarcados] = useState<string[]>([])
+  const alternar = (id: string) => setMarcados((m) => (m.includes(id) ? m.filter((i) => i !== id) : [...m, id]))
   const columnas: Columna<FilaSuperficie>[] = [
+    {
+      clave: 'sel',
+      titulo: '',
+      render: (f) => (
+        <input type="checkbox" className="accent-[rgb(var(--acento))]" checked={marcados.includes(f.id)} onChange={() => alternar(f.id)} aria-label={`Seleccionar ${f.id} para comparar`} />
+      ),
+    },
     { clave: 'etiqueta', titulo: 'Combinación', valor: (f) => f.etiqueta, render: (f) => <Link to={`/experimentos/${f.id}`} className="num text-acento hover:underline">{f.etiqueta}</Link> },
     { clave: 'objetivo', titulo: `Objetivo (${metricaObjetivo})`, alinear: 'der', valor: (f) => f.objetivo, render: (f) => ratio(f.objetivo, 3) },
     { clave: 'meseta', titulo: 'Meseta', alinear: 'der', valor: (f) => f.meseta, render: (f) => ratio(f.meseta, 3) },
@@ -220,6 +232,9 @@ function SeccionTabla({ superficie, metricaObjetivo }: { superficie: FilaSuperfi
     <section aria-labelledby="h-tabla" className="space-y-2">
       <h2 id="h-tabla">Combinaciones ({superficie.length})</h2>
       <TablaOrdenable titulo="Combinaciones del barrido" columnas={columnas} filas={superficie} clave={(f) => f.id} ordenInicial={{ clave: 'objetivo', descendente: true }} vacio="Sin combinaciones terminadas" />
+      <button type="button" className="boton" disabled={marcados.length < 2} onClick={() => navegar(`/comparar?ids=${marcados.join(',')}`)}>
+        Comparar seleccionados ({marcados.length})
+      </button>
       <p className="text-xs text-suave">En ámbar, costes sobre ganancia bruta &gt; 0,5: las comisiones se comen más de la mitad del edge.</p>
     </section>
   )

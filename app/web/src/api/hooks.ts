@@ -15,6 +15,8 @@ import type {
   DetalleExperimento,
   EstadoPaper,
   EstrategiaDetalle,
+  FillPaper,
+  FrecuenciaRebalanceo,
   HistorialPaper,
   LogBot,
   ModoPermutacion,
@@ -198,6 +200,13 @@ export const useOrdenesPaper = () =>
     refetchInterval: 30_000,
   })
 
+export const useFillsPaper = () =>
+  useQuery({
+    queryKey: ['paper', 'fills'],
+    queryFn: () => pedir<{ fills: FillPaper[] }>('/api/paper/fills'),
+    refetchInterval: 30_000,
+  })
+
 export const useHistorialPaper = (periodo: string) =>
   useQuery({
     queryKey: ['paper', 'historial', periodo],
@@ -216,7 +225,16 @@ export function useLogBot(activo: boolean) {
 export function useArrancarBot() {
   const cliente = useQueryClient()
   return useMutation({
-    mutationFn: (peticion: { estrategia: string; parametros: Record<string, unknown>; tickers: string[]; intervalo_s: number }) =>
+    mutationFn: (peticion: {
+      estrategia: string
+      parametros: Record<string, unknown>
+      tickers: string[]
+      intervalo_s: number
+      /** Mínimo de días de historia; omitido = lo que necesite la estrategia. */
+      dias_historico?: number
+      /** Omitida = la frecuencia que sugiere la estrategia. */
+      frecuencia_rebalanceo?: FrecuenciaRebalanceo
+    }) =>
       pedir('/api/paper/bot/arrancar', { metodo: 'POST', cuerpo: peticion }),
     onSuccess: () => cliente.invalidateQueries({ queryKey: ['paper'] }),
   })

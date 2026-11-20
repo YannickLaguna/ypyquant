@@ -7,8 +7,8 @@
  * componentes/Graficos.tsx y app/api/rutas_paper.py.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useArrancarBot, useCuentaPaper, useEstadoPaper, useEstrategias, useHistorialPaper, useLogBot, useOrdenesPaper, usePararBot, usePosicionesPaper } from '../api/hooks'
-import type { OrdenPaper, PosicionPaper } from '../api/tipos'
+import { useArrancarBot, useCuentaPaper, useEstadoPaper, useEstrategias, useFillsPaper, useHistorialPaper, useLogBot, useOrdenesPaper, usePararBot, usePosicionesPaper } from '../api/hooks'
+import type { FillPaper, FrecuenciaRebalanceo, OrdenPaper, PosicionPaper } from '../api/tipos'
 import { CajaError, Cargando, Vacio } from '../componentes/Estado'
 import FormularioSchema, { validarValores, valoresPorDefecto, type Valores } from '../componentes/FormularioSchema'
 import { GraficoSeries } from '../componentes/Graficos'
@@ -18,6 +18,9 @@ import { claseSigno, dinero, fechaHora, porcentaje, ratio } from '../lib/formato
 import { colorToken } from '../lib/tema'
 
 const PERIODOS = ['1W', '1M', '3M', '1A']
+// Filas visibles en las tablas de órdenes y fills antes de «Ver las N»
+const FILAS_PAPER = 20
+const FRECUENCIAS: [FrecuenciaRebalanceo | '', string][] = [['', 'La que sugiere la estrategia'], ['daily', 'Diaria'], ['weekly', 'Semanal'], ['monthly', 'Mensual'], ['quarterly', 'Trimestral']]
 
 export default function PaperTrading() {
   const estado = useEstadoPaper()
@@ -49,6 +52,7 @@ export default function PaperTrading() {
           <BloqueOrdenes />
         </div>
       )}
+      {!sinClaves && <BloqueFills />}
       <ControlBot sinClaves={sinClaves} />
     </div>
   )
@@ -133,7 +137,27 @@ function BloqueOrdenes() {
     <section aria-labelledby="h-ord" className="space-y-2">
       <h2 id="h-ord">Órdenes recientes</h2>
       {isPending ? <Cargando /> : error ? <CajaError error={error} /> : (
-        <TablaOrdenable titulo="Órdenes" columnas={columnas} filas={data!.ordenes} clave={(o) => o.id} ordenInicial={{ clave: 'f', descendente: true }} vacio="Sin órdenes" />
+        <TablaOrdenable titulo="Órdenes" columnas={columnas} filas={data!.ordenes} clave={(o) => o.id} ordenInicial={{ clave: 'f', descendente: true }} vacio="Sin órdenes" filasVisibles={FILAS_PAPER} />
+      )}
+    </section>
+  )
+}
+
+function BloqueFills() {
+  const { data, isPending, error } = useFillsPaper()
+  const columnas: Columna<FillPaper>[] = [
+    { clave: 'f', titulo: 'Fecha', valor: (o) => o.fecha, render: (o) => fechaHora(o.fecha) },
+    { clave: 't', titulo: 'Ticker', valor: (o) => o.ticker, render: (o) => o.ticker },
+    { clave: 'l', titulo: 'Lado', valor: (o) => o.lado, render: (o) => <span className={o.lado === 'buy' ? 'text-pos' : 'text-neg'}>{o.lado}</span> },
+    { clave: 'q', titulo: 'Cant.', alinear: 'der', valor: (o) => o.cantidad, render: (o) => ratio(o.cantidad, 0) },
+    { clave: 'p', titulo: 'Precio', alinear: 'der', valor: (o) => o.precio, render: (o) => dinero(o.precio, 2) },
+    { clave: 'c', titulo: 'Comisión', alinear: 'der', valor: (o) => o.comision, render: (o) => dinero(o.comision, 2) },
+  ]
+  return (
+    <section aria-labelledby="h-fills" className="space-y-2">
+      <h2 id="h-fills">Fills del bot</h2>
+      {isPending ? <Cargando /> : error ? <CajaError error={error} /> : (
+        <TablaOrdenable titulo="Fills" columnas={columnas} filas={data!.fills} clave={(o) => `${o.id_orden}-${o.fecha}-${o.ticker}`} ordenInicial={{ clave: 'f', descendente: true }} vacio="Sin fills todavía" filasVisibles={FILAS_PAPER} />
       )}
     </section>
   )
@@ -150,6 +174,8 @@ function ControlBot({ sinClaves }: { sinClaves: boolean }) {
   const [parametros, setParametros] = useState<Valores>({})
   const [tickers, setTickers] = useState('AAPL, MSFT, NVDA, AMZN, GOOGL')
   const [intervalo, setIntervalo] = useState(3600)
+  const [diasHistorico, setDiasHistorico] = useState('')
+  const [frecuencia, setFrecuencia] = useState<FrecuenciaRebalanceo | ''>('')
   const visor = useRef<HTMLPreElement>(null)
 
   const estrategia = catalogo?.estrategias.find((e) => e.nombre === (nombre || catalogo.estrategias[0]?.nombre))
@@ -164,7 +190,11 @@ function ControlBot({ sinClaves }: { sinClaves: boolean }) {
   const lanzar = (e: React.FormEvent) => {
     e.preventDefault()
     if (!estrategia || Object.keys(errores).length) return
-    arrancar.mutate({ estrategia: estrategia.nombre, parametros, tickers: tickers.split(/[\s,;]+/).filter(Boolean), intervalo_s: intervalo })
+    arrancar.mutate({ estrategia: estrategia.nombre, parametros, tickers: tickers.split(/[\s,;]+/).filter(Boolean), intervalo_s: intervalo,
+      // Opcionales: vacío = el bot decide según la estrategia
+      ...(diasHistorico ? { dias_historico: Number(diasHistorico) } : {}),
+      ...(frecuencia ? { frecuencia_rebalanceo: frecuencia } : {}),
+    })
   }
   const bot = estado.data?.bot
 
@@ -191,6 +221,16 @@ function ControlBot({ sinClaves }: { sinClaves: boolean }) {
           <div>
             <label htmlFor="bot-intervalo" className="font-medium">Segundos entre iteraciones</label>
             <input id="bot-intervalo" type="number" min={5} className="campo num mt-1" value={intervalo} disabled={enMarcha} onChange={(e) => setIntervalo(Number(e.target.value))} />
+          </div>
+          <div>
+            <label htmlFor="bot-dias" className="font-medium">Días de historia (opcional)</label>
+            <input id="bot-dias" type="number" min={1} placeholder="Según la estrategia" className="campo num mt-1" value={diasHistorico} disabled={enMarcha} onChange={(e) => setDiasHistorico(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="bot-frecuencia" className="font-medium">Frecuencia de rebalanceo (opcional)</label>
+            <select id="bot-frecuencia" className="campo mt-1" value={frecuencia} disabled={enMarcha} onChange={(e) => setFrecuencia(e.target.value as FrecuenciaRebalanceo | '')}>
+              {FRECUENCIAS.map(([valor, texto]) => <option key={valor} value={valor}>{texto}</option>)}
+            </select>
           </div>
           {(arrancar.error || parar.error) && <CajaError error={arrancar.error ?? parar.error} titulo="El bot no respondió" />}
           <div className="flex gap-2">

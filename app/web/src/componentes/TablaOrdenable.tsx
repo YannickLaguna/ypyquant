@@ -1,9 +1,13 @@
 /**
  * Tabla genérica ordenable (clic o teclado en la cabecera, `aria-sort`) y densa, estilo herramienta quant.
  * Responsabilidad: ordenar por una columna con valor numérico/texto, mensaje de vacío y scroll horizontal.
- * Se relaciona con: paginas/Experimentos.tsx, Comparar.tsx, ExperimentoDetalle.tsx, PaperTrading.tsx.
+ * Con `filasVisibles` muestra solo las N primeras (DESPUÉS de ordenar) y un botón «Ver las N» / «Ver menos»
+ * para desplegar el resto: patrón «20 + ver todas» de las tablas largas (operaciones, órdenes, fills).
+ * Se relaciona con: paginas/Experimentos.tsx, Comparar.tsx, ExperimentoDetalle.tsx, PaperTrading.tsx,
+ * BarridoDetalle.tsx y lib/formato.ts (entero).
  */
 import { useMemo, useState, type ReactNode } from 'react'
+import { entero } from '../lib/formato'
 
 export interface Columna<T> {
   clave: string
@@ -21,10 +25,13 @@ interface Props<T> {
   ordenInicial?: { clave: string; descendente: boolean }
   vacio?: string
   titulo: string
+  /** Si se indica y hay más filas, se muestran solo las primeras N y un botón para ver todas. */
+  filasVisibles?: number
 }
 
-export default function TablaOrdenable<T>({ columnas, filas, clave, ordenInicial, vacio = 'Sin datos', titulo }: Props<T>) {
+export default function TablaOrdenable<T>({ columnas, filas, clave, ordenInicial, vacio = 'Sin datos', titulo, filasVisibles }: Props<T>) {
   const [orden, setOrden] = useState(ordenInicial ?? null)
+  const [verTodas, setVerTodas] = useState(false)
 
   const ordenadas = useMemo(() => {
     const columna = columnas.find((c) => c.clave === orden?.clave)
@@ -46,48 +53,58 @@ export default function TablaOrdenable<T>({ columnas, filas, clave, ordenInicial
     setOrden((o) => (o?.clave === c.clave ? { clave: c.clave, descendente: !o.descendente } : { clave: c.clave, descendente: true }))
   }
 
+  const hayMas = filasVisibles !== undefined && ordenadas.length > filasVisibles
+  const mostradas = hayMas && !verTodas ? ordenadas.slice(0, filasVisibles) : ordenadas
+
   return (
-    <div className="tarjeta overflow-x-auto">
-      <table className="w-full border-collapse text-sm" aria-label={titulo}>
-        <thead className="border-b border-borde">
-          <tr>
-            {columnas.map((c) => {
-              const activa = orden?.clave === c.clave
-              return (
-                <th
-                  key={c.clave}
-                  scope="col"
-                  className={`th ${c.alinear === 'der' ? 'text-right' : ''}`}
-                  aria-sort={activa ? (orden!.descendente ? 'descending' : 'ascending') : c.valor ? 'none' : undefined}
-                >
-                  {c.valor ? (
-                    <button type="button" onClick={() => alternar(c)} className="inline-flex items-center gap-1 uppercase hover:text-texto">
-                      {c.titulo}
-                      <span aria-hidden className="w-3 text-acento">{activa ? (orden!.descendente ? '▼' : '▲') : ''}</span>
-                    </button>
-                  ) : (
-                    c.titulo
-                  )}
-                </th>
-              )
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {ordenadas.length === 0 && (
+    <>
+      <div className="tarjeta overflow-x-auto">
+        <table className="w-full border-collapse text-sm" aria-label={titulo}>
+          <thead className="border-b border-borde">
             <tr>
-              <td colSpan={columnas.length} className="p-6 text-center text-suave">{vacio}</td>
+              {columnas.map((c) => {
+                const activa = orden?.clave === c.clave
+                return (
+                  <th
+                    key={c.clave}
+                    scope="col"
+                    className={`th ${c.alinear === 'der' ? 'text-right' : ''}`}
+                    aria-sort={activa ? (orden!.descendente ? 'descending' : 'ascending') : c.valor ? 'none' : undefined}
+                  >
+                    {c.valor ? (
+                      <button type="button" onClick={() => alternar(c)} className="inline-flex items-center gap-1 uppercase hover:text-texto">
+                        {c.titulo}
+                        <span aria-hidden className="w-3 text-acento">{activa ? (orden!.descendente ? '▼' : '▲') : ''}</span>
+                      </button>
+                    ) : (
+                      c.titulo
+                    )}
+                  </th>
+                )
+              })}
             </tr>
-          )}
-          {ordenadas.map((fila) => (
-            <tr key={clave(fila)} className="border-b border-borde/60 last:border-0 hover:bg-elevado/60">
-              {columnas.map((c) => (
-                <td key={c.clave} className={`td ${c.alinear === 'der' ? 'text-right num' : ''}`}>{c.render(fila)}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {ordenadas.length === 0 && (
+              <tr>
+                <td colSpan={columnas.length} className="p-6 text-center text-suave">{vacio}</td>
+              </tr>
+            )}
+            {mostradas.map((fila) => (
+              <tr key={clave(fila)} className="border-b border-borde/60 last:border-0 hover:bg-elevado/60">
+                {columnas.map((c) => (
+                  <td key={c.clave} className={`td ${c.alinear === 'der' ? 'text-right num' : ''}`}>{c.render(fila)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {hayMas && (
+        <button type="button" className="boton" onClick={() => setVerTodas((v) => !v)}>
+          {verTodas ? 'Ver menos' : `Ver las ${entero(ordenadas.length)}`}
+        </button>
+      )}
+    </>
   )
 }
