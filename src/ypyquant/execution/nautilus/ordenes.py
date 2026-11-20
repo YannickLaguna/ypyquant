@@ -7,13 +7,15 @@ Responsabilidad:
     GrowSave vivía dentro de `_evaluate_order` de run.py, aislada para poder testearla.
 
     También `decidir_ordenes_rebalanceo`: de los pesos objetivo de una `Estrategia` del registro a la
-    lista de órdenes (ventas primero) para rebalancear la cuenta.
+    lista de órdenes (ventas primero) para rebalancear la cuenta, sin tocar los tickers que ya tienen una
+    orden abierta (`tickers_bloqueados`).
 
 Se relaciona con:
     - pipelines/paper_trading/alpaca_vivo.py: la usa antes de enviar la orden a Alpaca.
     - ypyquant.estrategias: de ahí salen los pesos objetivo en el modo registro.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 
 
@@ -62,6 +64,7 @@ def decidir_ordenes_rebalanceo(
     precios: dict[str, float],
     cantidades_actuales: dict[str, int],
     umbral_peso: float = 0.01,
+    tickers_bloqueados: Collection[str] = (),
 ) -> list[tuple[str, DecisionOrden]]:
     """
     Órdenes para llevar la cuenta a los pesos objetivo (enteros de acciones, long-only).
@@ -70,10 +73,17 @@ def decidir_ordenes_rebalanceo(
     Se ignoran las diferencias inferiores a `umbral_peso` del equity (evita órdenes diminutas) salvo
     para cerrar una posición cuyo peso objetivo es 0. Las ventas van antes que las compras para
     liberar efectivo. Sin precio válido para un ticker, no se opera sobre él.
+
+    `tickers_bloqueados`: tickers con una orden ya abierta en el broker (aún sin ejecutar). No se emite
+    orden nueva sobre ellos: la cantidad actual todavía no refleja la orden en vuelo y enviar otra
+    duplicaría la operación (o chocaría con un lado contrario, que Alpaca rechaza como wash trade).
     """
     ventas: list[tuple[str, DecisionOrden]] = []
     compras: list[tuple[str, DecisionOrden]] = []
+    bloqueados = set(tickers_bloqueados)
     for ticker in sorted(set(pesos) | set(cantidades_actuales)):
+        if ticker in bloqueados:
+            continue
         precio = precios.get(ticker, 0.0)
         if precio <= 0:
             continue

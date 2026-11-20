@@ -12,6 +12,7 @@ Se relaciona con:
     - ypyquant.execution.nautilus.constructor_senales: interpreta `config_senales`.
     - ypyquant.estrategias (registro): si `estrategia_registro` está definida, la estrategia sale del
       registro (incluidas y `estrategias_usuario/`) en vez de las señales técnicas.
+    - precios.py (días de historia a descargar) y estado_bot.py (dónde se guarda el estado).
 """
 
 import json
@@ -60,6 +61,9 @@ class ConfiguracionEstrategia:
     # el bucle rebalancea hacia los pesos de la estrategia (ignora config_senales y umbral_senal).
     estrategia_registro: str | None = None
     parametros_registro: dict = field(default_factory=dict)
+    # Frecuencia con la que el bot rebalancea en modo registro ("daily" | "weekly" | "monthly" | "quarterly").
+    # None = la que sugiere la estrategia (`Estrategia.frecuencia_rebalanceo`; momentum y las del TFM son "monthly").
+    frecuencia_rebalanceo_registro: str | None = None
 
     @classmethod
     def desde_json(cls, ruta: Path) -> "ConfiguracionEstrategia":
@@ -70,11 +74,19 @@ class ConfiguracionEstrategia:
 
 @dataclass
 class ConfiguracionServicio:
-    """Parámetros del bucle en vivo."""
+    """
+    Parámetros del bucle en vivo.
+
+    `dias_historico` es el MÍNIMO de días naturales de historia a descargar (env `NAUTILUS_LOOKBACK_DAYS`,
+    `--dias-historico` del CLI o `dias_historico` de la API). En modo registro se descargan los que pida la
+    estrategia (`Estrategia.sesiones_necesarias`) si son más; ver `precios.resolver_dias_historico`.
+    `ruta_estado` guarda la fecha del último rebalanceo y las órdenes pendientes de registrar (ver estado_bot.py).
+    """
     alpaca: ConfiguracionAlpaca | None = None
     segundos_entre_iteraciones: int = 60
     dias_historico: int = 252
     ruta_fills: Path = RAIZ / "data" / "paper_trading" / "fills.jsonl"
+    ruta_estado: Path = RAIZ / "data" / "paper_trading" / "estado_bot.json"
 
     @classmethod
     def desde_entorno(cls, con_alpaca: bool = True) -> "ConfiguracionServicio":

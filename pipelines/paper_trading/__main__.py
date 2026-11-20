@@ -8,8 +8,11 @@ Uso (desde la raíz del repo, con el extra `trading` instalado):
     uv run python -m pipelines.paper_trading --config pipelines/paper_trading/estrategia_ejemplo.json
     # Estrategia del registro de ypyquant (incluidas o de estrategias_usuario/):
     uv run python -m pipelines.paper_trading --estrategia momentum --parametros '{"top_k": 3}' --tickers AAPL,MSFT,NVDA
+    # Con una historia mínima mayor y rebalanceo semanal en vez del mensual que sugiere momentum:
+    uv run python -m pipelines.paper_trading --estrategia momentum --dias-historico 600 --frecuencia weekly
 
-Se relaciona con: config.py, alpaca_vivo.py, backtest.py (este fichero solo parsea argumentos y orquesta).
+Se relaciona con: config.py, alpaca_vivo.py, backtest.py (este fichero solo parsea argumentos y orquesta)
+y ypyquant.estrategias.base (frecuencias válidas).
 """
 
 import argparse
@@ -23,6 +26,7 @@ from pipelines.paper_trading.config import (
     ConfiguracionServicio,
     cargar_env,
 )
+from ypyquant.estrategias.base import FRECUENCIAS_VALIDAS
 
 FORMATO_LOG = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
@@ -40,6 +44,11 @@ def crear_parser() -> argparse.ArgumentParser:
                         help="Backtest de las señales con el motor de ypyquant (no necesita claves de Alpaca)")
     parser.add_argument("--una-vez", action="store_true", help="Una sola iteración en vivo y salir")
     parser.add_argument("--intervalo", type=int, default=None, help="Segundos entre iteraciones (sobrescribe el entorno)")
+    parser.add_argument("--dias-historico", type=int, default=None,
+                        help="Mínimo de días naturales de historia a descargar (sobrescribe NAUTILUS_LOOKBACK_DAYS). En modo "
+                             "registro se descargan más si la estrategia los necesita (momentum 12-1, ventanas del TFM...)")
+    parser.add_argument("--frecuencia", choices=FRECUENCIAS_VALIDAS, default=None,
+                        help="Frecuencia de rebalanceo en modo registro; por defecto la que sugiere la estrategia")
     return parser
 
 
@@ -57,6 +66,8 @@ def main(argv: list[str] | None = None) -> None:
         estrategia.estrategia_registro = args.estrategia
         estrategia.nombre = args.estrategia
         estrategia.parametros_registro = json.loads(args.parametros) if args.parametros else {}
+    if args.frecuencia:
+        estrategia.frecuencia_rebalanceo_registro = args.frecuencia
     if args.tickers:
         estrategia.tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
 
@@ -69,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
     servicio = ConfiguracionServicio.desde_entorno()
     if args.intervalo:
         servicio.segundos_entre_iteraciones = args.intervalo
+    if args.dias_historico:
+        servicio.dias_historico = args.dias_historico
     control = ControlParada()
     signal.signal(signal.SIGINT, control.detener)
     signal.signal(signal.SIGTERM, control.detener)

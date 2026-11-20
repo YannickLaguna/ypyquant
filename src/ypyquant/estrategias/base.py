@@ -6,6 +6,8 @@ Responsabilidad:
   Pydantic `Parametros` (defaults, límites y descripciones; de ahí sale el formulario de la UI)
   e implementa `generar_pesos(fecha, datos, estado)`. Ganchos opcionales: `preparar(datos)` y
   `frecuencia_rebalanceo` (sugerida; el experimento puede sobrescribirla).
+- `Estrategia.sesiones_necesarias()`: sesiones diarias de historia que necesita según sus parámetros
+  (el paper trading deriva de ahí cuántos días descargar; ver `MARGEN_SESIONES`).
 - `Estrategia.como_funcion()`: adaptador a la firma `FuncionEstrategia` que espera
   `BacktestEngine.run_backtest` (`(fecha, datos) -> pesos`). Recorta los datos a `<= fecha`
   (sin look-ahead), mantiene el `estado` entre rebalanceos, sanea los pesos y registra el
@@ -34,6 +36,10 @@ from ypyquant.data.matriz_precios import extraer_serie_precios
 from ypyquant.portfolio.backtest_engine import FuncionEstrategia
 
 FRECUENCIAS_VALIDAS = ("daily", "weekly", "monthly", "quarterly")
+
+# Sesiones extra que se piden por encima del mínimo estricto de una estrategia (festivos, huecos de
+# datos y el último día incompleto): `Estrategia.sesiones_necesarias` las suma a su ventana.
+MARGEN_SESIONES = 10
 
 
 class ParametrosBase(BaseModel):
@@ -161,6 +167,16 @@ class Estrategia(ABC):
             datos: `{ticker: OHLCV}` recortado a `<= fecha` (columnas 'Close', 'adjusted_close', 'Volume'...).
             estado: dict persistente entre llamadas (memoria de la estrategia).
         """
+
+    def sesiones_necesarias(self) -> int:
+        """
+        Sesiones diarias de historia que necesita la estrategia para no caer en su caso de reserva
+        (p. ej. pesos iguales por falta de datos), según sus parámetros y con `MARGEN_SESIONES` de holgura.
+
+        0 (por defecto) = la estrategia no declara requisito. Lo usa el bot de paper trading para decidir
+        cuántos días descargar; las estrategias con ventana (momentum, estimadores) lo sobrescriben.
+        """
+        return 0
 
     def como_funcion(self) -> FuncionEstrategia:
         """Adaptador a la firma del motor: `(fecha, datos_completos) -> pesos` con recorte, estado y saneado."""

@@ -6,7 +6,8 @@ Responsabilidad:
     normaliza un order de Alpaca a un dict en español y lo añade a un fichero .jsonl.
 
 Se relaciona con:
-    - pipelines/paper_trading/alpaca_vivo.py: llama a `RegistroFills.registrar` tras cada orden.
+    - pipelines/paper_trading/alpaca_vivo.py: `sincronizar_fills` llama a `RegistroFills.registrar` cuando una
+      orden enviada ya se ha ejecutado (con el fill real, no al enviarla).
     - ypyquant.execution.trade_analytics: puede leer luego estos registros (un dict por línea).
 """
 
@@ -42,16 +43,34 @@ def normalizar_fill(orden_alpaca: dict) -> dict:
 
 
 class RegistroFills:
-    """Añade fills normalizados a un fichero JSONL (una operación por línea)."""
+    """Añade fills normalizados a un fichero JSONL (una operación por línea), sin repetir el mismo `id_orden`."""
 
     def __init__(self, ruta: Path):
         self.ruta = Path(ruta)
 
+    def ids_registrados(self) -> set[str]:
+        """Ids de orden que ya constan en el fichero (vacío si no existe; las líneas corruptas se saltan)."""
+        if not self.ruta.exists():
+            return set()
+        ids: set[str] = set()
+        for linea in self.ruta.read_text(encoding="utf-8").splitlines():
+            try:
+                ids.add(json.loads(linea).get("id_orden", ""))
+            except (json.JSONDecodeError, AttributeError):
+                continue
+        return ids
+
     def registrar(self, orden_alpaca: dict) -> dict | None:
-        """Guarda el fill; ignora los de cantidad 0 (órdenes aún sin ejecutar). Devuelve el registro."""
+        """
+        Guarda el fill; ignora los de cantidad 0 (órdenes aún sin ejecutar) y los de un `id_orden` ya
+        registrado (idempotente: reintentar tras un reinicio no duplica). Devuelve el registro o None.
+        """
         registro = normalizar_fill(orden_alpaca)
         if registro["cantidad"] <= 0:
             logger.warning("Fill ignorado: cantidad 0 para %s", registro["ticker"])
+            return None
+        if registro["id_orden"] and registro["id_orden"] in self.ids_registrados():
+            logger.info("Fill ya registrado (orden %s): se omite", registro["id_orden"])
             return None
         self.ruta.parent.mkdir(parents=True, exist_ok=True)
         with self.ruta.open("a", encoding="utf-8", newline="\n") as f:

@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from pydantic import Field
 
-from ypyquant.estrategias.base import Estrategia, ParametrosBase, matriz_cierres, matriz_volumen
+from ypyquant.estrategias.base import MARGEN_SESIONES, Estrategia, ParametrosBase, matriz_cierres, matriz_volumen
 from ypyquant.estrategias.registro import registrar_estrategia
 from ypyquant.optimization.estimacion_robusta import (
     delta_caja,
@@ -98,6 +98,10 @@ class Momentum(Estrategia):
         meses_retorno: int = Field(12, ge=2, le=36, description="Meses de la ventana de retorno")
         meses_salto: int = Field(1, ge=0, le=6, description="Meses recientes que se saltan (reversión a corto plazo)")
 
+    def sesiones_necesarias(self) -> int:
+        """Retorno de `meses_retorno` meses (de `DIAS_MES` sesiones) más la sesión de partida y el margen."""
+        return self.parametros.meses_retorno * DIAS_MES + 1 + MARGEN_SESIONES
+
     def generar_pesos(self, fecha: datetime, datos, estado: dict[str, Any]) -> dict[str, float]:
         p = self.parametros
         cierres = matriz_cierres(datos)
@@ -136,6 +140,10 @@ class _EstimadorRobusto(Estrategia):
 
     def estimar_pesos(self, retornos: pd.DataFrame, datos, fecha, pesos_previos: np.ndarray | None) -> np.ndarray:
         raise NotImplementedError
+
+    def sesiones_necesarias(self) -> int:
+        """Ventana completa de estimación (`ventana_dias` retornos = `ventana_dias` + 1 cierres) más el margen."""
+        return self.parametros.ventana_dias + 1 + MARGEN_SESIONES
 
     def optimizar(self, mu: np.ndarray, sigma: np.ndarray, rf: float, pesos_previos: np.ndarray | None) -> np.ndarray:
         """Max-Sharpe (con penalización de turnover) o, si hay `volatilidad_objetivo`, máx. µ'w con σ <= objetivo."""
@@ -352,6 +360,10 @@ class PresetYpyquant(Estrategia):
         ventana_dias: int = Field(756, ge=60, le=2520, description="Días de historia para estimar")
         peso_maximo: float = Field(0.30, gt=0.0, le=1.0, description="Tope de peso por activo")
         tasa_libre_riesgo: float = Field(0.02, ge=0.0, le=0.2, description="Tasa libre anual del preset")
+
+    def sesiones_necesarias(self) -> int:
+        """Ventana completa de estimación (`ventana_dias` retornos = `ventana_dias` + 1 cierres) más el margen."""
+        return self.parametros.ventana_dias + 1 + MARGEN_SESIONES
 
     def generar_pesos(self, fecha: datetime, datos, estado: dict[str, Any]) -> dict[str, float]:
         from ypyquant.optimization.presets import obtener_preset
