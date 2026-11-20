@@ -91,7 +91,7 @@ Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUAN
 | GET / DELETE | `/api/experimentos/{id}` | Métricas, equity, drawdown, pesos, operaciones; borrar |
 | GET | `/api/comparar?ids=a,b` | Equity base 100 + métricas (DuckDB) |
 | GET | `/api/paper/{estado,cuenta,posiciones,ordenes,historial,fills}` | Alpaca paper; **503** sin claves, 502 si Alpaca falla |
-| POST | `/api/paper/bot/{arrancar,parar}` | Subproceso `python -m pipelines.paper_trading --estrategia ...` |
+| POST | `/api/paper/bot/{arrancar,parar}` | Subproceso `python -m pipelines.paper_trading --estrategia ...`; `arrancar` admite `dias_historico` (mínimo, 30-10000) y `frecuencia_rebalanceo` opcionales |
 | GET | `/api/paper/bot/{estado,log?desde=N}` | Estado y log (polling por línea) |
 
 ## Procedencia de un experimento
@@ -232,6 +232,13 @@ uv run python -m pipelines.paper_trading --estrategia momentum --parametros '{"t
 ```
 
 Sin `--estrategia` el bot sigue funcionando como antes (señales técnicas, `--config estrategia_ejemplo.json`). En modo registro cada iteración pide los pesos a la estrategia y envía órdenes de rebalanceo (`decidir_ordenes_rebalanceo`, ventas primero).
+
+Reglas del bot en modo registro:
+
+- **Historia**: se descarga la que necesita la estrategia, no un número fijo. Cada `Estrategia` declara `sesiones_necesarias()` según sus parámetros (momentum: `meses_retorno·21 + 1 + 10`; estimadores del TFM y `preset_ypyquant`: `ventana_dias + 1 + 10`), que se convierte a días naturales (×365/252 + 15 de margen). `NAUTILUS_LOOKBACK_DAYS` (252 por defecto), `--dias-historico` y el campo `dias_historico` de la API son el **mínimo**: si pides más se respeta; si pides menos se amplía a lo necesario. Si aun así faltan sesiones (p. ej. un ticker recién salido a bolsa) el bot escribe un `WARNING` («Historia insuficiente…») y la estrategia usa su caso de reserva (momentum reparte a pesos iguales; los estimadores usan una ventana más corta o pesos iguales): sigue operando, pero no es la estrategia pedida. Una estrategia propia puede sobrescribir `sesiones_necesarias()`; por defecto devuelve 0 (sin requisito).
+- **Frecuencia**: solo rebalancea cuando toca según la frecuencia de la estrategia (`frecuencia_rebalanceo`: momentum y las del TFM son `monthly`), o la indicada con `--frecuencia` / `frecuencia_rebalanceo` en la API. Toca el primer día de mercado de un periodo de calendario nuevo (día, semana ISO, mes o trimestre) tras el último rebalanceo. La fecha se guarda en `data/paper_trading/estado_bot.json` (con la firma estrategia + parámetros + tickers: si cambias la configuración, el calendario se reinicia). Los días que no toca, el bot solo loguea. Si algún envío falla, no se marca como hecho y se reintenta en la siguiente iteración.
+- **Órdenes abiertas**: antes de decidir consulta las órdenes abiertas y no envía ninguna sobre un ticker que ya tenga una; si no puede consultarlas, no envía nada.
+- **Fills**: una orden de mercado recién enviada tiene `filled_qty` 0, así que el bot anota su id como pendiente (en `estado_bot.json`) y registra el fill real en `data/paper_trading/fills.jsonl` cuando la orden termina (al cerrar cada iteración, con unos reintentos, y al empezar la siguiente). Un mismo `id_orden` no se registra dos veces.
 
 ## Tests
 

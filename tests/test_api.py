@@ -222,3 +222,34 @@ def test_bot_arrancar_log_y_parar(tmp_path):
         parado = cliente.post("/api/paper/bot/parar").json()
     assert parado["en_marcha"] is False
     assert cliente.get("/api/paper/bot/estado").json()["en_marcha"] is False
+
+
+def test_bot_recibe_dias_de_historia_y_frecuencia_de_la_peticion(tmp_path):
+    """`dias_historico` y `frecuencia_rebalanceo` de la petición llegan al comando del bot (solo si se indican)."""
+    recibidos = []
+
+    def comando(estrategia, parametros, tickers, intervalo, **extras):
+        recibidos.append(extras)
+        return [sys.executable, "-c", "import time; time.sleep(60)"]
+
+    bot = BotControl(tmp_path / "paper", construir_comando=comando)
+    cliente = _cliente(tmp_path, alpaca=ServicioAlpaca(fabrica_cliente=_ClienteAlpacaFalso), bot=bot)
+    try:
+        # Valores fuera de rango o frecuencia desconocida: 422 y no se lanza nada
+        for malo in ({"dias_historico": 5}, {"dias_historico": 99_999}, {"frecuencia_rebalanceo": "anual"}):
+            assert cliente.post("/api/paper/bot/arrancar", json={"estrategia": "momentum", "tickers": ["A"], **malo}).status_code == 422
+        assert recibidos == []
+        respuesta = cliente.post("/api/paper/bot/arrancar", json={
+            "estrategia": "momentum", "tickers": ["A"], "dias_historico": 600, "frecuencia_rebalanceo": "weekly"})
+        assert respuesta.status_code == 200
+        assert recibidos == [{"dias_historico": 600, "frecuencia": "weekly"}]
+        assert respuesta.json()["dias_historico"] == 600 and respuesta.json()["frecuencia_rebalanceo"] == "weekly"
+    finally:
+        cliente.post("/api/paper/bot/parar")
+
+
+def test_comando_por_defecto_del_bot_incluye_dias_y_frecuencia_solo_si_se_piden():
+    base = BotControl._comando_por_defecto("momentum", {"top_k": 3}, ["AAPL"], 60)
+    assert "--dias-historico" not in base and "--frecuencia" not in base
+    completo = BotControl._comando_por_defecto("momentum", {}, ["AAPL"], 60, dias_historico=600, frecuencia="monthly")
+    assert completo[completo.index("--dias-historico") + 1] == "600" and completo[completo.index("--frecuencia") + 1] == "monthly"

@@ -5,14 +5,15 @@ Responsabilidad:
 - Lectura: `/api/paper/estado`, `/cuenta`, `/posiciones`, `/ordenes`, `/historial`, `/fills`.
   Sin claves de Alpaca responden 503 con un mensaje claro (la UI lo muestra); los errores de
   Alpaca se traducen a 502.
-- Bot: `POST /api/paper/bot/arrancar` (estrategia del registro + parámetros + tickers),
+- Bot: `POST /api/paper/bot/arrancar` (estrategia del registro + parámetros + tickers; opcionalmente
+  `dias_historico` mínimo y `frecuencia_rebalanceo`),
   `POST /api/paper/bot/parar`, `GET /api/paper/bot/estado` y `GET /api/paper/bot/log?desde=N` (polling por línea).
 
 Se relaciona con: app/api/paper.py (ServicioAlpaca, BotControl), app/api/contexto.py y el registro
 de estrategias (se valida el nombre y los parámetros antes de lanzar el subproceso).
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
@@ -31,6 +32,11 @@ class PeticionBot(BaseModel):
     parametros: dict[str, Any] = Field(default_factory=dict)
     tickers: list[str] = Field(min_length=1)
     intervalo_s: int = Field(60, ge=5, le=86_400)
+    # Mínimo de días naturales de historia a descargar; None = lo que necesite la estrategia (momentum 12-1 ≈ 400 días,
+    # ventanas de 756 sesiones del TFM ≈ 1.100 días). Si es menor que lo necesario, el bot lo amplía.
+    dias_historico: int | None = Field(None, ge=30, le=10_000)
+    # Frecuencia de rebalanceo; None = la sugerida por la estrategia (momentum y las del TFM: monthly).
+    frecuencia_rebalanceo: Literal["daily", "weekly", "monthly", "quarterly"] | None = None
 
 
 def _alpaca(ctx: Contexto, accion):
@@ -85,7 +91,8 @@ def arrancar_bot(peticion: PeticionBot, ctx: Contexto = Depends(obtener_contexto
     except ValidationError as error:
         raise HTTPException(422, error.errors(include_url=False, include_context=False)) from error
     try:
-        return ctx.bot.arrancar(peticion.estrategia, parametros, [t.upper() for t in peticion.tickers], peticion.intervalo_s)
+        return ctx.bot.arrancar(peticion.estrategia, parametros, [t.upper() for t in peticion.tickers], peticion.intervalo_s,
+                                dias_historico=peticion.dias_historico, frecuencia=peticion.frecuencia_rebalanceo)
     except RuntimeError as error:
         raise HTTPException(409, str(error)) from error
 

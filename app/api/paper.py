@@ -147,8 +147,9 @@ class BotControl:
 
     Args:
         carpeta: donde se guarda `bot.log`.
-        construir_comando: `(estrategia, parametros, tickers, intervalo_s) -> argv`; por defecto lanza
-            `python -m pipelines.paper_trading --estrategia ...` (se inyecta otro en los tests).
+        construir_comando: `(estrategia, parametros, tickers, intervalo_s, **extras) -> argv` (extras opcionales:
+            `dias_historico`, `frecuencia`); por defecto lanza `python -m pipelines.paper_trading --estrategia ...`
+            (se inyecta otro en los tests).
     """
 
     def __init__(self, carpeta: Path | None = None, construir_comando: Callable[..., list[str]] | None = None):
@@ -159,9 +160,16 @@ class BotControl:
         self._cerrojo = threading.Lock()
 
     @staticmethod
-    def _comando_por_defecto(estrategia: str, parametros: dict, tickers: list[str], intervalo_s: int) -> list[str]:
-        return [sys.executable, "-m", "pipelines.paper_trading", "--estrategia", estrategia,
-                "--parametros", json.dumps(parametros), "--tickers", ",".join(tickers), "--intervalo", str(intervalo_s)]
+    def _comando_por_defecto(estrategia: str, parametros: dict, tickers: list[str], intervalo_s: int,
+                             dias_historico: int | None = None, frecuencia: str | None = None) -> list[str]:
+        """Comando del CLI; `--dias-historico` y `--frecuencia` solo van si se pidieron (si no, decide la estrategia)."""
+        comando = [sys.executable, "-m", "pipelines.paper_trading", "--estrategia", estrategia,
+                   "--parametros", json.dumps(parametros), "--tickers", ",".join(tickers), "--intervalo", str(intervalo_s)]
+        if dias_historico is not None:
+            comando += ["--dias-historico", str(dias_historico)]
+        if frecuencia is not None:
+            comando += ["--frecuencia", frecuencia]
+        return comando
 
     @property
     def ruta_log(self) -> Path:
@@ -175,8 +183,16 @@ class BotControl:
         return {"en_marcha": self.en_marcha(), "pid": self._proceso.pid if self._proceso else None,
                 "codigo_salida": codigo, **self._meta}
 
-    def arrancar(self, estrategia: str, parametros: dict, tickers: list[str], intervalo_s: int = 60) -> dict[str, Any]:
-        """Lanza el bot; `RuntimeError` si ya hay uno en marcha."""
+    def arrancar(self, estrategia: str, parametros: dict, tickers: list[str], intervalo_s: int = 60,
+                 dias_historico: int | None = None, frecuencia: str | None = None) -> dict[str, Any]:
+        """
+        Lanza el bot; `RuntimeError` si ya hay uno en marcha.
+
+        `dias_historico` (mínimo de días naturales a descargar) y `frecuencia` (de rebalanceo) son opcionales:
+        sin ellos el bot usa lo que necesite la estrategia y su frecuencia sugerida. Solo se pasan a
+        `construir_comando` cuando se indican.
+        """
+        extras = {k: v for k, v in (("dias_historico", dias_historico), ("frecuencia", frecuencia)) if v is not None}
         with self._cerrojo:
             if self.en_marcha():
                 raise RuntimeError("El bot ya está en marcha; páralo antes de lanzar otro")
@@ -184,11 +200,15 @@ class BotControl:
             entorno = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
             with self.ruta_log.open("wb") as salida:
                 self._proceso = subprocess.Popen(
-                    self.construir_comando(estrategia, parametros, tickers, intervalo_s),
+                    self.construir_comando(estrategia, parametros, tickers, intervalo_s, **extras),
                     cwd=RAIZ_REPO, stdout=salida, stderr=subprocess.STDOUT, env=entorno,
                 )
             self._meta = {"estrategia": estrategia, "parametros": parametros, "tickers": tickers,
                           "intervalo_s": intervalo_s, "inicio": datetime.now(UTC).isoformat()}
+            if dias_historico is not None:
+                self._meta["dias_historico"] = dias_historico
+            if frecuencia is not None:
+                self._meta["frecuencia_rebalanceo"] = frecuencia
         return self.estado()
 
     def parar(self, espera_s: float = 10.0) -> dict[str, Any]:
