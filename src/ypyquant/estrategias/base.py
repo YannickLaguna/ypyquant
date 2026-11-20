@@ -10,7 +10,8 @@ Responsabilidad:
   (el paper trading deriva de ahí cuántos días descargar; ver `MARGEN_SESIONES`).
 - `Estrategia.como_funcion()`: adaptador a la firma `FuncionEstrategia` que espera
   `BacktestEngine.run_backtest` (`(fecha, datos) -> pesos`). Recorta los datos a `<= fecha`
-  (sin look-ahead), mantiene el `estado` entre rebalanceos, sanea los pesos y registra el
+  (sin look-ahead), aplica opcionalmente un filtro de universo point-in-time (`filtro_universo`),
+  mantiene el `estado` entre rebalanceos, sanea los pesos y registra el
   historial de pesos objetivo (lo usa el experimento para guardar `pesos.parquet` y el turnover).
 - Utilidades puras para escribir estrategias: `matriz_cierres`, `matriz_volumen`, `recortar_hasta`.
 
@@ -19,6 +20,7 @@ Se relaciona con:
   .experimentos (ejecuta una estrategia con el motor).
 - ypyquant.portfolio.backtest_engine (FuncionEstrategia, BacktestEngine).
 - ypyquant.data.matriz_precios (extraer_serie_precios).
+- ypyquant.estrategias.universo_dinamico (fabrica el `FiltroUniverso`) y .causalidad (lo prueba).
 - estrategias_usuario/ (en la raíz del repo): estrategias propias que heredan de esta clase.
 """
 
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -36,6 +39,10 @@ from ypyquant.data.matriz_precios import extraer_serie_precios
 from ypyquant.portfolio.backtest_engine import FuncionEstrategia
 
 FRECUENCIAS_VALIDAS = ("daily", "weekly", "monthly", "quarterly")
+
+# `(fecha, datos_recortados_a_fecha) -> {ticker: OHLCV}` solo con los tickers elegibles en esa fecha
+# (universo point-in-time; ver `ypyquant.estrategias.universo_dinamico`).
+FiltroUniverso = Callable[[datetime, dict[str, pd.DataFrame]], dict[str, pd.DataFrame]]
 
 # Sesiones extra que se piden por encima del mínimo estricto de una estrategia (festivos, huecos de
 # datos y el último día incompleto): `Estrategia.sesiones_necesarias` las suma a su ventana.
@@ -116,6 +123,8 @@ class Estrategia(ABC):
         nombre: identificador único (minúsculas y `_`).
         descripcion: texto corto que se muestra en la UI.
         frecuencia_rebalanceo: frecuencia sugerida ('daily'|'weekly'|'monthly'|'quarterly').
+        universo_sugerido: nombre de universo que la UI propone por defecto (`'sp500_pit'` en las de sección
+            cruzada, para evitar el sesgo de supervivencia); None = sin sugerencia.
         Parametros: modelo Pydantic con los parámetros (sin campos si no hay).
         origen / archivo: los rellena el registro ('incluida' | 'usuario' y ruta del .py).
 
@@ -132,6 +141,7 @@ class Estrategia(ABC):
     nombre: ClassVar[str]
     descripcion: ClassVar[str] = ""
     frecuencia_rebalanceo: ClassVar[str] = "monthly"
+    universo_sugerido: ClassVar[str | None] = None
     origen: ClassVar[str] = "incluida"
     archivo: ClassVar[str | None] = None
 
@@ -178,8 +188,14 @@ class Estrategia(ABC):
         """
         return 0
 
-    def como_funcion(self) -> FuncionEstrategia:
-        """Adaptador a la firma del motor: `(fecha, datos_completos) -> pesos` con recorte, estado y saneado."""
+    def como_funcion(self, filtro_universo: FiltroUniverso | None = None) -> FuncionEstrategia:
+        """
+        Adaptador a la firma del motor: `(fecha, datos_completos) -> pesos` con recorte, estado y saneado.
+
+        `filtro_universo` (opcional, universo point-in-time): `(fecha, datos_recortados) -> datos` que deja
+        a `generar_pesos` solo los tickers elegibles en cada fecha. `preparar` sigue viendo el histórico
+        completo de todos los tickers cargados. Sin filtro el comportamiento es el de siempre.
+        """
         preparada = False
 
         def funcion(fecha: datetime, datos: dict[str, pd.DataFrame]) -> dict[str, float]:
@@ -188,7 +204,10 @@ class Estrategia(ABC):
                 self.preparar(datos)
                 preparada = True
             try:
-                pesos = sanear_pesos(self.generar_pesos(fecha, recortar_hasta(datos, fecha), self.estado))
+                recortados = recortar_hasta(datos, fecha)
+                if filtro_universo is not None:
+                    recortados = filtro_universo(fecha, recortados)
+                pesos = sanear_pesos(self.generar_pesos(fecha, recortados, self.estado))
             except Exception as error:  # el motor la traga; la dejamos anotada para el experimento
                 self.errores.append(f"{fecha:%Y-%m-%d}: {type(error).__name__}: {error}")
                 raise

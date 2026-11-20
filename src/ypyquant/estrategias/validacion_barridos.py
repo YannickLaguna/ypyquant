@@ -357,7 +357,7 @@ def _un_hilo_por_proceso(activo: bool) -> Iterator[None]:
 
 def _cargar_datos_barrido(configs: list[ConfiguracionExperimento], cargador_precios) -> DatosExperimento:
     """Carga UNA vez los precios que cubren todas las combinaciones (unión de universos, inicio más temprano)."""
-    tickers = list(dict.fromkeys(t for c in configs for t in resolver_universo(c.universo)))
+    tickers = list(dict.fromkeys(t for c in configs for t in resolver_universo(c.universo, inicio=c.fecha_inicio, fin=c.fecha_fin)))
     inicio_carga = min(pd.Timestamp(c.fecha_inicio) - pd.Timedelta(days=c.dias_historia_previa) for c in configs)
     primero = min(configs, key=lambda c: c.fecha_inicio)
     sintetica = primero.model_copy(update={

@@ -14,7 +14,11 @@ Responsabilidad:
   `AlmacenExperimentos`).
 - Procedencia (`ResultadoExperimento.procedencia`, ver `procedencia.py`): commit, versiones, hash de
   los precios y fecha; no entra en la huella.
-- `expandir_rejilla(config, {param: [valores]})`: N configuraciones de un barrido de parámetros.
+- Universo `sp500_pit` (point-in-time): ver `universo_dinamico.py`. `ejecutar_con_datos` entrega a la estrategia
+  solo los elegibles de cada fecha, el motor vende lo que sale del universo y avisa de los deslistados
+  liquidados a precio caducado y de los miembros históricos sin precios (sesgo residual).
+- `expandir_rejilla(config, {param: [valores]})`: N configuraciones de un barrido de parámetros (estricta);
+  `expandir_rejilla_con_omitidas` omite y registra las combinaciones inválidas (p. ej. `rapida >= lenta`).
 - Punto de extensión de validación: `registrar_validador(nombre)` registra funciones
   `(ResultadoExperimento) -> dict`; las que pida `config.validaciones` se ejecutan y su salida va a
   `metricas['validacion'][nombre]`. Vienen registrados `rachas` (prueba de rachas sobre los signos
@@ -28,7 +32,7 @@ Se relaciona con:
   `cargar_datos_experimento` y `ejecutar_con_datos`).
 - ypyquant.validacion (Ulcer, Martin, rachas y PSR para métricas y validadores).
 - ypyquant.portfolio.backtest_engine (BacktestEngine, BacktestConfig) y .performance_metrics.
-- universos/*.txt (listas de tickers por nombre).
+- universos/*.txt (listas de tickers por nombre) y .universo_dinamico (`sp500_pit`, membresías históricas).
 - app/api (lanza y consulta experimentos).
 """
 
@@ -48,12 +52,21 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from ypyquant.data.matriz_precios import CargadorPrecios, extraer_serie_precios
 from ypyquant.estrategias.base import recortar_hasta
 from ypyquant.estrategias.procedencia import obtener_procedencia
 from ypyquant.estrategias.registro import obtener_estrategia
+from ypyquant.estrategias.universo_dinamico import (
+    NOMBRE_UNIVERSO_PIT,
+    RUTA_MEMBRESIAS,
+    UniversoPuntoEnElTiempo,
+    cargar_membresias_sp500,
+    cobertura_membresias,
+    es_universo_pit,
+    miembros_en_ventana,
+)
 from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
 from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
 from ypyquant.validacion import indice_ulcer, prueba_rachas, ratio_martin, sharpe_probabilistico
@@ -63,6 +76,7 @@ logger = logging.getLogger(__name__)
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 CARPETA_UNIVERSOS = RAIZ_REPO / "universos"
 DIAS_ANIO = 252
+DIAS_PRECIO_CADUCADO = 5  # días sin cotizar antes de la venta a partir de los cuales se avisa de la liquidación
 MAX_COMBINACIONES_REJILLA = 500
 
 Frecuencia = Literal["daily", "weekly", "monthly", "quarterly"]
@@ -74,7 +88,8 @@ class ConfiguracionExperimento(BaseModel):
 
     Campos:
         estrategia: nombre registrado. parametros: valores de `Estrategia.Parametros` (los que falten usan el defecto).
-        universo: lista de tickers o nombre de un archivo de `universos/` (`'sp500'`, o `'sp500:30'` = los 30 primeros).
+        universo: lista de tickers o nombre de un archivo de `universos/` (`'sp500'`, o `'sp500:30'` = los 30 primeros);
+            `'sp500_pit'` = miembros del S&P 500 en cada fecha de rebalanceo (point-in-time, sin sesgo de supervivencia).
         fecha_inicio / fecha_fin: 'YYYY-MM-DD'. capital_inicial: en USD.
         comision / slippage: fracciones por operación (0.001 = 10 pb).
         frecuencia_rebalanceo: None = la sugerida por la estrategia.
@@ -199,14 +214,23 @@ def _validador_psr(resultado: ResultadoExperimento) -> dict[str, Any]:
 # ----------------------------------------------------------------------------
 
 
-def resolver_universo(universo: list[str] | str, carpeta: Path | None = None) -> list[str]:
+def resolver_universo(universo: list[str] | str, carpeta: Path | None = None,
+                      inicio: str | None = None, fin: str | None = None) -> list[str]:
     """
     Lista de tickers desde una lista explícita o un nombre de `universos/` (`'sp500'`, `'sp500:30'`).
 
     Las líneas vacías y las que empiezan por `#` se ignoran. Lanza `ValueError` si el universo no existe.
+
+    `'sp500_pit'` es el universo DINÁMICO point-in-time: devuelve todos los tickers que fueron miembros
+    del S&P 500 en algún momento de `[inicio, fin]` (sin ventana, todos los históricos). Cuáles son
+    elegibles en cada fecha lo decide `UniversoPuntoEnElTiempo` durante la simulación. No admite `:N`.
     """
     if isinstance(universo, list):
         return universo
+    if es_universo_pit(universo):
+        if ":" in universo:
+            raise ValueError(f"El universo '{NOMBRE_UNIVERSO_PIT}' no admite límite de tickers (':N')")
+        return miembros_en_ventana(cargar_membresias_sp500(), inicio or "1900-01-01", fin or "2999-12-31")
     nombre, _, limite = universo.partition(":")
     ruta = (carpeta or CARPETA_UNIVERSOS) / f"{nombre}.txt"
     if not ruta.is_file():
@@ -219,10 +243,19 @@ def resolver_universo(universo: list[str] | str, carpeta: Path | None = None) ->
 
 
 def listar_universos(carpeta: Path | None = None) -> list[dict[str, Any]]:
-    """Universos disponibles: `[{nombre, n_tickers}]`."""
+    """
+    Universos disponibles: `[{nombre, n_tickers, dinamico}]`.
+
+    `dinamico=True` marca `sp500_pit` (membresía del índice en cada fecha; `n_tickers` = miembros históricos);
+    se añade al final si existe `universos/sp500_membresias.json`.
+    """
     carpeta = carpeta or CARPETA_UNIVERSOS
-    return [{"nombre": ruta.stem, "n_tickers": len(resolver_universo(ruta.stem, carpeta))}
-            for ruta in sorted(carpeta.glob("*.txt"))]
+    universos = [{"nombre": ruta.stem, "n_tickers": len(resolver_universo(ruta.stem, carpeta)), "dinamico": False}
+                 for ruta in sorted(carpeta.glob("*.txt"))]
+    if RUTA_MEMBRESIAS.is_file():
+        universos.append({"nombre": NOMBRE_UNIVERSO_PIT, "n_tickers": len(resolver_universo(NOMBRE_UNIVERSO_PIT)),
+                          "dinamico": True})
+    return universos
 
 
 def _cargar_precios(tickers: list[str], inicio: str, fin: str, cargador: CargadorPrecios) -> dict[str, pd.DataFrame]:
@@ -244,6 +277,46 @@ def _cargar_precios(tickers: list[str], inicio: str, fin: str, cargador: Cargado
         else:
             datos[ticker] = df
     return datos
+
+
+def _aviso_cobertura_pit(config: ConfiguracionExperimento, tickers_con_precio: set[str]) -> str:
+    """
+    Aviso de sesgo residual del universo `sp500_pit`: miembros históricos del periodo sin precios en la fuente.
+
+    Los deslistados que yfinance ya no sirve no pueden elegirse aunque fueran miembros; el sesgo de
+    supervivencia se reduce pero no desaparece. Se resume la cobertura al inicio, a mitad y al final.
+    """
+    membresias = cargar_membresias_sp500()
+    historicos = miembros_en_ventana(membresias, config.fecha_inicio, config.fecha_fin)
+    sin_precio = [t for t in historicos if t not in tickers_con_precio]
+    inicio, fin = pd.Timestamp(config.fecha_inicio), pd.Timestamp(config.fecha_fin)
+    fechas = [inicio, inicio + (fin - inicio) / 2, fin]
+    cobertura = cobertura_membresias(membresias, tickers_con_precio, fechas)
+    detalle = ", ".join(f"{c['fecha']}: {c['con_precio']}/{c['miembros']}" for c in cobertura)
+    return (f"Universo {NOMBRE_UNIVERSO_PIT}: {len(sin_precio)} de {len(historicos)} miembros históricos del S&P 500 "
+            f"entre {config.fecha_inicio} y {config.fecha_fin} no tienen precios en la fuente (típicamente deslistados) "
+            f"y no pueden elegirse: el sesgo de supervivencia se reduce pero no desaparece. "
+            f"Miembros con precio / miembros del índice: {detalle}.")
+
+
+def _avisos_liquidaciones_caducadas(trades: list[Any], precios: dict[str, pd.DataFrame]) -> list[str]:
+    """
+    Avisos de posiciones vendidas con un precio caducado (el ticker dejó de cotizar antes de la venta).
+
+    El motor valora una posición deslistada a su último precio conocido y la liquida a ese precio en el
+    siguiente rebalanceo; si el deslistamiento fue una quiebra el resultado real habría sido peor.
+    """
+    avisos = []
+    vistos: set[str] = set()
+    for trade in trades:
+        if trade.side != "sell" or trade.ticker in vistos or trade.ticker not in precios:
+            continue
+        ultimo = precios[trade.ticker].index[-1]
+        if pd.Timestamp(trade.entry_date) - ultimo > pd.Timedelta(days=DIAS_PRECIO_CADUCADO):
+            vistos.add(trade.ticker)
+            avisos.append(f"{trade.ticker} se liquidó a su último precio conocido ({ultimo:%Y-%m-%d}) el "
+                          f"{pd.Timestamp(trade.entry_date):%Y-%m-%d}: dejó de cotizar (deslistado) con la posición abierta.")
+    return avisos
 
 
 # ----------------------------------------------------------------------------
@@ -362,12 +435,15 @@ def cargar_datos_experimento(config: ConfiguracionExperimento, cargador_precios:
     a `ejecutar_con_datos` (varias veces si se quiere, p. ej. un barrido o una permutación).
     """
     config = config.normalizada()
-    tickers = resolver_universo(config.universo)
+    tickers = resolver_universo(config.universo, inicio=config.fecha_inicio, fin=config.fecha_fin)
     inicio_carga = (pd.Timestamp(config.fecha_inicio) - pd.Timedelta(days=config.dias_historia_previa)).strftime("%Y-%m-%d")
     precios = _cargar_precios(tickers, inicio_carga, config.fecha_fin, cargador_precios)
     if not precios:
         raise RuntimeError("No hay precios para ningún ticker del universo (¿sin red y sin caché?)")
-    avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
+    if es_universo_pit(config.universo):
+        avisos = [_aviso_cobertura_pit(config, set(precios))]  # cientos de deslistados: un resumen, no un aviso por ticker
+    else:
+        avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
     datos_bench = _cargar_precios([config.benchmark], inicio_carga, config.fecha_fin, cargador_precios)
     benchmark = datos_bench.get(config.benchmark)
     if benchmark is None:
@@ -396,25 +472,34 @@ def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento
     random.seed(config.semilla)
     np.random.seed(config.semilla)
 
-    tickers = resolver_universo(config.universo)
+    tickers = resolver_universo(config.universo, inicio=config.fecha_inicio, fin=config.fecha_fin)
     fin = pd.Timestamp(config.fecha_fin)
     datos_universo = {t: datos.precios[t] for t in tickers if t in datos.precios}
     if not datos_universo:
         raise RuntimeError("No hay precios para ningún ticker del universo (¿sin red y sin caché?)")
     precios = recortar_hasta(datos_universo, fin)
-    avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
+    pit = es_universo_pit(config.universo)
+    if pit:
+        avisos = [_aviso_cobertura_pit(config, set(precios))]
+        # La estrategia solo ve, en cada fecha, los miembros del índice en esa fecha con historia hasta t-1
+        filtro_universo = UniversoPuntoEnElTiempo(cargar_membresias_sp500()).crear_filtro(precios)
+    else:
+        avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
+        filtro_universo = None
 
     motor = BacktestEngine(BacktestConfig(
         start_date=config.fecha_inicio, end_date=config.fecha_fin, initial_capital=config.capital_inicial,
         rebalance_frequency=config.frecuencia_rebalanceo, commission_rate=config.comision,
         slippage_pct=config.slippage, max_positions=max(len(precios), 1), benchmark_ticker=config.benchmark,
     ))
-    resultado_bt = motor.run_backtest(estrategia.como_funcion(), precios)
+    resultado_bt = motor.run_backtest(estrategia.como_funcion(filtro_universo=filtro_universo), precios)
     if not estrategia.historial_pesos:
         detalle = estrategia.errores[0] if estrategia.errores else "sin pesos"
         raise RuntimeError(f"La estrategia no generó ningún rebalanceo válido ({detalle})")
     if estrategia.errores:
         avisos.append(f"{len(estrategia.errores)} rebalanceos fallaron; primero: {estrategia.errores[0]}")
+    if pit:
+        avisos.extend(_avisos_liquidaciones_caducadas(motor.trades, precios))
 
     # Curva de equity + benchmark reescalado al capital inicial
     curva = resultado_bt.equity_curve
@@ -479,6 +564,40 @@ def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: Car
 # ----------------------------------------------------------------------------
 
 
+def _expandir(config: ConfiguracionExperimento, rejilla: dict[str, list[Any]],
+              tolerante: bool) -> tuple[list[ConfiguracionExperimento], list[dict[str, Any]]]:
+    """
+    Núcleo común de `expandir_rejilla` y `expandir_rejilla_con_omitidas`.
+
+    Con `tolerante=False` la primera combinación que no valida lanza `ValidationError` (comportamiento
+    histórico). Con `tolerante=True` se omite y se anota `{valores, motivo}` en la segunda lista.
+    """
+    if not rejilla:
+        return [config.normalizada()], []
+    claves = list(rejilla)
+    total = math.prod(len(valores) for valores in rejilla.values())
+    if total > MAX_COMBINACIONES_REJILLA:
+        raise ValueError(f"La rejilla tiene {total} combinaciones (máximo {MAX_COMBINACIONES_REJILLA})")
+    configuraciones: dict[str, ConfiguracionExperimento] = {}
+    omitidas: list[dict[str, Any]] = []
+    for combinacion in itertools.product(*(rejilla[k] for k in claves)):
+        campos = dict(zip(claves, combinacion, strict=True))
+        propios = {k: v for k, v in campos.items() if k in ConfiguracionExperimento.model_fields}
+        parametros = {**config.parametros, **{k: v for k, v in campos.items() if k not in propios}}
+        etiqueta = ", ".join(f"{k}={v}" for k, v in campos.items())
+        try:
+            nueva = ConfiguracionExperimento(**{**config.model_dump(), **propios, "parametros": parametros,
+                                                "etiqueta": etiqueta}).normalizada()
+        except ValidationError as error:
+            if not tolerante:
+                raise
+            motivo = "; ".join(str(e["msg"]).removeprefix("Value error, ") for e in error.errors(include_url=False))
+            omitidas.append({"valores": campos, "motivo": motivo})
+            continue
+        configuraciones.setdefault(nueva.huella(), nueva)
+    return list(configuraciones.values()), omitidas
+
+
 def expandir_rejilla(config: ConfiguracionExperimento, rejilla: dict[str, list[Any]]) -> list[ConfiguracionExperimento]:
     """
     Producto cartesiano de valores sobre una configuración base.
@@ -486,20 +605,19 @@ def expandir_rejilla(config: ConfiguracionExperimento, rejilla: dict[str, list[A
     Cada clave es un parámetro de la estrategia o un campo de la configuración (`comision`,
     `frecuencia_rebalanceo`, `fecha_inicio`...). Devuelve configuraciones normalizadas sin
     duplicados, con la `etiqueta` `clave=valor, ...`. Máximo `MAX_COMBINACIONES_REJILLA`.
+    Estricta: una combinación inválida lanza `ValidationError`; para tolerarlas ver
+    `expandir_rejilla_con_omitidas`.
     """
-    if not rejilla:
-        return [config.normalizada()]
-    claves = list(rejilla)
-    total = math.prod(len(valores) for valores in rejilla.values())
-    if total > MAX_COMBINACIONES_REJILLA:
-        raise ValueError(f"La rejilla tiene {total} combinaciones (máximo {MAX_COMBINACIONES_REJILLA})")
-    configuraciones: dict[str, ConfiguracionExperimento] = {}
-    for combinacion in itertools.product(*(rejilla[k] for k in claves)):
-        campos = dict(zip(claves, combinacion, strict=True))
-        propios = {k: v for k, v in campos.items() if k in ConfiguracionExperimento.model_fields}
-        parametros = {**config.parametros, **{k: v for k, v in campos.items() if k not in propios}}
-        etiqueta = ", ".join(f"{k}={v}" for k, v in campos.items())
-        nueva = ConfiguracionExperimento(**{**config.model_dump(), **propios, "parametros": parametros,
-                                            "etiqueta": etiqueta}).normalizada()
-        configuraciones.setdefault(nueva.huella(), nueva)
-    return list(configuraciones.values())
+    return _expandir(config, rejilla, tolerante=False)[0]
+
+
+def expandir_rejilla_con_omitidas(
+    config: ConfiguracionExperimento, rejilla: dict[str, list[Any]],
+) -> tuple[list[ConfiguracionExperimento], list[dict[str, Any]]]:
+    """
+    Como `expandir_rejilla`, pero las combinaciones que no validan (p. ej. `rapida >= lenta`) se omiten.
+
+    Devuelve `(configuraciones válidas, omitidas)`; cada omitida es `{valores: {eje: valor}, motivo: str}`.
+    El llamador decide qué hacer si no queda ninguna válida (la API responde 422).
+    """
+    return _expandir(config, rejilla, tolerante=True)

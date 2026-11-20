@@ -69,6 +69,7 @@ def _resumen(clase: type[Estrategia]) -> dict[str, Any]:
         "origen": clase.origen,
         "archivo": clase.archivo,
         "frecuencia_rebalanceo": clase.frecuencia_rebalanceo,
+        "universo_sugerido": clase.universo_sugerido,
         "parametros_schema": clase.Parametros.model_json_schema(),
         "parametros_defecto": clase.Parametros().model_dump(),
     }

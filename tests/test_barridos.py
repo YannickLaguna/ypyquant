@@ -13,17 +13,26 @@ import time
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.main import crear_app
 from app.api.paper import BotControl, ServicioAlpaca
+from ypyquant.estrategias import registro
 from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.barridos import (
     AlmacenBarridos,
     ConfiguracionBarrido,
+    _vecinos,
     matriz_retornos,
     superficie,
 )
-from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ejecutar_experimento
+from ypyquant.estrategias.base import Estrategia, ParametrosBase
+from ypyquant.estrategias.experimentos import (
+    ConfiguracionExperimento,
+    ejecutar_experimento,
+    expandir_rejilla,
+    expandir_rejilla_con_omitidas,
+)
 from ypyquant.estrategias.precios import CargadorSintetico
 from ypyquant.estrategias.reservado import RegistroReservado, evaluar_reservado
 from ypyquant.estrategias.validacion_barridos import (
@@ -369,3 +378,91 @@ def test_api_experimentos_barrido_sigue_compatible_y_devuelve_el_id_del_barrido(
 
 def test_api_lista_validadores(tmp_path):
     assert {"rachas", "psr"} <= set(_cliente(tmp_path).get("/api/validadores").json()["validadores"])
+
+
+# ---- rejilla tolerante a combinaciones inválidas (fase 0.2) ------------------------------
+
+
+@pytest.fixture
+def estrategia_cruce():
+    """Estrategia temporal cuyos parámetros exigen `rapida < lenta` (hay combinaciones inválidas en la rejilla)."""
+    from pydantic import model_validator
+
+    class Cruce(Estrategia):
+        nombre = "cruce_temporal"
+        descripcion = "Solo para tests de rejilla tolerante."
+
+        class Parametros(ParametrosBase):
+            rapida: int = 5
+            lenta: int = 20
+
+            @model_validator(mode="after")
+            def _orden(self):
+                if self.rapida >= self.lenta:
+                    raise ValueError("rapida debe ser menor que lenta")
+                return self
+
+        def generar_pesos(self, fecha, datos, estado):
+            return {t: 1 / len(datos) for t in datos}
+
+    antes = dict(registro._REGISTRO)
+    registro.registrar_estrategia(Cruce)
+    yield Cruce
+    registro._REGISTRO.clear()
+    registro._REGISTRO.update(antes)
+
+
+REJILLA_CON_HUECO = {"rapida": [5, 50], "lenta": [20, 60]}  # (50, 20) viola rapida < lenta
+
+
+def _base_cruce() -> ConfiguracionExperimento:
+    return ConfiguracionExperimento(estrategia="cruce_temporal", universo=TICKERS,
+                                    fecha_inicio="2020-01-01", fecha_fin="2021-12-31")
+
+
+def test_expandir_rejilla_con_omitidas_devuelve_las_validas_y_registra_las_omitidas(estrategia_cruce):
+    configs, omitidas = expandir_rejilla_con_omitidas(_base_cruce(), REJILLA_CON_HUECO)
+    assert {(c.parametros["rapida"], c.parametros["lenta"]) for c in configs} == {(5, 20), (5, 60), (50, 60)}
+    assert len(omitidas) == 1
+    assert omitidas[0]["valores"] == {"rapida": 50, "lenta": 20}
+    assert "rapida debe ser menor que lenta" in omitidas[0]["motivo"]
+
+
+def test_expandir_rejilla_estricta_conserva_su_firma_y_sigue_fallando(estrategia_cruce):
+    with pytest.raises(ValidationError):
+        expandir_rejilla(_base_cruce(), REJILLA_CON_HUECO)
+
+
+def test_expandir_rejilla_con_omitidas_sin_huecos_equivale_a_la_estricta():
+    base = ConfiguracionExperimento(**BASE)
+    configs, omitidas = expandir_rejilla_con_omitidas(base, {"top_k": [1, 2], "meses_retorno": [3, 6]})
+    assert omitidas == []
+    assert [c.huella() for c in configs] == [c.huella() for c in expandir_rejilla(base, {"top_k": [1, 2], "meses_retorno": [3, 6]})]
+
+
+def test_barrido_con_huecos_omite_la_combinacion_y_conserva_las_posiciones(estrategia_cruce):
+    config = ConfiguracionBarrido(base=_base_cruce(), rejilla=REJILLA_CON_HUECO)
+    combinaciones = config.combinaciones()
+    assert len(combinaciones) == 3
+    assert {tuple(pos.values()) for _, _, pos in combinaciones} == {(0, 0), (0, 1), (1, 1)}  # (1, 0) es el hueco
+    assert [o["valores"] for o in config.omitidas()] == [{"rapida": 50, "lenta": 20}]
+
+
+def test_vecinos_toleran_posiciones_sin_valor():
+    por_posicion = {(0, 0): 1.0, (0, 1): 2.0, (1, 1): 3.0}  # falta (1, 0)
+    assert sorted(_vecinos({"a": 1, "b": 1}, por_posicion, ["a", "b"])) == [2.0]
+    assert sorted(_vecinos({"a": 0, "b": 0}, por_posicion, ["a", "b"])) == [2.0]
+
+
+def test_api_barrido_con_huecos_lanza_las_validas_y_avisa_de_las_omitidas(tmp_path, estrategia_cruce):
+    cliente = _cliente(tmp_path)
+    cuerpo = {"base": {**BASE, "estrategia": "cruce_temporal"}, "rejilla": REJILLA_CON_HUECO}
+    respuesta = cliente.post("/api/barridos", json=cuerpo)
+    assert respuesta.status_code == 202, respuesta.text
+    datos = respuesta.json()
+    assert datos["total"] == 3 and len(datos["omitidas"]) == 1
+    detalle = _esperar_barrido(cliente, datos["id"])
+    assert len(detalle["combinaciones"]) == 3 and len(detalle["omitidas"]) == 1
+    # Todas inválidas: no hay nada que lanzar
+    todas = cliente.post("/api/barridos", json={"base": cuerpo["base"], "rejilla": {"rapida": [50], "lenta": [20]}})
+    assert todas.status_code == 422

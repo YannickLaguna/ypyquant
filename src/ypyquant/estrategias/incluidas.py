@@ -92,6 +92,7 @@ class Momentum(Estrategia):
     nombre = "momentum"
     descripcion = "Top-k por retorno acumulado 12-1 (salta el último mes), equiponderado entre los k ganadores."
     frecuencia_rebalanceo = "monthly"
+    universo_sugerido = "sp500_pit"  # sección cruzada: sin sesgo de supervivencia por defecto
 
     class Parametros(ParametrosBase):
         top_k: int = Field(5, ge=1, le=200, description="Número de activos ganadores en cartera")

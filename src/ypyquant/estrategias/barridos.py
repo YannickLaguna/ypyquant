@@ -58,7 +58,7 @@ from ypyquant.estrategias.experimentos import (
     MAX_COMBINACIONES_REJILLA,
     ConfiguracionExperimento,
     _limpiar,
-    expandir_rejilla,
+    expandir_rejilla_con_omitidas,
 )
 
 RAIZ_REPO = Path(__file__).resolve().parents[3]
@@ -128,22 +128,37 @@ class ConfiguracionBarrido(BaseModel):
         """`barrido-<10 primeros caracteres de la huella>`."""
         return f"barrido-{self.huella()[:10]}"
 
+    def _expandir_tolerante(self) -> tuple[list[tuple[ConfiguracionExperimento, dict[str, Any], dict[str, int]]],
+                                           list[dict[str, Any]]]:
+        """Combinaciones válidas (con su posición en cada eje) y omitidas `{valores, motivo}`, en orden de producto."""
+        base = self.base_desarrollo()
+        claves = list(self.rejilla)
+        unicas: dict[str, tuple[ConfiguracionExperimento, dict[str, Any], dict[str, int]]] = {}
+        omitidas: list[dict[str, Any]] = []
+        for combinacion in itertools.product(*(self.rejilla[k] for k in claves)):
+            valores = dict(zip(claves, combinacion, strict=True))
+            configs, omitidas_combinacion = expandir_rejilla_con_omitidas(base, {k: [v] for k, v in valores.items()})
+            if not configs:
+                omitidas.extend(omitidas_combinacion)
+                continue
+            posiciones = {k: self.rejilla[k].index(v) for k, v in valores.items()}
+            unicas.setdefault(configs[0].huella(), (configs[0], valores, posiciones))
+        return list(unicas.values()), omitidas
+
     def combinaciones(self) -> list[tuple[ConfiguracionExperimento, dict[str, Any], dict[str, int]]]:
         """
         Combinaciones únicas `(configuración normalizada, valores por eje, posición por eje)` en orden de producto.
 
         La posición es el índice del valor en la lista del eje (la primera aparición si se repite);
-        la usa la superficie para encontrar vecinos. Las combinaciones duplicadas se descartan.
+        la usa la superficie para encontrar vecinos. Las combinaciones duplicadas se descartan y las
+        que no validan (p. ej. `rapida >= lenta`) se omiten dejando un hueco en la superficie
+        (ver `omitidas`).
         """
-        base = self.base_desarrollo()
-        claves = list(self.rejilla)
-        unicas: dict[str, tuple[ConfiguracionExperimento, dict[str, Any], dict[str, int]]] = {}
-        for combinacion in itertools.product(*(self.rejilla[k] for k in claves)):
-            valores = dict(zip(claves, combinacion, strict=True))
-            config = expandir_rejilla(base, {k: [v] for k, v in valores.items()})[0]
-            posiciones = {k: self.rejilla[k].index(v) for k, v in valores.items()}
-            unicas.setdefault(config.huella(), (config, valores, posiciones))
-        return list(unicas.values())
+        return self._expandir_tolerante()[0]
+
+    def omitidas(self) -> list[dict[str, Any]]:
+        """Combinaciones de la rejilla descartadas por no validar: `{valores, motivo}`."""
+        return self._expandir_tolerante()[1]
 
 
 @dataclass
@@ -222,11 +237,12 @@ class AlmacenBarridos:
             if carpeta.exists():
                 shutil.rmtree(carpeta)
             carpeta.mkdir(parents=True)
+            validas, omitidas = config._expandir_tolerante()
             combinaciones = [{"id": c.identificador(), "etiqueta": c.etiqueta, "valores": valores,
-                              "posiciones": posiciones} for c, valores, posiciones in config.combinaciones()]
+                              "posiciones": posiciones} for c, valores, posiciones in validas]
             ahora = datetime.now().isoformat()
             _escribir_json(carpeta / "barrido.json", {
-                "id": id_barrido, "config": config.model_dump(), "combinaciones": combinaciones,
+                "id": id_barrido, "config": config.model_dump(), "combinaciones": combinaciones, "omitidas": omitidas,
                 "estado": "pendiente", "progreso": {"total": len(combinaciones), "hechos": 0, "errores": 0},
                 "tareas": {}, "creado": ahora, "actualizado": ahora,
             })
