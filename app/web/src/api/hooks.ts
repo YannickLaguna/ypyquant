@@ -360,6 +360,29 @@ export function useLanzarComparativa(idMarco: string) {
   })
 }
 
+/** Cuerpo de `POST /api/configuraciones/{id}/comparativa`: estrategias con sus parámetros propios y fechas opcionales. */
+export interface PeticionComparativaConfiguracion {
+  estrategias: { estrategia: string; parametros: Record<string, unknown> }[]
+  fecha_inicio?: string
+  fecha_fin?: string
+  version?: number
+  forzar?: boolean
+}
+
+/** Lanza la misma configuración de entorno de una configuración guardada contra varias estrategias (crea o reutiliza el marco). */
+export function useLanzarComparativaConfiguracion(idConfiguracion: string) {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (cuerpo: PeticionComparativaConfiguracion) =>
+      pedir<Comparativa>(`/api/configuraciones/${encodeURIComponent(idConfiguracion)}/comparativa`, { metodo: 'POST', cuerpo }),
+    onSuccess: () => {
+      cliente.invalidateQueries({ queryKey: ['experimentos'] })
+      cliente.invalidateQueries({ queryKey: ['marcos'] })
+      cliente.invalidateQueries({ queryKey: ['configuracion', idConfiguracion] })
+    },
+  })
+}
+
 export const useComparativa = (id: string | null) =>
   useQuery({
     queryKey: ['comparativa', id],

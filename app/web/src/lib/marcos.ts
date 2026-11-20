@@ -26,6 +26,19 @@ export const COMUNES: ComunSugerido[] = [
   { nombre: 'frecuencia_estimacion', etiqueta: 'Frecuencia de los retornos', tipo: 'opcion', opciones: ['diaria', 'mensual'], defecto: 'diaria', ayuda: 'mensual = cierres a fin de mes y 12 periodos/año, como el TFM' },
 ]
 
+/** Claves de `parametros_comunes` conocidas (espejo de `COMUNES_CONOCIDOS` en marcos.py). */
+const CLAVES_COMUNES = COMUNES.map((c) => c.nombre)
+
+/** Los parámetros de una configuración que pasan al marco derivado (los comunes conocidos que trae). */
+export function comunesDeConfiguracion(parametros: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(parametros).filter(([nombre]) => CLAVES_COMUNES.includes(nombre)))
+}
+
+/** Los parámetros de una configuración que son PROPIOS de su estrategia (los comunes los pone el marco). */
+export function parametrosPropios(parametros: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(parametros).filter(([nombre]) => !CLAVES_COMUNES.includes(nombre)))
+}
+
 export type EstadoComunes = Record<string, { activo: boolean; valor: number | string }>
 
 /** `parametros_comunes` del marco: solo los activados. */

@@ -10,6 +10,14 @@ Responsabilidad (prefijo `/api/configuraciones`):
 - `POST /{id}/versiones`: `{cambios}` crea la versión n+1 (la anterior no se toca).
 - `POST /{id}/backtest`: `{fecha_inicio?, fecha_fin?, version?, capital_inicial?, forzar?}` lanza (o reutiliza) un
   experimento normal con `a_experimento`. Sin fechas: las del marco enlazado o los últimos 5 años.
+- `POST /{id}/comparativa`: `{estrategias: [{estrategia, parametros}], fecha_inicio?, fecha_fin?, version?, forzar?}` lanza la
+  MISMA configuración de entorno contra N estrategias a la vez. Convierte la configuración en un marco
+  (`marco_desde_configuracion`: universo, frecuencia, costes, benchmark, capital, semilla, historia previa y los
+  parámetros comunes que traiga), lo crea o reutiliza (id derivado de configuración + versión + fechas: idempotente) y
+  usa el flujo de `POST /api/marcos/{id}/comparativa` (valida todas antes de lanzar, 202). Sin fechas: las del marco
+  enlazado, si no las del experimento de origen y, si no, 5 años. El detalle de la configuración devuelve además
+  `fechas_sugeridas` y las `comparativas` lanzadas así. La configuración NO cambia (ni versión nueva): el enlace
+  vive en el marco (`id_configuracion`, `version_configuracion`).
 - `DELETE /{id}`: archiva; con `?definitivo=true` borra todas las versiones.
 
 Códigos: 404 configuración, experimento, barrido o estrategia inexistente; 409 id duplicado o experimento sin
@@ -29,6 +37,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from app.api.contexto import Contexto, lanzar_experimento, obtener_contexto
+from app.api.rutas_marcos import PeticionComparativa, con_estado, lanzar_sobre_marco
 from ypyquant.estrategias.barridos import superficie_registros
 from ypyquant.estrategias.configuraciones import (
     ConfiguracionExistente,
@@ -36,6 +45,7 @@ from ypyquant.estrategias.configuraciones import (
     OrigenConfiguracion,
 )
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, Frecuencia
+from ypyquant.estrategias.marcos import MarcoExistente, fechas_por_defecto, marco_desde_configuracion
 
 router = APIRouter(prefix="/api/configuraciones", tags=["configuraciones"])
 
@@ -84,6 +94,14 @@ class PeticionBacktest(BaseModel):
     version: int | None = None
     capital_inicial: float | None = Field(None, gt=0)
     forzar: bool = False
+
+
+class PeticionComparativaConfiguracion(PeticionComparativa):
+    """Estrategias a comparar (como en un marco) más las fechas y la versión de la configuración (opcionales)."""
+
+    fecha_inicio: str | None = None
+    fecha_fin: str | None = None
+    version: int | None = None
 
 
 def _configuracion(ctx: Contexto, id_configuracion: str, version: int | None = None) -> ConfiguracionGuardada:
@@ -220,8 +238,11 @@ def detalle_configuracion(id_configuracion: str, version: int | None = None, ctx
             marco = ctx.almacen_marcos.leer(configuracion.id_marco)
         except (KeyError, ValueError):
             marco = None  # el marco se borró: la configuración sigue siendo válida
+    comparativas = [con_estado(ctx, c) for c in ctx.almacen_marcos.listar_comparativas()
+                    if c["marco"].get("id_configuracion") == id_configuracion]
     return {"configuracion": configuracion, "versiones": versiones, "marco": marco,
-            "backtests": _backtests_de_la_receta(ctx, configuracion)}
+            "backtests": _backtests_de_la_receta(ctx, configuracion),
+            "fechas_sugeridas": list(fechas_por_defecto(configuracion, marco)), "comparativas": comparativas}
 
 
 @router.post("/{id_configuracion}/versiones", status_code=201)
@@ -259,6 +280,30 @@ def lanzar_backtest(id_configuracion: str, peticion: PeticionBacktest, ctx: Cont
         raise HTTPException(422, detalle) from error
     id_experimento, reutilizado = lanzar_experimento(ctx, config, peticion.forzar)
     return {"id_experimento": id_experimento, "reutilizado": reutilizado}
+
+
+@router.post("/{id_configuracion}/comparativa", status_code=202)
+def lanzar_comparativa_de_configuracion(id_configuracion: str, peticion: PeticionComparativaConfiguracion,
+                                        ctx: Contexto = Depends(obtener_contexto)):
+    configuracion = _configuracion(ctx, id_configuracion, peticion.version)
+    marco_enlazado = None
+    if configuracion.id_marco:
+        try:
+            marco_enlazado = ctx.almacen_marcos.leer(configuracion.id_marco)
+        except (KeyError, ValueError):
+            pass  # el marco se borró: se usan las fechas del origen
+    inicio_defecto, fin_defecto = fechas_por_defecto(configuracion, marco_enlazado)
+    try:
+        marco = marco_desde_configuracion(configuracion, peticion.fecha_inicio or inicio_defecto, peticion.fecha_fin or fin_defecto)
+    except ValidationError as error:
+        raise HTTPException(422, error.errors(include_url=False, include_context=False, include_input=False)) from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    try:
+        ctx.almacen_marcos.guardar(marco)
+    except MarcoExistente:
+        marco = ctx.almacen_marcos.leer(marco.id)  # mismo id = mismo entorno: se reutiliza
+    return lanzar_sobre_marco(ctx, marco, peticion)
 
 
 @router.delete("/{id_configuracion}", status_code=204)

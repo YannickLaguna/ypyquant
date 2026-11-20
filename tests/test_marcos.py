@@ -198,3 +198,75 @@ def test_experimentos_importados_del_tfm_se_comparan_por_los_campos_de_config():
 
 def test_con_un_solo_experimento_no_hay_nada_que_comparar():
     assert diferencias_ceteris_paribus({"a": _config()}) == []
+
+
+# ---- marco derivado de una configuración guardada ------------------------------------------
+
+
+def _configuracion(**cambios):
+    """Configuración guardada de pruebas (robusta_elipsoide con comunes) construida desde un experimento."""
+    from ypyquant.estrategias.configuraciones import ConfiguracionGuardada
+
+    config = ConfiguracionExperimento(
+        estrategia="bayes_stein", parametros={"ventana_dias": 300, "peso_maximo": 0.4}, universo=TICKERS,
+        fecha_inicio="2019-01-01", fecha_fin="2020-12-31", comision=0.0007, slippage=0.0003, benchmark="QQQ",
+        capital_inicial=80_000.0, semilla=11, dias_historia_previa=700, frecuencia_rebalanceo="weekly")
+    return ConfiguracionGuardada.desde_experimento(config, nombre="Mi receta", id="mi-receta", **cambios)
+
+
+def test_marco_desde_configuracion_toma_el_entorno_y_los_comunes():
+    from ypyquant.estrategias.marcos import marco_desde_configuracion
+
+    configuracion = _configuracion()
+    marco = marco_desde_configuracion(configuracion, "2018-01-01", "2022-12-31")
+    assert marco.universo == TICKERS and marco.frecuencia_rebalanceo == "weekly"
+    assert (marco.comision, marco.slippage, marco.benchmark) == (0.0007, 0.0003, "QQQ")
+    assert (marco.capital_inicial, marco.semilla, marco.dias_historia_previa) == (80_000.0, 11, 700)
+    assert (marco.fecha_inicio, marco.fecha_fin) == ("2018-01-01", "2022-12-31")
+    # Solo los comunes conocidos que la configuración trae (no los propios de la estrategia)
+    assert marco.parametros_comunes["ventana_dias"] == 300 and marco.parametros_comunes["peso_maximo"] == 0.4
+    assert set(marco.parametros_comunes) <= {"ventana_dias", "peso_maximo", "tasa_libre_riesgo", "estimador_sigma", "frecuencia_estimacion"}
+    assert (marco.id_configuracion, marco.version_configuracion) == ("mi-receta", 1)
+
+
+def test_marco_desde_configuracion_es_determinista_y_depende_de_version_y_fechas():
+    from ypyquant.estrategias.marcos import marco_desde_configuracion
+
+    configuracion = _configuracion()
+    a = marco_desde_configuracion(configuracion, "2018-01-01", "2022-12-31")
+    b = marco_desde_configuracion(configuracion, "2018-01-01", "2022-12-31")
+    assert a.id == b.id and a.id.startswith("cfg-")
+    assert marco_desde_configuracion(configuracion, "2019-01-01", "2022-12-31").id != a.id
+    assert marco_desde_configuracion(configuracion.model_copy(update={"version": 2}), "2018-01-01", "2022-12-31").id != a.id
+
+
+def test_marco_desde_configuracion_rechaza_fechas_incoherentes():
+    from ypyquant.estrategias.marcos import marco_desde_configuracion
+
+    with pytest.raises(ValidationError):
+        marco_desde_configuracion(_configuracion(), "2022-01-01", "2021-01-01")
+
+
+def test_la_propia_estrategia_en_el_marco_reproduce_el_experimento_de_la_configuracion():
+    """Misma huella que `a_experimento`: la comparativa reutiliza el backtest ya calculado de la receta."""
+    from ypyquant.estrategias.marcos import marco_desde_configuracion
+
+    configuracion = _configuracion()
+    marco = marco_desde_configuracion(configuracion, "2018-01-01", "2022-12-31")
+    propios = {k: v for k, v in configuracion.parametros.items() if k not in marco.parametros_comunes}
+    config, _ = aplicar_marco(marco, configuracion.estrategia, propios)
+    assert config.identificador() == configuracion.a_experimento("2018-01-01", "2022-12-31").identificador()
+
+
+def test_fechas_por_defecto_prioriza_marco_luego_origen_y_luego_cinco_anios():
+    from datetime import date
+
+    from ypyquant.estrategias.configuraciones import OrigenConfiguracion
+    from ypyquant.estrategias.marcos import fechas_por_defecto
+
+    hoy = date(2026, 11, 20)
+    sin_fechas = _configuracion()
+    assert fechas_por_defecto(sin_fechas, None, hoy) == ("2021-11-20", "2026-11-19")
+    con_origen = sin_fechas.model_copy(update={"origen": OrigenConfiguracion(tipo="experimento", fechas=["2018-01-01", "2024-12-31"])})
+    assert fechas_por_defecto(con_origen, None, hoy) == ("2018-01-01", "2024-12-31")
+    assert fechas_por_defecto(con_origen, _marco(), hoy) == ("2020-01-01", "2021-12-31")

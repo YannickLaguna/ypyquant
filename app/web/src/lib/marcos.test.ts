@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { EsquemaParametros } from '../api/tipos'
-import { COMUNES, comunesActivos, esquemaSinComunes, resumenDiferencias } from './marcos'
+import { COMUNES, comunesActivos, comunesDeConfiguracion, esquemaSinComunes, parametrosPropios, resumenDiferencias } from './marcos'
 
 describe('resumenDiferencias', () => {
   it('es null cuando no hay diferencias', () => {
@@ -49,5 +49,18 @@ describe('esquemaSinComunes', () => {
     const filtrado = esquemaSinComunes(esquema, { ventana_dias: 504 })
     expect(Object.keys(filtrado.properties ?? {})).toEqual(['penalizacion_turnover'])
     expect(Object.keys(esquema.properties ?? {})).toHaveLength(2) // no muta el original
+  })
+})
+
+describe('parámetros comunes de una configuración', () => {
+  const parametros = { ventana_dias: 756, peso_maximo: 0.3, estimador_sigma: 'ledoit_wolf', delta: 18, kappa: 0 }
+
+  it('comunesDeConfiguracion toma solo los comunes conocidos que la receta trae', () => {
+    expect(comunesDeConfiguracion(parametros)).toEqual({ ventana_dias: 756, peso_maximo: 0.3, estimador_sigma: 'ledoit_wolf' })
+    expect(comunesDeConfiguracion({ top_k: 5 })).toEqual({})
+  })
+
+  it('parametrosPropios deja los que no son del entorno, para la propia estrategia', () => {
+    expect(parametrosPropios(parametros)).toEqual({ delta: 18, kappa: 0 })
   })
 })

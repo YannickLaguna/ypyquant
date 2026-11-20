@@ -92,9 +92,12 @@ def borrar_marco(id_marco: str, ctx: Contexto = Depends(obtener_contexto)):
         raise HTTPException(404, f"Marco '{id_marco}' no encontrado")
 
 
-@router.post("/marcos/{id_marco}/comparativa", status_code=202)
-def lanzar_comparativa(id_marco: str, peticion: PeticionComparativa, ctx: Contexto = Depends(obtener_contexto)):
-    marco = _marco(ctx, id_marco)
+def lanzar_sobre_marco(ctx: Contexto, marco: MarcoComparacion, peticion: PeticionComparativa) -> dict[str, Any]:
+    """
+    Aplica `marco` a cada estrategia de la petición validándolas TODAS antes de lanzar nada (422 con los fallos),
+    crea los experimentos normales (los ya calculados se reutilizan) y registra la comparativa. Lo comparten
+    `POST /api/marcos/{id}/comparativa` y `POST /api/configuraciones/{id}/comparativa`.
+    """
     try:
         preparadas = preparar_comparativa(marco, [e.model_dump() for e in peticion.estrategias])
     except ValueError as error:
@@ -107,7 +110,12 @@ def lanzar_comparativa(id_marco: str, peticion: PeticionComparativa, ctx: Contex
     return ctx.almacen_marcos.registrar_comparativa(marco, entradas)
 
 
-def _con_estado(ctx: Contexto, comparativa: dict[str, Any]) -> dict[str, Any]:
+@router.post("/marcos/{id_marco}/comparativa", status_code=202)
+def lanzar_comparativa(id_marco: str, peticion: PeticionComparativa, ctx: Contexto = Depends(obtener_contexto)):
+    return lanzar_sobre_marco(ctx, _marco(ctx, id_marco), peticion)
+
+
+def con_estado(ctx: Contexto, comparativa: dict[str, Any]) -> dict[str, Any]:
     """La comparativa guardada con el estado actual de cada experimento (None si se borró)."""
     experimentos = []
     for e in comparativa["experimentos"]:
@@ -121,12 +129,12 @@ def _con_estado(ctx: Contexto, comparativa: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/comparativas")
 def listar_comparativas(id_marco: str | None = None, ctx: Contexto = Depends(obtener_contexto)):
-    return {"comparativas": [_con_estado(ctx, c) for c in ctx.almacen_marcos.listar_comparativas(id_marco)]}
+    return {"comparativas": [con_estado(ctx, c) for c in ctx.almacen_marcos.listar_comparativas(id_marco)]}
 
 
 @router.get("/comparativas/{id_comparativa}")
 def detalle_comparativa(id_comparativa: str, ctx: Contexto = Depends(obtener_contexto)):
     try:
-        return _con_estado(ctx, ctx.almacen_marcos.leer_comparativa(id_comparativa))
+        return con_estado(ctx, ctx.almacen_marcos.leer_comparativa(id_comparativa))
     except KeyError as error:
         raise HTTPException(404, f"Comparativa '{id_comparativa}' no encontrada") from error
