@@ -247,6 +247,25 @@ def test_expandir_rejilla_producto_y_etiquetas():
         expandir_rejilla(base, {"top_k": [0]})
 
 
+def test_huella_fija_no_cambia_con_la_evolucion_del_codigo():
+    """
+    Valores calculados con el código de `main` (016a2ad) ANTES de la fase 0: si cambian, se han invalidado las
+    huellas (y con ellas los identificadores) de todos los experimentos y barridos ya guardados.
+    Un campo nuevo de `ConfiguracionExperimento` debe excluirse de la huella cuando vale su defecto.
+    """
+    minima = ConfiguracionExperimento(estrategia="momentum", parametros={"top_k": 5}, universo="sp500:30",
+                                      fecha_inicio="2020-01-01", fecha_fin="2021-12-31")
+    completa = ConfiguracionExperimento(
+        estrategia="pesos_iguales", universo=["MSFT", "AAPL", "JPM"], fecha_inicio="2018-01-01", fecha_fin="2024-12-31",
+        capital_inicial=50000.0, comision=0.0005, slippage=0.0002, frecuencia_rebalanceo="weekly", benchmark="QQQ", semilla=7)
+    assert minima.huella() == "2edd1300a9623e1db24f8a9b42b2c6d932864c30120413c649cddb5a1b33e5ab"
+    assert completa.huella() == "b6bb702126110b45d0f675005a7f2f029fbb2e689a1bf5db8a12af7f1a15fe73"
+    assert minima.identificador() == "momentum-2edd1300a9"
+    # Ni la etiqueta ni el orden de los tickers entran en la huella
+    assert completa.model_copy(update={"etiqueta": "otra"}).huella() == completa.huella()
+    assert completa.model_copy(update={"universo": ["JPM", "MSFT", "AAPL"]}).huella() == completa.huella()
+
+
 # ---- almacén Parquet + DuckDB ---------------------------------------------------
 
 
