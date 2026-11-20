@@ -1,7 +1,7 @@
 # Plan: configuraciones guardadas, paper interno multi-estrategia y estrategias de señales
 
 Repo: `C:\Users\yanni\Documents\Codigo\Proyectos\Sistema_trading` (paquete `src/ypyquant`, API `app/api`, web `app/web`).
-Estado del plan: diseño para decidir. Basado en lectura del código (no ejecutado nada). Lo que afirmo sobre Alpaca que no está en el repo va marcado como "por verificar".
+Estado del plan: fase 0 y fase 1 (con el marco de comparación) implementadas; el resto, diseño para decidir. Basado en lectura del código (no ejecutado nada). Lo que afirmo sobre Alpaca que no está en el repo va marcado como "por verificar".
 
 ---
 
@@ -139,15 +139,44 @@ Modificar:
 - En `ExperimentoDetalle` y `BarridoDetalle` un diálogo `GuardarConfiguracion` (nombre sugerido `<estrategia> <parámetros clave>`, notas). Advertencia visible si viene de un barrido: "máximo de N combinaciones: puede estar sobreajustado; revisa DSR/PBO y la meseta".
 
 ### 1.5 Tareas (TDD)
-- [ ] **1.1** Test `test_configuraciones.py`: construir desde un `ConfiguracionExperimento` normalizada, comprobar que `huella_estrategia` no cambia con las fechas ni el capital y sí con un parámetro; que `a_experimento(inicio, fin)` produce la misma `huella()` que la configuración original cuando coinciden fechas y capital. Implementar el modelo.
-- [ ] **1.2** Test del almacén en `tmp_path`: guardar, leer, listar, nueva versión (v2 no modifica v1), archivar, id duplicado → error, escritura atómica (reutilizar `_escribir_json`/`_leer_json` de `almacen.py`). Implementar.
-- [ ] **1.3** Test: universo con nombre (`sp500:3`) se congela como lista de 3 tickers; `universo_etiqueta` conserva el nombre.
-- [ ] **1.4** Tests API (patrón de `tests/test_api.py` con `crear_app(cargador_precios=CargadorSintetico(), raiz_...=tmp)`): crear desde experimento terminado, desde barrido (`criterio=mejor`), 404 de experimento inexistente, 422 de parámetros inválidos, backtest desde configuración reutiliza el experimento si ya existe.
-- [ ] **1.5** Implementar rutas y registro en `main.py`/`contexto.py`.
-- [ ] **1.6** Frontend: tipos, hooks, páginas y diálogo; test Vitest del diálogo (valida nombre vacío; envía `desde_barrido`). `cd app/web && npm test -- --run`.
-- [ ] **1.7** Actualizar `docs/ui.md`; commit `fase 1: configuraciones guardadas`.
+- [x] **1.1** Test `test_configuraciones.py`: construir desde un `ConfiguracionExperimento` normalizada, comprobar que `huella_estrategia` no cambia con las fechas ni el capital y sí con un parámetro; que `a_experimento(inicio, fin)` produce la misma `huella()` que la configuración original cuando coinciden fechas y capital. Implementar el modelo.
+- [x] **1.2** Test del almacén en `tmp_path`: guardar, leer, listar, nueva versión (v2 no modifica v1), archivar, id duplicado → error, escritura atómica (reutilizar `_escribir_json`/`_leer_json` de `almacen.py`). Implementar.
+- [x] **1.3** Test: universo con nombre (`sp500:3`) se congela como lista de 3 tickers; `universo_etiqueta` conserva el nombre.
+- [x] **1.4** Tests API (patrón de `tests/test_api.py` con `crear_app(cargador_precios=CargadorSintetico(), raiz_...=tmp)`): crear desde experimento terminado, desde barrido (`criterio=mejor`), 404 de experimento inexistente, 422 de parámetros inválidos, backtest desde configuración reutiliza el experimento si ya existe.
+- [x] **1.5** Implementar rutas y registro en `main.py`/`contexto.py`.
+- [x] **1.6** Frontend: tipos, hooks, páginas y diálogo; test Vitest del diálogo (valida nombre vacío; envía `desde_barrido`). `cd app/web && npm test -- --run`.
+- [x] **1.7** Actualizar `docs/ui.md`; commit `fase 1: configuraciones guardadas`.
 
 Riesgos: elegir el máximo de una rejilla (winner's curse); nombre/slug duplicados; universo `sp500` con sesgo de supervivencia (la lista actual solo contiene supervivientes: se avisa en la ficha, y el paper forward no lo sufre).
+
+
+**Estado (fase 1 implementada en la rama `fase1/configuraciones`).** Hecho: modelo, almacén versionado, rutas, UI y el marco de comparación de la sección siguiente. Diferencias respecto al diseño de arriba, y por qué:
+- `huella_estrategia` = `ConfiguracionExperimento.huella_receta()` (nuevo método): excluye fechas, capital, validaciones y etiqueta, e **incluye** semilla e historia previa (afectan al resultado).
+- El universo `sp500_pit` no se congela como lista: es dinámico por definición (se guarda el nombre). Los nombres de archivo (`sp500:30`) sí se congelan.
+- `a_experimento` conserva `dias_historia_previa`; sin él la huella de la reconstrucción no coincidiría con la del experimento de origen.
+- Los endpoints `/paper` y `/alpaca` quedan para las fases 3-5. `DELETE` archiva y `?definitivo=true` borra (no hay sesiones aún que lo impidan).
+- «Guardar» desde un barrido: el cliente puede mandar `id_experimento` (criterio `elegida`) y el servidor valida que pertenece al barrido; con `mejor`/`meseta` lo elige el servidor con `superficie_registros`.
+- Los parámetros nuevos de una estrategia se excluyen de la huella mientras valgan su defecto mediante `Estrategia.parametros_fuera_de_huella_si_defecto` (aplica a `estimador_sigma` y `frecuencia_estimacion`; test `tests/test_estimadores_comunes.py`).
+
+### 1.6 Marco de comparación (ceteris paribus) — requisito añadido
+
+**Problema.** Para saber si una estrategia es mejor que otra hay que variar solo la estrategia. Hoy cada experimento lleva su propio universo, fechas, frecuencia, costes y estimadores, y es fácil comparar manzanas con peras.
+
+**Diseño.**
+- `MarcoComparacion` (`src/ypyquant/estrategias/marcos.py`, almacén `data/marcos/<id>/marco.json`, mismo JSON atómico que las configuraciones): `id`, `nombre`, `notas`, `universo` (+ `universo_etiqueta`; un nombre de archivo se congela como lista, `sp500_pit` se conserva), `fecha_inicio`, `fecha_fin`, `frecuencia_rebalanceo` (`None` = la de cada estrategia, con aviso), `comision`, `slippage`, `benchmark`, `capital_inicial`, `semilla`, `dias_historia_previa` y `parametros_comunes`.
+- `aplicar_marco(marco, estrategia, parametros_propios) -> (ConfiguracionExperimento, InformeAplicacion)`: función pura. Los comunes se aplican **solo si la `Parametros` de la estrategia declara el campo**; el informe lista `aplicados`, `no_aplicados`, `sobrescritos` (el marco pisa un propio con el mismo nombre) y `avisos`. Estrategia inexistente o `tfm_*` → `ValueError` («no se puede lanzar»).
+- Comparativa: `POST /api/marcos/{id}/comparativa` valida TODAS las estrategias antes de lanzar ninguna, crea N experimentos normales (misma huella: reutiliza los calculados) y guarda `data/marcos/_comparativas/cmp-<hash>.json` (marco copiado + experimentos + informe). El id sale de los experimentos, así que relanzar es idempotente.
+- Estimadores comunes (`estimador_sigma`, `frecuencia_estimacion`) en `_EstimadorRobusto` y `_EstimadorIncertidumbre`; la variante mensual remuestrea los cierres de la ventana a fin de mes y usa 12 periodos/año. Reutiliza `estimar_sigma_ledoit_wolf`, `estimar_mu_bayes_stein`, etc.; `estimar_mu_michaud` gana un argumento opcional `estimador_sigma` (defecto = comportamiento anterior).
+- `diferencias_ceteris_paribus(configs)`: función pura usada por `GET /api/comparar` (campo `ceteris_paribus`) y mostrada en Comparar para cualquier comparación, también manual.
+- UI: página propia **Marcos** (`/marcos`, `/marcos/<id>`) en vez de una sección de Configuraciones: tiene su flujo y agrupa N estrategias. Una configuración puede enlazar con un marco (`id_marco`, opcional) y usa sus fechas por defecto al lanzar backtest.
+
+**Decisiones.** (1) El marco prevalece sobre un parámetro propio que también es común: es lo que pide el ceteris paribus. (2) Editar un marco no toca los experimentos ya lanzados (son recetas congeladas; su huella incluye el entorno). (3) Frecuencia mensual de estimación: el mes en curso se descarta salvo que la fecha sea su último día hábil (calendario, sin mirar datos posteriores); mínimo 12 retornos mensuales (1/N por debajo) y aviso con menos de 24. (4) Michaud no usa `estimador_sigma` internamente en el TFM (cada réplica usa Ledoit-Wolf); se añadió el argumento opcional a `estimar_mu_michaud`.
+
+**Tareas (TDD, hechas).**
+- [x] **1.6a** Parámetros `estimador_sigma` y `frecuencia_estimacion`, fuera de la huella en su defecto, con test de huella fija por estrategia y de causalidad (`tests/test_estimadores_comunes.py`).
+- [x] **1.6b** `MarcoComparacion`, `aplicar_marco`, `preparar_comparativa`, `AlmacenMarcos`, comparativas y `diferencias_ceteris_paribus` (`tests/test_marcos.py`).
+- [x] **1.6c** Rutas `/api/marcos`, `/api/comparativas` y `ceteris_paribus` en `/api/comparar` (`tests/test_api_marcos.py`).
+- [x] **1.6d** UI Marcos, lanzador de comparativas y aviso en Comparar (Vitest).
 
 ---
 

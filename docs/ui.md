@@ -14,6 +14,8 @@ src/ypyquant/estrategias/  │  núcleo (sin UI): Estrategia, registro, experime
   procedencia.py commit, versiones y hash de precios de cada experimento
   almacen.py     Parquet + DuckDB en data/experimentos/<id>/
   barridos.py    ConfiguracionBarrido, AlmacenBarridos (data/barridos/<id>/), matriz de retornos, superficie y meseta
+  configuraciones.py  ConfiguracionGuardada (receta sin fechas, versionada), AlmacenConfiguraciones (data/configuraciones/<id>/v<n>.json)
+  marcos.py      MarcoComparacion, aplicar_marco, AlmacenMarcos (data/marcos/), comparativas y diferencias_ceteris_paribus
   validacion_barridos.py  DSR, PBO, rachas, walk-forward y permutación del barrido
   reservado.py   periodo reservado con contador de usos (data/reservado.json)
   precios.py     yfinance con caché Parquet (data/cache_precios) y precios sintéticos
@@ -89,7 +91,16 @@ Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUAN
 | POST | `/api/barridos/{id}/permutacion[/cancelar]` | Test de permutación en segundo plano (202) y su cancelación |
 | GET | `/api/experimentos?estrategia=&estado=&texto=` | Lista |
 | GET / DELETE | `/api/experimentos/{id}` | Métricas, equity, drawdown, pesos, operaciones; borrar |
-| GET | `/api/comparar?ids=a,b` | Equity base 100 + métricas (DuckDB) |
+| GET | `/api/comparar?ids=a,b` | Equity base 100 + métricas (DuckDB) + `ceteris_paribus: {ok, diferencias}` |
+| GET / POST | `/api/configuraciones?estrategia=&texto=&archivadas=` | Lista (última versión de cada una) / crea la v1 desde `desde_experimento`, `desde_barrido` (+ `criterio`, `id_experimento`) o `manual`; 201, 409 id duplicado, 422/404 |
+| GET | `/api/configuraciones/{id}?version=` | Detalle: versión, historial, marco enlazado y backtests de la misma receta |
+| POST | `/api/configuraciones/{id}/versiones` | `{cambios}` crea la versión n+1 (la anterior no cambia); 422 si el campo no es editable o no valida |
+| POST | `/api/configuraciones/{id}/backtest` | `{fecha_inicio?, fecha_fin?, version?, capital_inicial?, forzar?}` lanza (o reutiliza) un experimento normal; sin fechas: las del marco o 5 años |
+| DELETE | `/api/configuraciones/{id}?definitivo=` | Archiva (o borra todas las versiones con `definitivo=true`) |
+| GET / POST | `/api/marcos` | Lista / crea un marco (409 id duplicado, 422) |
+| GET / PUT / DELETE | `/api/marcos/{id}` | Marco + sus comparativas / reemplaza (los experimentos ya lanzados no cambian) / borra |
+| POST | `/api/marcos/{id}/comparativa` | `{estrategias: [{estrategia, parametros}], forzar?}`: aplica el marco, valida TODAS antes de lanzar (422), crea N experimentos normales y registra la comparativa (202) |
+| GET | `/api/comparativas?id_marco=`, `/api/comparativas/{id}` | Registro de la comparativa con el estado actual de cada experimento |
 | GET | `/api/paper/{estado,cuenta,posiciones,ordenes,historial,fills}` | Alpaca paper; **503** sin claves, 502 si Alpaca falla |
 | POST | `/api/paper/bot/{arrancar,parar}` | Subproceso `python -m pipelines.paper_trading --estrategia ...`; `arrancar` admite `dias_historico` (mínimo, 30-10000) y `frecuencia_rebalanceo` opcionales |
 | GET | `/api/paper/bot/{estado,log?desde=N}` | Estado y log (polling por línea) |
@@ -242,6 +253,26 @@ Seguimiento: `GET /api/barridos/{id}` → `tareas.permutacion_<modo>` (`estado`,
 - Semáforos orientativos (`src/lib/barridos.ts`): DSR > 0,95 verde; PBO < 0,1 verde, 0,1–0,2 ámbar, > 0,2 rojo; p-valor in-sample < 1 % verde, walk-forward < 5 % (periodo de ~1 año) o < 1 % (≥ 2 años).
 - El detalle de experimento muestra la **procedencia** en un bloque plegable.
 - Desarrollo en paralelo a otra instancia: `YPYQUANT_API_PUERTO` y `YPYQUANT_WEB_PUERTO` cambian el proxy y el puerto de Vite (por defecto 8010 y 5173).
+
+## Configuraciones guardadas
+
+Una **configuración** es una receta congelada y versionada (`data/configuraciones/<id>/v<n>.json` + `indice.json`): estrategia, parámetros completos, universo, frecuencia, costes, benchmark, capital, semilla e historia previa, **sin fechas** (las fechas son del backtest). `a_experimento(inicio, fin)` construye una `ConfiguracionExperimento` normal: misma huella que el experimento de origen si coinciden fechas y capital, así que se reutilizan los resultados ya calculados. `huella_estrategia` es la huella de la receta sin fechas ni capital (`ConfiguracionExperimento.huella_receta()`).
+
+- **Origen**: `experimento`, `barrido` (criterio `mejor` | `meseta` | `elegida`) o `manual`; se guardan las métricas del experimento EN ESE MOMENTO para medir luego la degradación. Desde un barrido se avisa del riesgo de sobreajuste (winner's curse) y de que el periodo reservado no se ha evaluado.
+- **Universo**: un nombre de archivo (`sp500:30`) se congela como lista de tickers (la etiqueta conserva el nombre); `sp500_pit` es dinámico por definición y se guarda como nombre.
+- **Versiones inmutables**: editar crea la v(n+1) (`deriva_de`); solo `nombre`, `notas`, `etiquetas`, `parametros`, `universo`, `frecuencia_rebalanceo`, costes, `benchmark`, `capital_inicial`, `semilla`, `dias_historia_previa` e `id_marco` son editables (la estrategia no: otra estrategia es otra configuración).
+- **UI** (`/configuraciones`, `/configuraciones/<id>?version=`): tabla, detalle con origen, historial de versiones, backtests de la receta, lanzar backtest y nueva versión (formulario autogenerado). «Guardar como configuración» está en el detalle de experimento (terminado y no importado del TFM) y junto a ★ y ◆ en el detalle de barrido.
+- Pendiente de fases siguientes: sesiones de paper interno y vinculación con Alpaca (`/api/configuraciones/{id}/paper` y `/alpaca`).
+
+## Marcos de comparación (ceteris paribus)
+
+Un **marco** (`MarcoComparacion`, `data/marcos/<id>/marco.json`) fija una vez el entorno: universo (sugerido `sp500_pit`), fechas, frecuencia de rebalanceo, comisión, slippage, benchmark, capital, semilla, historia previa y `parametros_comunes` (`ventana_dias`, `peso_maximo`, `tasa_libre_riesgo`, `estimador_sigma`, `frecuencia_estimacion`...). Se lanzan varias estrategias sobre él para comparar solo el efecto de la estrategia.
+
+- **`aplicar_marco(marco, estrategia, parametros_propios)`** (función pura) impone el entorno y aplica cada común SOLO si la `Parametros` de la estrategia lo declara; el informe dice qué se aplicó, qué no (momentum no tiene `ventana_dias`) y si el marco pisó un parámetro propio (el marco prevalece). Los parámetros propios (`top_k`, `penalizacion_turnover`...) se eligen aparte. Los `tfm_*` importados no se pueden lanzar (sin código), pero sí compararse.
+- **Comparativa**: `POST /api/marcos/{id}/comparativa` crea N experimentos normales (mismo almacén y huella: los ya calculados se reutilizan) y guarda `data/marcos/_comparativas/cmp-<hash>.json` (marco, experimentos e informe por estrategia). Su id sale de los experimentos: relanzar lo mismo la reutiliza.
+- **Estimadores comunes** (bayes_stein, michaud, bl_prior, robusta_elipsoide, robusta_caja): `estimador_sigma` (`ledoit_wolf`, defecto, o `muestral`; Michaud también) y `frecuencia_estimacion` (`diaria`, defecto, o `mensual`: cierres a fin de mes de la ventana, retornos mensuales y 12 periodos/año, como el TFM; el mes en curso se descarta salvo que la fecha sea su último día hábil; mínimo 12 retornos mensuales, por debajo 1/N, y aviso si hay menos de 24). Reutilizan `estimacion_robusta`. No miran al futuro (`verificar_sin_lookahead`). Son parámetros nuevos: **se omiten de la huella mientras valgan su defecto** (`Estrategia.parametros_fuera_de_huella_si_defecto`), así las huellas ya guardadas no cambian.
+- **Aviso «no es ceteris paribus»**: `GET /api/comparar` devuelve `ceteris_paribus.diferencias` (función pura `diferencias_ceteris_paribus`): campos de entorno que difieren (universo, fechas, frecuencia, costes, benchmark, capital, semilla, historia) y comunes con valores distintos entre estrategias que los declaran. La página Comparar lo muestra también para comparaciones manuales. Con `?comparativa=<id>` muestra además los avisos del marco.
+- **UI** (`/marcos`, `/marcos/<id>`): es una página propia y no una sección de Configuraciones porque tiene su flujo (definir el entorno, elegir estrategias, comparar) y agrupa N estrategias; una configuración es una sola receta y puede enlazar con un marco (`id_marco`, opcional). El detalle del marco permite editarlo, elegir estrategias con su formulario propio (sin los comunes que fija el marco), lanzar la comparativa y abrir Comparar con todos de golpe.
 
 ## Paper trading con estrategias del registro
 
