@@ -33,6 +33,8 @@ export interface Estrategia {
   origen: 'incluida' | 'usuario'
   archivo: string | null
   frecuencia_rebalanceo: Frecuencia
+  /** Universo que la estrategia propone por defecto (`sp500_pit` en sección cruzada); null = sin sugerencia. */
+  universo_sugerido: string | null
   parametros_schema: EsquemaParametros
   parametros_defecto: Record<string, unknown>
 }
@@ -49,6 +51,8 @@ export interface RespuestaEstrategias {
 export interface Universo {
   nombre: string
   n_tickers: number
+  /** true = la composición cambia con la fecha (point-in-time): no admite el límite «:N». */
+  dinamico?: boolean
 }
 
 export type EstadoExperimento = 'pendiente' | 'en_curso' | 'hecho' | 'error'

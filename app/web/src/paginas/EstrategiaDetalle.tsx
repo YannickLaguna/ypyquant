@@ -19,11 +19,16 @@ import { Codigo } from '../componentes/Piezas'
 
 const UNIVERSO_INICIAL = 'AAPL, MSFT, GOOGL, AMZN, NVDA, JPM, XOM, JNJ, PG, KO'
 
-/** «sp500» o «sp500:30» (nombre de universo) frente a una lista de tickers separados por comas/espacios. */
-export function interpretarUniverso(texto: string, nombresUniversos: string[]): string | string[] {
+/**
+ * «sp500» o «sp500:30» (nombre de universo) frente a una lista de tickers separados por comas/espacios.
+ * Los universos dinámicos (`sp500_pit`) no admiten límite: se descarta un «:N» si se escribió.
+ */
+export function interpretarUniverso(texto: string, nombresUniversos: string[], dinamicos: string[] = []): string | string[] {
   const limpio = texto.trim()
   const nombre = limpio.split(':')[0].toLowerCase()
-  if (/^[a-z0-9_-]+(:\d+)?$/i.test(limpio) && nombresUniversos.includes(nombre)) return limpio.toLowerCase()
+  if (/^[a-z0-9_-]+(:\d+)?$/i.test(limpio) && nombresUniversos.includes(nombre)) {
+    return dinamicos.includes(nombre) ? nombre : limpio.toLowerCase()
+  }
   return limpio.split(/[\s,;]+/).filter(Boolean).map((t) => t.toUpperCase())
 }
 
@@ -46,11 +51,20 @@ export default function EstrategiaDetalle() {
   const [semilla, setSemilla] = useState(42)
 
   useEffect(() => {
-    if (estrategia) setParametros(valoresPorDefecto(estrategia.parametros_schema))
+    if (!estrategia) return
+    setParametros(valoresPorDefecto(estrategia.parametros_schema))
+    // Las estrategias de sección cruzada proponen el universo point-in-time (sin sesgo de supervivencia)
+    if (estrategia.universo_sugerido) setUniverso(estrategia.universo_sugerido)
   }, [estrategia])
 
   if (isPending) return <Cargando />
   if (error) return <CajaError error={error} />
+
+  const listaUniversos = universos?.universos ?? []
+  const nombresUniversos = listaUniversos.map((u) => u.nombre)
+  const dinamicos = listaUniversos.filter((u) => u.dinamico).map((u) => u.nombre)
+  const universoEscrito = universo.trim().split(':')[0].toLowerCase()
+  const esDinamico = dinamicos.includes(universoEscrito)
 
   const erroresParametros = validarValores(estrategia.parametros_schema, parametros)
   const invalido = Object.keys(erroresParametros).length > 0
@@ -58,7 +72,7 @@ export default function EstrategiaDetalle() {
   const construirConfig = (): ConfiguracionExperimento => ({
     estrategia: estrategia.nombre,
     parametros,
-    universo: interpretarUniverso(universo, (universos?.universos ?? []).map((u) => u.nombre)),
+    universo: interpretarUniverso(universo, nombresUniversos, dinamicos),
     fecha_inicio: inicio,
     fecha_fin: fin,
     capital_inicial: capital,
@@ -98,10 +112,30 @@ export default function EstrategiaDetalle() {
             <legend className="sr-only">Ajustes del experimento</legend>
             <div className="sm:col-span-2">
               <label htmlFor="universo" className="font-medium">Universo</label>
+              {listaUniversos.length > 0 && (
+                <select
+                  id="universo-predefinido" aria-label="Universo predefinido" className="campo mt-1"
+                  value={nombresUniversos.includes(universoEscrito) && !universo.includes(':') ? universoEscrito : ''}
+                  onChange={(e) => e.target.value && setUniverso(e.target.value)}
+                >
+                  <option value="">Tickers a mano…</option>
+                  {listaUniversos.map((u) => (
+                    <option key={u.nombre} value={u.nombre}>
+                      {u.nombre} ({u.n_tickers} tickers{u.dinamico ? ', por fecha' : ', lista fija'})
+                    </option>
+                  ))}
+                </select>
+              )}
               <textarea id="universo" className="campo num mt-1" rows={2} value={universo} onChange={(e) => setUniverso(e.target.value)} aria-describedby="ayuda-universo" />
               <p id="ayuda-universo" className="mt-1 text-xs text-suave">
-                Tickers separados por comas o un universo ({(universos?.universos ?? []).map((u) => `${u.nombre}:N`).join(', ') || 'sp500:30'}).
+                Tickers separados por comas o un universo ({listaUniversos.map((u) => (u.dinamico ? u.nombre : `${u.nombre}:N`)).join(', ') || 'sp500:30'}).
               </p>
+              {esDinamico && (
+                <p className="mt-1 text-xs text-suave">
+                  Universo point-in-time: en cada rebalanceo solo entran los miembros del índice en cada fecha (con 12 meses de historia),
+                  lo que evita el sesgo de supervivencia. Los deslistados sin precios en la fuente no pueden elegirse; el experimento lo avisa.
+                </p>
+              )}
             </div>
             <Campo id="inicio" etiqueta="Inicio"><input id="inicio" type="date" className="campo" value={inicio} onChange={(e) => setInicio(e.target.value)} /></Campo>
             <Campo id="fin" etiqueta="Fin"><input id="fin" type="date" className="campo" value={fin} onChange={(e) => setFin(e.target.value)} /></Campo>

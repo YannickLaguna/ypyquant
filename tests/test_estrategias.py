@@ -51,6 +51,9 @@ def test_estrategias_incluidas_registradas_con_schema():
     assert momentum["parametros_schema"]["properties"]["top_k"]["default"] == 5
     assert momentum["parametros_defecto"]["meses_retorno"] == 12
     assert "class Momentum" in registro.codigo_fuente("momentum")
+    # La sección cruzada sugiere el universo point-in-time; el resto no sugiere ninguno
+    assert momentum["universo_sugerido"] == "sp500_pit"
+    assert registro.descripcion_estrategia("pesos_iguales")["universo_sugerido"] is None
 
 
 def test_estrategia_inexistente_y_nombre_duplicado(registro_limpio):

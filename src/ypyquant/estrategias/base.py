@@ -123,6 +123,8 @@ class Estrategia(ABC):
         nombre: identificador único (minúsculas y `_`).
         descripcion: texto corto que se muestra en la UI.
         frecuencia_rebalanceo: frecuencia sugerida ('daily'|'weekly'|'monthly'|'quarterly').
+        universo_sugerido: nombre de universo que la UI propone por defecto (`'sp500_pit'` en las de sección
+            cruzada, para evitar el sesgo de supervivencia); None = sin sugerencia.
         Parametros: modelo Pydantic con los parámetros (sin campos si no hay).
         origen / archivo: los rellena el registro ('incluida' | 'usuario' y ruta del .py).
 
@@ -139,6 +141,7 @@ class Estrategia(ABC):
     nombre: ClassVar[str]
     descripcion: ClassVar[str] = ""
     frecuencia_rebalanceo: ClassVar[str] = "monthly"
+    universo_sugerido: ClassVar[str | None] = None
     origen: ClassVar[str] = "incluida"
     archivo: ClassVar[str | None] = None
 
