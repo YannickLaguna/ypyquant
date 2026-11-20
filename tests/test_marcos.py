@@ -100,7 +100,7 @@ def test_marco_sin_frecuencia_deja_cada_estrategia_con_la_suya_y_avisa():
 
 def test_estimadores_comunes_nuevos_se_aplican_a_los_estimadores_robustos():
     marco = _marco(parametros_comunes={"estimador_sigma": "muestral", "frecuencia_estimacion": "mensual"})
-    config, informe = aplicar_marco(marco, "bayes_stein", {})
+    config, _informe = aplicar_marco(marco, "bayes_stein", {})
     assert config.parametros["frecuencia_estimacion"] == "mensual" and config.parametros["estimador_sigma"] == "muestral"
     _, informe_pi = aplicar_marco(marco, "pesos_iguales", {})
     assert sorted(informe_pi.no_aplicados) == ["estimador_sigma", "frecuencia_estimacion"]

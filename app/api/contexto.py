@@ -32,7 +32,9 @@ from app.api.paper import BotControl, ServicioAlpaca
 from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.barridos import AlmacenBarridos, ConfiguracionBarrido
+from ypyquant.estrategias.configuraciones import AlmacenConfiguraciones
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ejecutar_experimento
+from ypyquant.estrategias.marcos import AlmacenMarcos
 from ypyquant.estrategias.validacion_barridos import PruebaCancelada, prueba_permutacion_barrido
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,8 @@ class Contexto:
     defecto) y `ejecutor_barridos` las pruebas de permutación (1 a la vez: ya paralelizan por dentro).
     `almacen_barridos` (por defecto `<carpeta del almacén>/../barridos`) guarda los barridos y
     `cancelaciones` los eventos de cancelación de las tareas en curso, por `(id_barrido, tarea)`.
+    `almacen_configuraciones` (`<carpeta del almacén>/../configuraciones`) y `almacen_marcos` (`../marcos`)
+    guardan las configuraciones versionadas y los marcos de comparación con sus comparativas.
     """
 
     almacen: AlmacenExperimentos
@@ -56,10 +60,16 @@ class Contexto:
     ejecutor_barridos: ThreadPoolExecutor = field(
         default_factory=lambda: ThreadPoolExecutor(max_workers=1, thread_name_prefix="barrido"))
     cancelaciones: dict[tuple[str, str], threading.Event] = field(default_factory=dict)
+    almacen_configuraciones: AlmacenConfiguraciones | None = None
+    almacen_marcos: AlmacenMarcos | None = None
 
     def __post_init__(self) -> None:
         if self.almacen_barridos is None:
             self.almacen_barridos = AlmacenBarridos(self.almacen.raiz.parent / "barridos", self.almacen)
+        if self.almacen_configuraciones is None:
+            self.almacen_configuraciones = AlmacenConfiguraciones(self.almacen.raiz.parent / "configuraciones")
+        if self.almacen_marcos is None:
+            self.almacen_marcos = AlmacenMarcos(self.almacen.raiz.parent / "marcos")
 
 
 def obtener_contexto(request: Request) -> Contexto:

@@ -11,7 +11,8 @@ Responsabilidad:
 - `GET /api/experimentos` (filtros `estrategia`, `estado`, `texto`), `GET /api/experimentos/{id}`
   (métricas, equity, drawdown, pesos y operaciones), `DELETE /api/experimentos/{id}` y
   `POST /api/experimentos/borrar` (`{"ids": [...]}`: borrado múltiple; omite los que siguen en marcha).
-- `GET /api/comparar?ids=a,b,c`: equity normalizada a base 100 y métricas lado a lado (DuckDB).
+- `GET /api/comparar?ids=a,b,c`: equity normalizada a base 100 y métricas lado a lado (DuckDB), más
+  `ceteris_paribus: {ok, diferencias}` (en qué difieren del entorno o de los parámetros comunes; ver `marcos.py`).
 
 Se relaciona con: app/api/contexto.py (almacén y ejecutor) y ypyquant.estrategias.experimentos
 (ConfiguracionExperimento, expandir_rejilla). Los errores de validación de la estrategia (nombre o
@@ -26,6 +27,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.api.contexto import Contexto, lanzar_barrido, lanzar_experimento, obtener_contexto
 from ypyquant.estrategias.barridos import ConfiguracionBarrido
 from ypyquant.estrategias.experimentos import VALIDADORES, ConfiguracionExperimento, expandir_rejilla_con_omitidas
+from ypyquant.estrategias.marcos import diferencias_ceteris_paribus
 
 router = APIRouter(prefix="/api", tags=["experimentos"])
 
@@ -139,6 +141,9 @@ def comparar(ids: str = Query(..., description="Identificadores separados por co
     if len(lista) < 1:
         raise HTTPException(422, "Indica al menos un id")
     try:
-        return ctx.almacen.comparar(lista)
+        comparacion = ctx.almacen.comparar(lista)
     except (KeyError, ValueError) as error:
         raise HTTPException(404, str(error.args[0])) from error
+    configs = {i: ctx.almacen.leer_config(i) or {} for i in comparacion["ids"]}
+    diferencias = diferencias_ceteris_paribus(configs)
+    return {**comparacion, "ceteris_paribus": {"ok": not diferencias, "diferencias": diferencias}}

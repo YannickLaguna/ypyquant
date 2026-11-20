@@ -202,6 +202,10 @@ class AlmacenExperimentos:
         estado = _leer_json(self._carpeta(id_experimento) / "estado.json")
         return estado["estado"] if estado else None
 
+    def leer_config(self, id_experimento: str) -> dict[str, Any] | None:
+        """`config.json` del experimento (None si no existe): la configuración tal como se guardó, sin series."""
+        return _leer_json(self._carpeta(id_experimento) / "config.json")
+
     def leer_metricas(self, id_experimento: str) -> dict[str, Any] | None:
         """Contenido de `metricas.json` (None si el experimento no ha terminado)."""
         return _leer_json(self._carpeta(id_experimento) / "metricas.json")
