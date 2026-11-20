@@ -324,7 +324,7 @@ class AlmacenExperimentos:
                     lista = ", ".join(f"'{r}'" for r in rutas)
                     con.execute(
                         f"CREATE VIEW {nombre} AS SELECT regexp_extract(filename, '([^/]+)/{nombre}\\.parquet$', 1) AS id, * "
-                        f"FROM read_parquet([{lista}], filename = true)"
+                        f"FROM read_parquet([{lista}], filename = true, union_by_name = true)"
                     )
             return con.execute(sql).df()
         finally:

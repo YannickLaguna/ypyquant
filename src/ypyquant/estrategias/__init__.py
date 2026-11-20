@@ -27,8 +27,8 @@ from ypyquant.estrategias.senales import EstrategiaSenales, ParametrosSenales
 __all__ = [
     "Estrategia",
     "EstrategiaSenales",
-    "ParametrosSenales",
     "ParametrosBase",
+    "ParametrosSenales",
     "codigo_fuente",
     "descubrir_estrategias_usuario",
     "listar_estrategias",

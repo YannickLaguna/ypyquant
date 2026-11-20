@@ -480,6 +480,17 @@ def cargar_datos_experimento(config: ConfiguracionExperimento, cargador_precios:
     return DatosExperimento(precios, benchmark, config.benchmark, avisos)
 
 
+def _motivos_de_operaciones(operaciones: pd.DataFrame, eventos: list[dict[str, Any]]) -> list[str]:
+    """
+    Motivo de cada operación de un backtest de una `EstrategiaSenales`, cruzando `(fecha, ticker, lado)` con sus eventos
+    (`senal`, `stop_perdida`, `stop_trailing`, `take_profit`, `tiempo`, `fuera_universo`, `regla_propia`). Una operación
+    sin evento (compra o venta parcial que solo recoloca los pesos por la deriva o los costes) es `ajuste`.
+    """
+    por_clave = {(e["fecha"], e["ticker"], "compra" if e["tipo"] == "entrada" else "venta"): e["motivo"] for e in eventos}
+    return [por_clave.get((f"{fecha:%Y-%m-%d}", ticker, lado), "ajuste")
+            for fecha, ticker, lado in zip(operaciones["fecha"], operaciones["ticker"], operaciones["lado"], strict=True)]
+
+
 def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento,
                        completo: bool = True) -> ResultadoExperimento:
     """
@@ -562,6 +573,8 @@ def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento
         "cantidad": t.quantity, "precio": t.entry_price if t.side == "buy" else t.exit_price,
         "comision": t.commission, "pnl": t.pnl,
     } for t in motor.trades], columns=["fecha", "ticker", "lado", "cantidad", "precio", "comision", "pnl"])
+    if getattr(estrategia, "eventos", None):  # estrategias de señales: cada operación lleva su motivo
+        operaciones["motivo"] = _motivos_de_operaciones(operaciones, estrategia.eventos)
 
     metricas = _calcular_metricas(config, resultado_bt, equity, estrategia.historial_pesos, benchmark_ret)
     resultado = ResultadoExperimento(config, metricas, equity, pesos, operaciones, avisos)
