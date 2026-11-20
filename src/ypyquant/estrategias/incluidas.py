@@ -9,6 +9,11 @@ tipados que la UI convierte en formulario:
   con Σ Ledoit-Wolf y max-Sharpe QP; tope de peso y penalización de turnover como parámetros
   (Michaud no admite penalización: promedia pesos de réplicas). Con `volatilidad_objetivo` > 0
   el objetivo pasa de max-Sharpe a máxima rentabilidad con σ <= objetivo (frontera eficiente).
+- Estimadores comunes (para comparar estrategias ceteris paribus, ver `marcos.py`): `estimador_sigma`
+  (`ledoit_wolf`, defecto, o `muestral`) y `frecuencia_estimacion` (`diaria`, defecto, o `mensual`: remuestrea
+  los cierres de la ventana a fin de mes y estima con retornos mensuales y 12 periodos/año, como el TFM; el mes en
+  curso se descarta si la fecha no es su último día hábil, así no hay look-ahead). Son parámetros posteriores a los
+  experimentos guardados: se omiten de la huella mientras valgan su defecto.
 - `robusta_elipsoide`, `robusta_caja`: media-varianza robusta a la incertidumbre en µ (conjunto
   elipsoidal de Goldfarb-Iyengar o de caja, `estimacion_robusta.elipsoide`); µ̂ muestral, Bayes-Stein
   o BL-prior y Σ Ledoit-Wolf. El radio sale de una `confianza` o se fija directo (`kappa` / `z`).
@@ -55,6 +60,9 @@ logger = logging.getLogger(__name__)
 
 DIAS_ANIO = 252
 DIAS_MES = 21
+MESES_ANIO = 12
+MINIMO_RETORNOS_MENSUALES = 12  # por debajo se reparte 1/N
+AVISO_RETORNOS_MENSUALES = 24  # por debajo se avisa de que la estimación mensual es poco fiable
 
 
 def pesos_iguales_entre(tickers) -> dict[str, float]:
@@ -71,6 +79,26 @@ def retornos_ventana(datos: dict[str, pd.DataFrame], ventana_dias: int) -> pd.Da
     cierres = matriz_cierres(datos).iloc[-(ventana_dias + 1):]
     cierres = cierres.dropna(axis=1, how="any")
     return cierres.pct_change().dropna(how="any")
+
+
+def retornos_ventana_mensual(datos: dict[str, pd.DataFrame], ventana_dias: int, fecha: pd.Timestamp) -> pd.DataFrame:
+    """
+    Retornos simples MENSUALES de la ventana de los últimos `ventana_dias` días (tickers sin huecos en ella).
+
+    Remuestrea los cierres a fin de mes (último cierre disponible de cada mes natural). El mes de `fecha` solo
+    cuenta si `fecha` es su último día hábil (calculado con el calendario, sin mirar datos posteriores); si no,
+    es un mes incompleto y se descarta para no mezclar un retorno parcial con retornos de mes completo. La
+    función solo usa filas <= `fecha`, así que no introduce look-ahead.
+    """
+    fecha = pd.Timestamp(fecha)
+    cierres = matriz_cierres(datos).iloc[-(ventana_dias + 1):]
+    cierres = cierres.dropna(axis=1, how="any")
+    cierres = cierres.loc[cierres.index <= fecha]
+    fin_de_mes = cierres.groupby(cierres.index.to_period("M")).tail(1)
+    mes_completo = (fecha + pd.offsets.BDay(1)).to_period("M") != fecha.to_period("M")
+    if not mes_completo and len(fin_de_mes) and fin_de_mes.index[-1].to_period("M") == fecha.to_period("M"):
+        fin_de_mes = fin_de_mes.iloc[:-1]
+    return fin_de_mes.pct_change().dropna(how="any")
 
 
 @registrar_estrategia
@@ -115,7 +143,22 @@ class Momentum(Estrategia):
         return pesos_iguales_entre(ganadores)
 
 
-class _ParametrosEstimador(ParametrosBase):
+ESTIMADORES_COMUNES = ("estimador_sigma", "frecuencia_estimacion")
+
+
+class _ParametrosEstimacion(ParametrosBase):
+    """Cómo se estiman Σ y la frecuencia de los retornos; común a las dos familias de estimadores robustos."""
+
+    estimador_sigma: Literal["ledoit_wolf", "muestral"] = Field(
+        "ledoit_wolf", description="Estimador de Σ: shrinkage Ledoit-Wolf (defecto) o covarianza muestral")
+    frecuencia_estimacion: Literal["diaria", "mensual"] = Field(
+        "diaria",
+        description="Retornos con que se estiman µ y Σ: diarios (252 periodos/año) o mensuales a fin de mes (12 "
+        "periodos/año, como el TFM; necesita >= 12 retornos mensuales en la ventana)",
+    )
+
+
+class _ParametrosEstimador(_ParametrosEstimacion):
     """Parámetros comunes de las estrategias de optimización robusta."""
 
     ventana_dias: int = Field(756, ge=60, le=2520, description="Días de historia para estimar µ y Σ (756 ≈ 3 años)")
@@ -137,10 +180,38 @@ class _EstimadorRobusto(Estrategia):
     """
 
     frecuencia_rebalanceo = "monthly"
+    parametros_fuera_de_huella_si_defecto = ESTIMADORES_COMUNES
     Parametros = _ParametrosEstimador
 
     def estimar_pesos(self, retornos: pd.DataFrame, datos, fecha, pesos_previos: np.ndarray | None) -> np.ndarray:
         raise NotImplementedError
+
+    @property
+    def periodos_anio(self) -> int:
+        """Periodos por año de los retornos de estimación: 12 con `frecuencia_estimacion='mensual'`, 252 con 'diaria'."""
+        return MESES_ANIO if self.parametros.frecuencia_estimacion == "mensual" else DIAS_ANIO
+
+    def estimar_sigma(self, retornos: pd.DataFrame) -> pd.DataFrame:
+        """Σ anualizada según `estimador_sigma` (Ledoit-Wolf de `estimacion_robusta` o covarianza muestral)."""
+        if self.parametros.estimador_sigma == "muestral":
+            return retornos.cov() * self.periodos_anio
+        return estimar_sigma_ledoit_wolf(retornos, self.periodos_anio)
+
+    def retornos_estimacion(self, datos, fecha) -> tuple[pd.DataFrame, int]:
+        """Retornos de la ventana (diarios o mensuales según el parámetro) y el mínimo de observaciones exigido."""
+        p = self.parametros
+        if p.frecuencia_estimacion == "mensual":
+            retornos = retornos_ventana_mensual(datos, p.ventana_dias, fecha)
+            if MINIMO_RETORNOS_MENSUALES <= len(retornos) < AVISO_RETORNOS_MENSUALES:
+                self._avisar(f"estimación mensual con solo {len(retornos)} retornos mensuales: poco fiable "
+                             f"(amplía `ventana_dias`; se recomiendan >= {AVISO_RETORNOS_MENSUALES})")
+            return retornos, MINIMO_RETORNOS_MENSUALES
+        return retornos_ventana(datos, p.ventana_dias), max(60, min(p.ventana_dias, 120))
+
+    def _avisar(self, mensaje: str) -> None:
+        """Anota un aviso una sola vez por estrategia (se repetiría en cada rebalanceo)."""
+        if mensaje not in self.avisos:
+            self.avisos.append(mensaje)
 
     def sesiones_necesarias(self) -> int:
         """Ventana completa de estimación (`ventana_dias` retornos = `ventana_dias` + 1 cierres) más el margen."""
@@ -159,10 +230,11 @@ class _EstimadorRobusto(Estrategia):
         return pesos
 
     def generar_pesos(self, fecha: datetime, datos, estado: dict[str, Any]) -> dict[str, float]:
-        p = self.parametros
-        retornos = retornos_ventana(datos, p.ventana_dias)
-        minimo = max(60, min(p.ventana_dias, 120))
+        retornos, minimo = self.retornos_estimacion(datos, fecha)
         if retornos.shape[1] < 2 or len(retornos) < minimo:
+            if self.parametros.frecuencia_estimacion == "mensual":
+                self._avisar(f"estimación mensual con menos de {minimo} retornos mensuales o menos de 2 activos "
+                             "válidos en algún rebalanceo: se reparte 1/N")
             return pesos_iguales_entre(matriz_cierres(datos).columns)
         previos = estado.get("pesos_previos") or {}
         pesos_previos = np.array([previos.get(t, 0.0) for t in retornos.columns])
@@ -179,8 +251,8 @@ class BayesStein(_EstimadorRobusto):
 
     def estimar_pesos(self, retornos, datos, fecha, pesos_previos):
         p = self.parametros
-        sigma = estimar_sigma_ledoit_wolf(retornos, DIAS_ANIO)
-        mu = estimar_mu_bayes_stein(retornos, sigma, DIAS_ANIO, si_t_menor_n2="ignorar")
+        sigma = self.estimar_sigma(retornos)
+        mu = estimar_mu_bayes_stein(retornos, sigma, self.periodos_anio, si_t_menor_n2="ignorar")
         return self.optimizar(mu, sigma.values, p.tasa_libre_riesgo, pesos_previos)
 
 
@@ -199,9 +271,9 @@ class Michaud(_EstimadorRobusto):
         # La penalización de turnover no aplica: el promedio de réplicas ya es una cartera estable
         rng = self.estado.setdefault("rng", np.random.default_rng(self.semilla))
         return estimar_mu_michaud(
-            retornos, n_replicas=p.n_replicas, rf=p.tasa_libre_riesgo / DIAS_ANIO,
-            peso_maximo=p.peso_maximo, rng=rng, frecuencia=DIAS_ANIO,
-            volatilidad_objetivo=p.volatilidad_objetivo or None,
+            retornos, n_replicas=p.n_replicas, rf=p.tasa_libre_riesgo / self.periodos_anio,
+            peso_maximo=p.peso_maximo, rng=rng, frecuencia=self.periodos_anio,
+            volatilidad_objetivo=p.volatilidad_objetivo or None, estimador_sigma=p.estimador_sigma,
         )
 
 
@@ -217,7 +289,7 @@ class BLPrior(_EstimadorRobusto):
 
     def estimar_pesos(self, retornos, datos, fecha, pesos_previos):
         p = self.parametros
-        sigma = estimar_sigma_ledoit_wolf(retornos, DIAS_ANIO)
+        sigma = self.estimar_sigma(retornos)
         activos = list(retornos.columns)
         cierres, volumen = matriz_cierres(datos), matriz_volumen(datos)
         pesos_mkt, _fuente = pesos_mercado(
@@ -227,7 +299,7 @@ class BLPrior(_EstimadorRobusto):
         return self.optimizar(mu, sigma.values, 0.0, pesos_previos)
 
 
-class _ParametrosIncertidumbre(ParametrosBase):
+class _ParametrosIncertidumbre(_ParametrosEstimacion):
     """Parámetros comunes de las estrategias con incertidumbre en µ (elipsoide y caja)."""
 
     estimador_mu: Literal["muestral", "bayes_stein", "bl_prior"] = Field(
@@ -263,7 +335,7 @@ class _EstimadorIncertidumbre(_EstimadorRobusto):
         """µ̂ anualizado según `estimador_mu`."""
         p = self.parametros
         if p.estimador_mu == "bayes_stein":
-            return estimar_mu_bayes_stein(retornos, sigma, DIAS_ANIO, si_t_menor_n2="ignorar")
+            return estimar_mu_bayes_stein(retornos, sigma, self.periodos_anio, si_t_menor_n2="ignorar")
         if p.estimador_mu == "bl_prior":
             cierres, volumen = matriz_cierres(datos), matriz_volumen(datos)
             pesos_mkt, _fuente = pesos_mercado(
@@ -271,10 +343,10 @@ class _EstimadorIncertidumbre(_EstimadorRobusto):
                 volumen=volumen if not volumen.empty else None,
             )
             return estimar_mu_bl_prior(sigma, pesos_mkt, p.delta)
-        return estimar_mu_muestral(retornos, DIAS_ANIO)
+        return estimar_mu_muestral(retornos, self.periodos_anio)
 
     def estimar_pesos(self, retornos, datos, fecha, pesos_previos):
-        sigma = estimar_sigma_ledoit_wolf(retornos, DIAS_ANIO)
+        sigma = self.estimar_sigma(retornos)
         mu = self.estimar_mu(retornos, sigma, datos, fecha)
         return self.resolver(mu, sigma.values, len(retornos))
 
@@ -305,7 +377,7 @@ class RobustaElipsoide(_EstimadorIncertidumbre):
 
     def resolver(self, mu, sigma, n_observaciones):
         p = self.parametros
-        theta = matriz_incertidumbre(sigma, n_observaciones, p.tipo_theta, frecuencia=DIAS_ANIO)
+        theta = matriz_incertidumbre(sigma, n_observaciones, p.tipo_theta, frecuencia=self.periodos_anio)
         kappa = p.kappa if p.kappa > 0 else kappa_confianza(p.confianza, len(mu))
         pesos, _estado, _diagnostico = optimizar_robusto_elipsoide(
             mu, sigma, theta, kappa, aversion=p.aversion,
@@ -338,7 +410,7 @@ class RobustaCaja(_EstimadorIncertidumbre):
     def resolver(self, mu, sigma, n_observaciones):
         p = self.parametros
         z = p.z if p.z > 0 else z_confianza(p.confianza)
-        delta = delta_caja(sigma, n_observaciones, z, frecuencia=DIAS_ANIO)
+        delta = delta_caja(sigma, n_observaciones, z, frecuencia=self.periodos_anio)
         pesos, _estado, _diagnostico = optimizar_robusto_caja(
             mu, sigma, delta, aversion=p.aversion,
             volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),

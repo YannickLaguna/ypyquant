@@ -126,6 +126,9 @@ class Estrategia(ABC):
         universo_sugerido: nombre de universo que la UI propone por defecto (`'sp500_pit'` en las de sección
             cruzada, para evitar el sesgo de supervivencia); None = sin sugerencia.
         Parametros: modelo Pydantic con los parámetros (sin campos si no hay).
+        parametros_fuera_de_huella_si_defecto: nombres de parámetros añadidos DESPUÉS de que existieran experimentos
+            guardados: `ConfiguracionExperimento.huella()` los omite mientras valgan su defecto, para que la huella
+            (y con ella el id) de los experimentos ya guardados no cambie.
         origen / archivo: los rellena el registro ('incluida' | 'usuario' y ruta del .py).
 
     Atributos de instancia:
@@ -134,6 +137,7 @@ class Estrategia(ABC):
             adaptador guarda en `estado['pesos_previos']` los últimos pesos objetivo.
         historial_pesos: lista `(fecha, pesos)` de todos los rebalanceos pedidos al motor.
         semilla: semilla del experimento (la fija `ejecutar_experimento`); úsala para todo azar.
+        avisos: mensajes no fatales (sin duplicados) que el experimento añade a los suyos.
         errores: mensajes de las excepciones de `generar_pesos` (el motor las traga y sigue;
             el experimento falla si no hubo ningún rebalanceo válido).
     """
@@ -142,6 +146,7 @@ class Estrategia(ABC):
     descripcion: ClassVar[str] = ""
     frecuencia_rebalanceo: ClassVar[str] = "monthly"
     universo_sugerido: ClassVar[str | None] = None
+    parametros_fuera_de_huella_si_defecto: ClassVar[tuple[str, ...]] = ()
     origen: ClassVar[str] = "incluida"
     archivo: ClassVar[str | None] = None
 
@@ -158,6 +163,7 @@ class Estrategia(ABC):
         self.historial_pesos: list[tuple[datetime, dict[str, float]]] = []
         self.semilla = 0
         self.errores: list[str] = []
+        self.avisos: list[str] = []  # avisos no fatales (p. ej. pocas observaciones); el experimento los recoge
 
     def preparar(self, datos: dict[str, pd.DataFrame]) -> None:
         """
