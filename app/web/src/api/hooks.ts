@@ -8,9 +8,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { ErrorApi, pedir, querystring } from './cliente'
 import type {
   Comparacion,
+  Comparativa,
+  Configuracion,
   ConfiguracionBarrido,
   ConfiguracionExperimento,
   CuentaPaper,
+  DetalleConfiguracion,
   DetalleBarrido,
   DetalleExperimento,
   EstadoPaper,
@@ -19,8 +22,11 @@ import type {
   FrecuenciaRebalanceo,
   HistorialPaper,
   LogBot,
+  Marco,
   ModoPermutacion,
   OrdenPaper,
+  PeticionConfiguracion,
+  PeticionMarco,
   PeticionPermutacion,
   PosicionPaper,
   RespuestaPermutacion,
@@ -257,3 +263,106 @@ export function usePararBot() {
     onSuccess: () => cliente.invalidateQueries({ queryKey: ['paper'] }),
   })
 }
+
+// ---- Configuraciones guardadas ---------------------------------------------------------------
+
+export const useConfiguraciones = (filtros: { estrategia?: string; texto?: string; archivadas?: boolean } = {}) =>
+  useQuery({
+    queryKey: ['configuraciones', filtros],
+    queryFn: () => pedir<{ configuraciones: Configuracion[] }>(`/api/configuraciones${querystring(filtros)}`),
+    placeholderData: keepPreviousData,
+  })
+
+export const useConfiguracion = (id: string | undefined, version?: number) =>
+  useQuery({
+    queryKey: ['configuracion', id, version],
+    queryFn: () => pedir<DetalleConfiguracion>(`/api/configuraciones/${encodeURIComponent(id!)}${querystring({ version })}`),
+    enabled: !!id,
+  })
+
+export function useCrearConfiguracion() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (peticion: PeticionConfiguracion) => pedir<Configuracion>('/api/configuraciones', { metodo: 'POST', cuerpo: peticion }),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['configuraciones'] }),
+  })
+}
+
+export function useNuevaVersion(id: string) {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (cambios: Record<string, unknown>) =>
+      pedir<Configuracion>(`/api/configuraciones/${encodeURIComponent(id)}/versiones`, { metodo: 'POST', cuerpo: { cambios } }),
+    onSuccess: () => {
+      cliente.invalidateQueries({ queryKey: ['configuraciones'] })
+      cliente.invalidateQueries({ queryKey: ['configuracion', id] })
+    },
+  })
+}
+
+export function useBacktestConfiguracion(id: string) {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (cuerpo: { fecha_inicio?: string; fecha_fin?: string; version?: number; forzar?: boolean }) =>
+      pedir<{ id_experimento: string; reutilizado: boolean }>(`/api/configuraciones/${encodeURIComponent(id)}/backtest`, { metodo: 'POST', cuerpo }),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['experimentos'] }),
+  })
+}
+
+export function useArchivarConfiguracion() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => pedir<void>(`/api/configuraciones/${encodeURIComponent(id)}`, { metodo: 'DELETE' }),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['configuraciones'] }),
+  })
+}
+
+// ---- Marcos de comparación y comparativas -------------------------------------------------------
+
+export const useMarcos = () => useQuery({ queryKey: ['marcos'], queryFn: () => pedir<{ marcos: Marco[] }>('/api/marcos') })
+
+export const useMarco = (id: string | undefined) =>
+  useQuery({
+    queryKey: ['marco', id],
+    queryFn: () => pedir<{ marco: Marco; comparativas: Comparativa[] }>(`/api/marcos/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  })
+
+/** Crea el marco (sin `id`) o lo reemplaza (con `id`). */
+export function useGuardarMarco() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, marco }: { id?: string; marco: PeticionMarco }) =>
+      id
+        ? pedir<Marco>(`/api/marcos/${encodeURIComponent(id)}`, { metodo: 'PUT', cuerpo: marco })
+        : pedir<Marco>('/api/marcos', { metodo: 'POST', cuerpo: marco }),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['marcos'] }).then(() => cliente.invalidateQueries({ queryKey: ['marco'] })),
+  })
+}
+
+export function useBorrarMarco() {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => pedir<void>(`/api/marcos/${encodeURIComponent(id)}`, { metodo: 'DELETE' }),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ['marcos'] }),
+  })
+}
+
+export function useLanzarComparativa(idMarco: string) {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (cuerpo: { estrategias: { estrategia: string; parametros: Record<string, unknown> }[]; forzar?: boolean }) =>
+      pedir<Comparativa>(`/api/marcos/${encodeURIComponent(idMarco)}/comparativa`, { metodo: 'POST', cuerpo }),
+    onSuccess: () => {
+      cliente.invalidateQueries({ queryKey: ['experimentos'] })
+      cliente.invalidateQueries({ queryKey: ['marco', idMarco] })
+    },
+  })
+}
+
+export const useComparativa = (id: string | null) =>
+  useQuery({
+    queryKey: ['comparativa', id],
+    queryFn: () => pedir<Comparativa>(`/api/comparativas/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  })

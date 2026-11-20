@@ -15,6 +15,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useBarrido, useBorrarBarrido } from '../api/hooks'
 import type { DetalleBarrido, FilaSuperficie } from '../api/tipos'
 import { CajaError, Cargando, Insignia, Vacio } from '../componentes/Estado'
+import GuardarConfiguracion, { type FuenteConfiguracion } from '../componentes/GuardarConfiguracion'
 import MapaCalor from '../componentes/MapaCalor'
 import { PanelPermutacion, PanelReservado } from '../componentes/PanelesRobustez'
 import { PanelValidar, PanelWalkForward } from '../componentes/PanelesValidacion'
@@ -90,6 +91,10 @@ export default function BarridoDetalle() {
   )
 }
 
+function BotonGuardar({ alPulsar, texto }: { alPulsar: () => void; texto: string }) {
+  return <button type="button" className="boton ml-1 px-2 py-0 text-xs" onClick={alPulsar}>{texto}</button>
+}
+
 // ---- Mapa de calor --------------------------------------------------------------------------
 
 function SeccionMapa({ barrido }: { barrido: DetalleBarrido }) {
@@ -101,6 +106,7 @@ function SeccionMapa({ barrido }: { barrido: DetalleBarrido }) {
   const [ejeX, setEjeX] = useState(nombresEjes[0] ?? '')
   const [ejeYElegido, setEjeY] = useState<string>(nombresEjes[1] ?? '')
   const [fijos, setFijos] = useState<Record<string, number>>({})
+  const [guardar, setGuardar] = useState<{ fuente: FuenteConfiguracion; nombre: string } | null>(null)
 
   // Si el eje Y coincide con el X (o no existe), se desactiva
   const ejeY = ejeYElegido && ejeYElegido !== ejeX && nombresEjes.includes(ejeYElegido) ? ejeYElegido : null
@@ -180,9 +186,12 @@ function SeccionMapa({ barrido }: { barrido: DetalleBarrido }) {
         formato={(v) => (metrica.includes('drawdown') || ['cagr', 'retorno_total', 'alfa', 'tasa_acierto'].includes(metrica) ? porcentaje(v, 1) : ratio(v, 2))}
       />
       <ul className="space-y-0.5 text-xs text-suave">
-        {mejor && <li><span aria-hidden>★</span> Mejor por {objetivo}: <Link className="num text-acento hover:underline" to={`/experimentos/${mejor.id}`}>{mejor.etiqueta}</Link> ({ratio(mejor.objetivo, 3)}){ocultos.length > 0 && enMapa(mejor) === null && ' — fuera de la porción mostrada'}</li>}
-        {porMeseta && <li><span aria-hidden>◆</span> Alternativa por meseta: <Link className="num text-acento hover:underline" to={`/experimentos/${porMeseta.id}`}>{porMeseta.etiqueta}</Link> (meseta {ratio(porMeseta.meseta, 3)}){porMeseta.id === mejor?.id && ' — coincide con la mejor'}{ocultos.length > 0 && enMapa(porMeseta) === null && ' — fuera de la porción mostrada'}</li>}
+        {mejor && <li><span aria-hidden>★</span> Mejor por {objetivo}: <Link className="num text-acento hover:underline" to={`/experimentos/${mejor.id}`}>{mejor.etiqueta}</Link> ({ratio(mejor.objetivo, 3)}){ocultos.length > 0 && enMapa(mejor) === null && ' — fuera de la porción mostrada'} <BotonGuardar alPulsar={() => setGuardar({ fuente: { tipo: 'barrido', id: barrido.id, criterio: 'mejor', idExperimento: mejor.id }, nombre: mejor.etiqueta })} texto="Guardar la mejor" /></li>}
+        {porMeseta && <li><span aria-hidden>◆</span> Alternativa por meseta: <Link className="num text-acento hover:underline" to={`/experimentos/${porMeseta.id}`}>{porMeseta.etiqueta}</Link> (meseta {ratio(porMeseta.meseta, 3)}){porMeseta.id === mejor?.id && ' — coincide con la mejor'}{ocultos.length > 0 && enMapa(porMeseta) === null && ' — fuera de la porción mostrada'} <BotonGuardar alPulsar={() => setGuardar({ fuente: { tipo: 'barrido', id: barrido.id, criterio: 'meseta', idExperimento: porMeseta.id }, nombre: porMeseta.etiqueta })} texto="Guardar la de meseta" /></li>}
       </ul>
+      {guardar && (
+        <GuardarConfiguracion fuente={guardar.fuente} nombreSugerido={`${barrido.config.base.estrategia} ${guardar.nombre}`.slice(0, 120)} alCerrar={() => setGuardar(null)} />
+      )}
     </section>
   )
 }

@@ -140,17 +140,46 @@ class ConfiguracionExperimento(BaseModel):
             "frecuencia_rebalanceo": self.frecuencia_rebalanceo or clase.frecuencia_rebalanceo,
         })
 
-    def huella(self) -> str:
-        """Hash SHA-256 estable de la configuración (sin la etiqueta; el orden del universo no importa)."""
-        datos = self.model_dump(exclude={"etiqueta"})
+    def _hash_sin(self, excluir: set[str]) -> str:
+        """SHA-256 del JSON canónico de la configuración sin los campos `excluir` (universo ordenado)."""
+        datos = self.model_dump(exclude=excluir)
+        _omitir_parametros_nuevos_en_defecto(datos)
         if isinstance(datos["universo"], list):
             datos["universo"] = sorted(datos["universo"])
         canonico = json.dumps(datos, sort_keys=True, ensure_ascii=False, default=str, separators=(",", ":"))
         return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
+    def huella(self) -> str:
+        """Hash SHA-256 estable de la configuración (sin la etiqueta; el orden del universo no importa)."""
+        return self._hash_sin({"etiqueta"})
+
+    def huella_receta(self) -> str:
+        """
+        Hash de la «receta»: estrategia, parámetros, universo, frecuencia, costes, benchmark, semilla e historia
+        previa, SIN fechas, capital, validaciones ni etiqueta. Dos backtests de la misma receta en periodos o con
+        capitales distintos comparten esta huella (la usan las configuraciones guardadas).
+        """
+        return self._hash_sin({"etiqueta", "fecha_inicio", "fecha_fin", "capital_inicial", "validaciones"})
+
     def identificador(self) -> str:
         """Identificador legible y estable: `<estrategia>-<10 primeros caracteres de la huella>`."""
         return f"{self.estrategia}-{self.huella()[:10]}"
+
+
+def _omitir_parametros_nuevos_en_defecto(datos: dict[str, Any]) -> None:
+    """
+    Quita de `datos['parametros']` los parámetros que la estrategia declara como posteriores a los experimentos
+    guardados (`parametros_fuera_de_huella_si_defecto`) mientras valgan su defecto. Así `normalizada()` puede
+    rellenar los parámetros nuevos sin cambiar la huella de ningún experimento anterior.
+    """
+    try:
+        clase = obtener_estrategia(datos["estrategia"])
+    except KeyError:  # estrategia no registrada (p. ej. importada del TFM): la huella usa los parámetros tal cual
+        return
+    for nombre in clase.parametros_fuera_de_huella_si_defecto:
+        campo = clase.Parametros.model_fields.get(nombre)
+        if campo is not None and nombre in datos["parametros"] and datos["parametros"][nombre] == campo.default:
+            del datos["parametros"][nombre]
 
 
 @dataclass
@@ -496,6 +525,7 @@ def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento
     if not estrategia.historial_pesos:
         detalle = estrategia.errores[0] if estrategia.errores else "sin pesos"
         raise RuntimeError(f"La estrategia no generó ningún rebalanceo válido ({detalle})")
+    avisos.extend(estrategia.avisos)
     if estrategia.errores:
         avisos.append(f"{len(estrategia.errores)} rebalanceos fallaron; primero: {estrategia.errores[0]}")
     if pit:

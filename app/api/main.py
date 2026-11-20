@@ -2,7 +2,7 @@
 Aplicación FastAPI de la interfaz interna de Sistema_trading.
 
 Responsabilidad:
-- `crear_app(...)`: fábrica que monta las rutas (estrategias, experimentos, barridos, paper trading), el
+- `crear_app(...)`: fábrica que monta las rutas (estrategias, experimentos, barridos, configuraciones, marcos, paper trading), el
   contexto inyectable (almacén, cargador de precios, Alpaca, bot) y, si existe `app/web/dist`, sirve
   el frontend compilado en `/`. Es una capa fina: toda la lógica vive en `ypyquant.estrategias`.
 - `app`: instancia lista para uvicorn.
@@ -26,12 +26,21 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import rutas_barridos, rutas_estrategias, rutas_experimentos, rutas_paper
+from app.api import (
+    rutas_barridos,
+    rutas_configuraciones,
+    rutas_estrategias,
+    rutas_experimentos,
+    rutas_marcos,
+    rutas_paper,
+)
 from app.api.contexto import Contexto
 from app.api.paper import BotControl, ServicioAlpaca
 from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.barridos import AlmacenBarridos
+from ypyquant.estrategias.configuraciones import AlmacenConfiguraciones
+from ypyquant.estrategias.marcos import AlmacenMarcos
 from ypyquant.estrategias.precios import cargador_por_defecto
 
 RAIZ_REPO = Path(__file__).resolve().parents[2]
@@ -45,6 +54,8 @@ def crear_app(
     bot: BotControl | None = None,
     cargar_env: bool = True,
     raiz_barridos: Path | None = None,
+    raiz_configuraciones: Path | None = None,
+    raiz_marcos: Path | None = None,
 ) -> FastAPI:
     """
     Construye la aplicación con sus dependencias (todas inyectables para los tests).
@@ -54,6 +65,8 @@ def crear_app(
         raiz_experimentos: carpeta del almacén (por defecto `data/experimentos/`).
         raiz_barridos: carpeta del almacén de barridos (por defecto `barridos/` junto a la de experimentos, es decir
             `data/barridos/`). El contador del periodo reservado vive en su carpeta padre (`reservado.json`).
+        raiz_configuraciones / raiz_marcos: carpetas de las configuraciones guardadas y de los marcos de comparación
+            (por defecto `configuraciones/` y `marcos/` junto a la del almacén, es decir `data/configuraciones/` y `data/marcos/`).
         servicio_alpaca / bot: sustitutos para tests.
         cargar_env: si True, lee el `.env` de la raíz (claves de Alpaca) con python-dotenv.
     """
@@ -74,6 +87,8 @@ def crear_app(
     api.state.ctx = Contexto(
         almacen=almacen,
         almacen_barridos=almacen_barridos,
+        almacen_configuraciones=AlmacenConfiguraciones(raiz_configuraciones or almacen.raiz.parent / "configuraciones"),
+        almacen_marcos=AlmacenMarcos(raiz_marcos or almacen.raiz.parent / "marcos"),
         cargador_precios=cargador_precios or cargador_por_defecto(),
         alpaca=servicio_alpaca or ServicioAlpaca(),
         bot=bot or BotControl(),
@@ -86,6 +101,8 @@ def crear_app(
     api.include_router(rutas_estrategias.router)
     api.include_router(rutas_experimentos.router)
     api.include_router(rutas_barridos.router)
+    api.include_router(rutas_configuraciones.router)
+    api.include_router(rutas_marcos.router)
     api.include_router(rutas_paper.router)
 
     if CARPETA_WEB.is_dir():  # frontend compilado (npm run build); en desarrollo se usa `npm run dev`

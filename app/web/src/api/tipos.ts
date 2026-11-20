@@ -173,6 +173,8 @@ export interface Comparacion {
   benchmark: (number | null)[]
   metricas: Record<string, Record<string, number | null>>
   resumenes: Record<string, ResumenExperimento>
+  /** Aviso «no es ceteris paribus»: en qué difieren los experimentos del entorno o de los parámetros comunes. */
+  ceteris_paribus?: CeterisParibus
 }
 
 export interface CuentaPaper {
@@ -481,4 +483,128 @@ export interface RespuestaPermutacion {
   estado: EstadoTarea
   n_backtests: number
   aviso: string | null
+}
+
+// ---- Configuraciones guardadas y marcos de comparación (docs/ui.md) -----------------------------
+
+export interface OrigenConfiguracion {
+  tipo: 'experimento' | 'barrido' | 'manual'
+  id_experimento: string | null
+  id_barrido: string | null
+  criterio: 'mejor' | 'meseta' | 'elegida' | null
+  /** Métricas del experimento de origen EN EL MOMENTO de guardar la configuración. */
+  metricas: Record<string, number | null>
+  fechas: string[] | null
+  aviso: string | null
+}
+
+export interface Configuracion {
+  id: string
+  version: number
+  nombre: string
+  notas: string
+  estrategia: string
+  parametros: Record<string, unknown>
+  universo: string | string[]
+  universo_etiqueta: string | null
+  frecuencia_rebalanceo: Frecuencia
+  comision: number
+  slippage: number
+  benchmark: string
+  capital_inicial: number
+  semilla: number
+  dias_historia_previa: number
+  origen: OrigenConfiguracion
+  creada: string
+  etiquetas: string[]
+  huella_estrategia: string
+  archivada: boolean
+  id_marco: string | null
+  deriva_de: number | null
+}
+
+export interface VersionConfiguracion {
+  version: number
+  creada: string
+  deriva_de: number | null
+  notas: string
+}
+
+export interface DetalleConfiguracion {
+  configuracion: Configuracion
+  versiones: VersionConfiguracion[]
+  marco: Marco | null
+  backtests: ResumenExperimento[]
+}
+
+/** Fuente de una nueva configuración: exactamente una de `desde_experimento`, `desde_barrido` o `manual`. */
+export interface PeticionConfiguracion {
+  nombre: string
+  notas?: string
+  id_marco?: string | null
+  desde_experimento?: string
+  desde_barrido?: string
+  criterio?: 'mejor' | 'meseta' | 'elegida'
+  id_experimento?: string
+  manual?: { estrategia: string; parametros: Record<string, unknown>; universo: string | string[] }
+}
+
+export interface Marco {
+  id: string
+  nombre: string
+  notas: string
+  universo: string | string[]
+  universo_etiqueta: string | null
+  fecha_inicio: string
+  fecha_fin: string
+  /** null = cada estrategia con su frecuencia sugerida (la comparación deja de ser ceteris paribus). */
+  frecuencia_rebalanceo: Frecuencia | null
+  comision: number
+  slippage: number
+  benchmark: string
+  capital_inicial: number
+  semilla: number
+  dias_historia_previa: number
+  parametros_comunes: Record<string, unknown>
+  creado: string
+}
+
+/** Cuerpo para crear o editar un marco (`id` opcional: se deduce del nombre). */
+export type PeticionMarco = Omit<Marco, 'id' | 'creado' | 'universo_etiqueta'> & { id?: string }
+
+export interface InformeAplicacion {
+  estrategia: string
+  aplicados: Record<string, unknown>
+  no_aplicados: string[]
+  sobrescritos: string[]
+  avisos: string[]
+}
+
+export interface EntradaComparativa {
+  id_experimento: string
+  estrategia: string
+  parametros: Record<string, unknown>
+  informe: InformeAplicacion
+  reutilizado: boolean
+  /** Estado actual del experimento (solo en `GET /api/comparativas`; null si se borró). */
+  estado?: EstadoExperimento | null
+}
+
+export interface Comparativa {
+  id: string
+  id_marco: string
+  marco: Marco
+  creada: string
+  experimentos: EntradaComparativa[]
+}
+
+export interface DiferenciaCeterisParibus {
+  campo: string
+  tipo: 'entorno' | 'comun'
+  valores: Record<string, unknown>
+}
+
+export interface CeterisParibus {
+  ok: boolean
+  diferencias: DiferenciaCeterisParibus[]
 }

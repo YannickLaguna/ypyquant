@@ -288,6 +288,7 @@ def estimar_mu_michaud(
     rng: np.random.Generator | None = None,
     frecuencia: int = FRECUENCIA_MENSUAL,
     volatilidad_objetivo: float | None = None,
+    estimador_sigma: Literal["ledoit_wolf", "muestral"] = "ledoit_wolf",
 ):
     """
     Remuestreo eficiente de Michaud (1989): en cada una de `n_replicas` réplicas se
@@ -306,6 +307,8 @@ def estimar_mu_michaud(
     volatilidad_objetivo : σ anual; si se da, cada réplica resuelve máx. µ'w con σ <= objetivo
         (frontera eficiente) en vez de max-Sharpe. La «contingencia» cuenta entonces las
         réplicas que no alcanzan el objetivo y devuelven la GMV.
+    estimador_sigma : Σ de cada réplica: "ledoit_wolf" (defecto, como el TFM) o "muestral" (covarianza
+        muestral × `frecuencia`).
     devolver_diagnostico : si True devuelve `(pesos, frac_contingencia)` con la fracción
         de réplicas que usaron la contingencia GMV (NaN si ninguna convergió).
 
@@ -323,7 +326,10 @@ def estimar_mu_michaud(
             indices = indices_bootstrap(n_obs, metodo_bootstrap, longitud_media_bloque, rng)
             muestra = retornos.iloc[indices]
             mu_r = muestra.mean().values * frecuencia
-            sigma_r = estimar_sigma_ledoit_wolf(muestra, frecuencia).values
+            if estimador_sigma == "muestral":
+                sigma_r = (muestra.cov() * frecuencia).values
+            else:
+                sigma_r = estimar_sigma_ledoit_wolf(muestra, frecuencia).values
 
             if volatilidad_objetivo:
                 pesos, estado_r = optimizar_volatilidad_objetivo(
