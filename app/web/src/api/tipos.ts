@@ -177,6 +177,16 @@ export interface Comparacion {
   ceteris_paribus?: CeterisParibus
 }
 
+/** Respuesta de `GET /api/comparar/series`: una serie por experimento (cada una con sus fechas) y los que no tienen dato. */
+export interface SeriesComparacion {
+  indicador: string
+  etiqueta: string
+  ids: string[]
+  periodos_por_anio: number
+  series: Record<string, { fechas: string[]; valores: (number | null)[] }>
+  sin_dato: string[]
+}
+
 export interface CuentaPaper {
   numero: string | null
   estado: string | null

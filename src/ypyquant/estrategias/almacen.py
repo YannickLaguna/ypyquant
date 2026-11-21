@@ -215,6 +215,11 @@ class AlmacenExperimentos:
         ruta = self._carpeta(id_experimento) / "equity.parquet"
         return pd.read_parquet(ruta) if ruta.exists() else None
 
+    def leer_pesos(self, id_experimento: str) -> pd.DataFrame | None:
+        """DataFrame de `pesos.parquet` (`fecha, ticker, peso`); None si no existe (p. ej. experimentos del TFM)."""
+        ruta = self._carpeta(id_experimento) / "pesos.parquet"
+        return pd.read_parquet(ruta) if ruta.exists() else None
+
     def _resumen(self, carpeta: Path) -> dict[str, Any] | None:
         config = _leer_json(carpeta / "config.json")
         estado = _leer_json(carpeta / "estado.json", reintentar_si_falta=config is not None)

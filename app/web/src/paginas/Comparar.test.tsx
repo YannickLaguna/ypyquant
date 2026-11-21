@@ -5,13 +5,14 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CeterisParibus, Comparacion } from '../api/tipos'
 import Comparar from './Comparar'
 
 // El gráfico usa canvas y matchMedia, que jsdom no implementa: aquí solo importan los avisos y la tabla
-vi.mock('../componentes/Graficos', () => ({ GraficoSeries: () => <div role="img" aria-label="gráfico" /> }))
+vi.mock('../componentes/Graficos', () => ({ GraficoSeries: ({ titulo, series }: { titulo: string; series: unknown[] }) => <div role="img" aria-label={`${titulo} (${series.length} series)`} /> }))
 
 const resumen = (id: string) => ({
   id, estrategia: 'pesos_iguales', parametros: {}, universo: ['AAA'], fecha_inicio: '2020-01-01', fecha_fin: '2021-12-31', benchmark: 'SPY',
@@ -21,11 +22,16 @@ const resumen = (id: string) => ({
 function simularApi(ceteris: CeterisParibus, avisosMarco: string[] = []) {
   const comparacion: Comparacion = {
     ids: ['a-1', 'b-2'], fechas: ['2020-01-02', '2020-01-03'], series: { 'a-1': [100, 101], 'b-2': [100, 102] }, benchmark: [100, 100],
-    metricas: { 'a-1': {}, 'b-2': {} }, resumenes: { 'a-1': resumen('a-1'), 'b-2': resumen('b-2') } as never, ceteris_paribus: ceteris,
+    metricas: { 'a-1': { sharpe: 1.2, max_drawdown: -0.3, n_operaciones: 40 }, 'b-2': { sharpe: 0.4, max_drawdown: -0.1 } }, resumenes: { 'a-1': resumen('a-1'), 'b-2': resumen('b-2') } as never, ceteris_paribus: ceteris,
   }
   vi.stubGlobal('fetch', vi.fn(async (ruta: string) => {
     let cuerpo: unknown = { experimentos: [] }
-    if (ruta.startsWith('/api/comparar')) cuerpo = comparacion
+    if (ruta.startsWith('/api/comparar/series'))
+      cuerpo = {
+        indicador: 'turnover_rebalanceo', etiqueta: 'Turnover por rebalanceo', ids: ['a-1', 'b-2'], periodos_por_anio: 252, sin_dato: ['b-2'],
+        series: { 'a-1': { fechas: ['2020-01-02', '2020-01-03'], valores: [0.1, 0.2] }, 'b-2': { fechas: [], valores: [] } },
+      }
+    else if (ruta.startsWith('/api/comparar')) cuerpo = comparacion
     if (ruta.startsWith('/api/comparativas/')) {
       cuerpo = {
         id: 'cmp-1', id_marco: 'marco-x', marco: {}, creada: '',
@@ -39,11 +45,16 @@ function simularApi(ceteris: CeterisParibus, avisosMarco: string[] = []) {
   }))
 }
 
+function Ruta() {
+  const l = useLocation()
+  return <output aria-label="ruta">{l.search}</output>
+}
+
 function montar(url: string) {
   const cliente = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={cliente}>
-      <MemoryRouter initialEntries={[url]}><Comparar /></MemoryRouter>
+      <MemoryRouter initialEntries={[url]}><Comparar /><Ruta /></MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -74,5 +85,32 @@ describe('Comparar', () => {
     simularApi({ ok: true, diferencias: [] }, ['No se aplicó en momentum: ventana_dias (la estrategia no lo declara)'])
     montar('/comparar?ids=a-1,b-2&comparativa=cmp-1')
     expect(await screen.findByText(/No se aplicó en momentum: ventana_dias/)).toBeInTheDocument()
+  })
+
+  it('con un indicador escalar de la URL dibuja barras ordenadas y «sin dato» para quien no lo tiene', async () => {
+    simularApi({ ok: true, diferencias: [] })
+    montar('/comparar?ids=a-1,b-2&indicador=n_operaciones')
+    const figura = await screen.findByRole('figure', { name: 'Operaciones por experimento' })
+    const filas = Array.from(figura.querySelectorAll('li')).map((li) => li.getAttribute('aria-label'))
+    expect(filas).toEqual(['a-1: 40', 'b-2: sin dato'])
+    expect(screen.getByRole('radio', { name: 'Operaciones' })).toBeChecked()
+  })
+
+  it('cambiar de indicador actualiza la URL y conserva los ids', async () => {
+    simularApi({ ok: true, diferencias: [] })
+    montar('/comparar?ids=a-1,b-2')
+    await userEvent.click(await screen.findByRole('radio', { name: 'Sharpe' }))
+    expect(screen.getByLabelText('ruta').textContent).toContain('indicador=sharpe')
+    expect(screen.getByLabelText('ruta').textContent).toContain('ids=a-1%2Cb-2')
+    await userEvent.click(screen.getByRole('radio', { name: 'Equity base 100' }))
+    expect(screen.getByLabelText('ruta').textContent).not.toContain('indicador')
+  })
+
+  it('un indicador temporal pide la serie al servidor y avisa de los experimentos sin dato', async () => {
+    simularApi({ ok: true, diferencias: [] })
+    montar('/comparar?ids=a-1,b-2&indicador=turnover_rebalanceo')
+    expect(await screen.findByRole('img', { name: 'Turnover por rebalanceo (1 series)' })).toBeInTheDocument()
+    expect(screen.getByText(/Sin dato para Turnover por rebalanceo: b-2/)).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'Métricas lado a lado' })).toBeInTheDocument()
   })
 })

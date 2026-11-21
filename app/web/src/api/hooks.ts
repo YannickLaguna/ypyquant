@@ -27,6 +27,7 @@ import type {
   OrdenPaper,
   PeticionConfiguracion,
   PeticionMarco,
+  SeriesComparacion,
   PeticionPermutacion,
   PosicionPaper,
   RespuestaPermutacion,
@@ -82,6 +83,14 @@ export const useComparacion = (ids: string[]) =>
     queryKey: ['comparar', ids],
     queryFn: () => pedir<Comparacion>(`/api/comparar${querystring({ ids: ids.join(',') })}`),
     enabled: ids.length > 0,
+  })
+
+/** Serie temporal de un indicador por experimento (drawdown, Sharpe/volatilidad móvil, turnover); solo si `activo`. */
+export const useSeriesComparacion = (ids: string[], indicador: string, activo: boolean) =>
+  useQuery({
+    queryKey: ['comparar-series', ids, indicador],
+    queryFn: () => pedir<SeriesComparacion>(`/api/comparar/series${querystring({ ids: ids.join(','), indicador })}`),
+    enabled: activo && ids.length > 0,
   })
 
 export function useLanzarExperimento() {
