@@ -17,6 +17,7 @@ tipados que la UI convierte en formulario:
 - `robusta_elipsoide`, `robusta_caja`: media-varianza robusta a la incertidumbre en µ (conjunto
   elipsoidal de Goldfarb-Iyengar o de caja, `estimacion_robusta.elipsoide`); µ̂ muestral, Bayes-Stein
   o BL-prior y Σ Ledoit-Wolf. El radio sale de una `confianza` o se fija directo (`kappa` / `z`).
+- `senales_tecnicas` (en `senales_tecnicas.py`): puente con las señales técnicas heredadas, como `EstrategiaSenales`.
 - `preset_ypyquant`: adaptador genérico que envuelve cualquier preset de `optimization/presets`
   (markowitz, risk_parity, pmpt_*, tfm_*...). Algunos presets (capm, fama_french_4) necesitan
   datos externos (tasa libre, factores) y pueden fallar sin red.
@@ -36,6 +37,7 @@ import numpy as np
 import pandas as pd
 from pydantic import Field
 
+from ypyquant.estrategias import senales_tecnicas  # noqa: F401 - registra `senales_tecnicas` al importar este módulo
 from ypyquant.estrategias.base import MARGEN_SESIONES, Estrategia, ParametrosBase, matriz_cierres, matriz_volumen
 from ypyquant.estrategias.registro import registrar_estrategia
 from ypyquant.optimization.estimacion_robusta import (

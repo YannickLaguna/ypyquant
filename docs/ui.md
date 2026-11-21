@@ -55,6 +55,10 @@ class InversaVolatilidad(Estrategia):
 
 Ejemplo completo en `estrategias_usuario/ejemplo_inversa_volatilidad.py`. Ganchos opcionales: `preparar(datos)` (una vez, con todo el histórico: úsalo solo para cálculos causales), `semilla` (`self.semilla`, la fija el experimento) y `frecuencia_rebalanceo`. Los pesos se sanean (long-only, normalizados a 1).
 
+### Estrategias de reglas (entrada/salida)
+
+Si prefieres escribir reglas de compra y venta en vez de pesos, hereda de `EstrategiaSenales` (`ypyquant.estrategias.senales`): implementas `senal_entrada` y `senal_salida` (tablas booleanas causales) y la base aporta posiciones, stops (pérdida, trailing, take profit, tiempo), enfriamiento, tamaño y efectivo (`CASH`). Guía con ejemplo mínimo copiable y reglas para no engañarte: `docs/estrategias_senales.md`. Plantillas: `estrategias_usuario/cruce_medias.py` y `estrategias_usuario/canal_rsi_volatilidad.py`; puente heredado: `senales_tecnicas`. En el detalle del experimento, cada operación muestra su motivo.
+
 ## Arrancar
 
 ```bash
@@ -299,7 +303,8 @@ Reglas del bot en modo registro:
 
 ## Limitaciones conocidas
 
-- Long-only y sin efectivo parcial (el motor normaliza los pesos a 1).
+- Long-only. El efectivo parcial se expresa con el pseudo-ticker `CASH` (lo usan las estrategias de señales; la UI lo muestra como «Efectivo»).
+- Estrategias de señales: stops evaluados con el cierre diario (sin intradía ni gaps de apertura); las rejillas de barrido de la UI no admiten `null` (sin stop) en un parámetro opcional, solo la API.
 - Las validaciones del barrido (DSR, PBO, permutación) cuentan solo las combinaciones de la rejilla: si probaste más cosas a mano, N real es mayor (ver `docs/validacion.md`). El PBO-CSCV y el walk-forward sobre la matriz ignoran el coste de cambiar de combinación.
 - CPCV no está implementado (sí DSR, PBO-CSCV, rachas, permutación y walk-forward).
 - Sin autenticación: solo para `127.0.0.1`. El bot es hijo de la API; si la API muere en Windows puede seguir vivo.

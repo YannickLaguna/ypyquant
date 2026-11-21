@@ -4,7 +4,8 @@ Estrategias, experimentos y almacén de resultados de ypyquant.
 Responsabilidad: punto de entrada público del subpaquete. Reúne el contrato `Estrategia`, el
 registro con descubrimiento automático de estrategias de usuario, los experimentos
 reproducibles (`ConfiguracionExperimento` + `ejecutar_experimento`), el almacén Parquet/DuckDB y los
-barridos con su validación estadística (`barridos`, `validacion_barridos`, `reservado`).
+barridos con su validación estadística (`barridos`, `validacion_barridos`, `reservado`) y la base
+`EstrategiaSenales` para escribir reglas de entrada/salida (`senales`).
 
 Se relaciona con: portfolio.backtest_engine (motor), optimization (estimadores y presets),
 app/api (API FastAPI) y estrategias_usuario/ (estrategias propias descubiertas al arrancar).
@@ -21,10 +22,13 @@ from ypyquant.estrategias.registro import (
     obtener_estrategia,
     registrar_estrategia,
 )
+from ypyquant.estrategias.senales import EstrategiaSenales, ParametrosSenales
 
 __all__ = [
     "Estrategia",
+    "EstrategiaSenales",
     "ParametrosBase",
+    "ParametrosSenales",
     "codigo_fuente",
     "descubrir_estrategias_usuario",
     "listar_estrategias",

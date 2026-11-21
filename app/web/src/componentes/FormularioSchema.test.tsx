@@ -91,3 +91,28 @@ describe('validarValores / valoresPorDefecto', () => {
     expect(validarValores(ESQUEMA, { ...valoresPorDefecto(ESQUEMA), top_k: NaN }).top_k).toBe('Introduce un número')
   })
 })
+
+// Parámetros opcionales con valor por defecto nulo (p. ej. `stop_perdida: float | None = None` de las estrategias de señales)
+const ESQUEMA_OPCIONAL: EsquemaParametros = {
+  type: 'object',
+  properties: {
+    stop_perdida: { anyOf: [{ type: 'number', exclusiveMinimum: 0, exclusiveMaximum: 1 }, { type: 'null' as never }], title: 'Stop de pérdida', default: null },
+  },
+}
+
+describe('parámetros opcionales (anyOf con null)', () => {
+  it('un opcional vacío con defecto nulo es válido y el control se pinta vacío', () => {
+    expect(validarValores(ESQUEMA_OPCIONAL, valoresPorDefecto(ESQUEMA_OPCIONAL))).toEqual({})
+    render(<FormularioSchema esquema={ESQUEMA_OPCIONAL} valores={{ stop_perdida: null }} onChange={() => {}} />)
+    expect(screen.getByLabelText('Stop de pérdida')).toHaveValue(null)
+  })
+
+  it('al vaciar un opcional se envía null (no NaN) y se vuelve a validar el límite al escribir', async () => {
+    const alCambiar = vi.fn()
+    render(<FormularioSchema esquema={ESQUEMA_OPCIONAL} valores={{ stop_perdida: 0.1 }} onChange={alCambiar} />)
+    const usuario = userEvent.setup()
+    await usuario.clear(screen.getByLabelText('Stop de pérdida'))
+    expect(alCambiar).toHaveBeenLastCalledWith({ stop_perdida: null })
+    expect(validarValores(ESQUEMA_OPCIONAL, { stop_perdida: 1.5 }).stop_perdida).toBe('Debe ser menor que 1')
+  })
+})

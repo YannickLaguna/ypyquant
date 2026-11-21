@@ -121,6 +121,8 @@ export interface OperacionFila {
   precio: number
   comision: number
   pnl: number | null
+  /** Solo en estrategias de señales: por qué se operó (`senal`, `stop_perdida`... o `ajuste`). */
+  motivo?: string | null
 }
 
 export interface ConfiguracionExperimento {
