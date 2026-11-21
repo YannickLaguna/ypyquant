@@ -21,6 +21,7 @@ import { Kpi } from '../componentes/Piezas'
 import ProcedenciaExperimento from '../componentes/ProcedenciaExperimento'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, dinero, entero, fechaCorta, porcentaje, ratio, resumenParametros, resumenUniverso } from '../lib/formato'
+import { etiquetaMotivo, resumenMotivos } from '../lib/senales'
 import { colorToken } from '../lib/tema'
 import { costesAltos } from '../lib/barridos'
 
@@ -114,6 +115,10 @@ export default function ExperimentoDetalle() {
     { clave: 'comision', titulo: 'Comisión', alinear: 'der', valor: (o) => o.comision, render: (o) => dinero(o.comision, 2) },
     { clave: 'pnl', titulo: 'PnL', alinear: 'der', valor: (o) => o.pnl, render: (o) => <span className={claseSigno(o.pnl)}>{dinero(o.pnl, 2)}</span> },
   ]
+  // Estrategias de señales: cada operación trae su motivo (señal, stop, tiempo...) y se resume arriba de la tabla
+  const resumenSenales = resumenMotivos(data.operaciones)
+  if (resumenSenales)
+    columnasOperaciones.splice(3, 0, { clave: 'motivo', titulo: 'Motivo', valor: (o) => etiquetaMotivo(o.motivo), render: (o) => etiquetaMotivo(o.motivo) })
 
   const eliminar = () => {
     if (window.confirm(`¿Borrar el experimento ${data.id}?`)) borrar.mutate(data.id, { onSuccess: () => navegar('/experimentos') })
@@ -234,6 +239,13 @@ export default function ExperimentoDetalle() {
 
           <section aria-labelledby="h-ops" className="space-y-2">
             <h2 id="h-ops">Operaciones ({entero(data.operaciones.length)})</h2>
+            {resumenSenales && (
+              <p className="text-xs text-suave" data-testid="resumen-senales">
+                {entero(resumenSenales.entradas)} entradas · {entero(resumenSenales.salidas)} salidas
+                {Object.entries(resumenSenales.porMotivo).map(([m, n]) => ` · ${etiquetaMotivo(m).toLowerCase()}: ${entero(n)}`).join('')}
+                {resumenSenales.ajustes > 0 && ` · ${entero(resumenSenales.ajustes)} ajustes por deriva`}
+              </p>
+            )}
             <TablaOrdenable titulo="Operaciones" columnas={columnasOperaciones} filas={data.operaciones} clave={(o) => `${o.fecha}-${o.ticker}-${o.lado}-${o.cantidad}`} vacio="Sin operaciones" filasVisibles={FILAS_OPERACIONES} />
           </section>
         </>

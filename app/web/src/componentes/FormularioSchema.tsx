@@ -1,7 +1,7 @@
 /**
  * Formulario autogenerado desde el JSON Schema de los parámetros de una estrategia.
  * Responsabilidad: por cada propiedad del esquema (integer, number, boolean, string, enum) pinta el
- * control adecuado con etiqueta, descripción y límites (minimum/maximum); `valoresPorDefecto` y
+ * control adecuado con etiqueta, descripción y límites (minimum/maximum); los parámetros opcionales (`anyOf` con null) pueden quedar vacíos y se envían como null; `valoresPorDefecto` y
  * `validarValores` permiten inicializar y comprobar antes de enviar.
  * Se relaciona con: paginas/EstrategiaDetalle.tsx y paginas/PaperTrading.tsx (lo usan), api/tipos.ts.
  */
@@ -16,6 +16,11 @@ export function resolver(propiedad: EsquemaPropiedad): EsquemaPropiedad {
     return { ...util, ...propiedad, type: util?.type ?? propiedad.type }
   }
   return propiedad
+}
+
+/** True si el parámetro admite `null` (`anyOf` con tipo nulo): un opcional vacío es válido y se envía como null. */
+export function esOpcional(propiedad: EsquemaPropiedad): boolean {
+  return Boolean(propiedad.anyOf?.some((p) => (p.type as string) === 'null'))
 }
 
 export function valoresPorDefecto(esquema: EsquemaParametros): Valores {
@@ -37,6 +42,7 @@ export function validarValores(esquema: EsquemaParametros, valores: Valores): Re
     const propiedad = resolver(bruta)
     const valor = valores[nombre]
     if (propiedad.type === 'integer' || propiedad.type === 'number') {
+      if (esOpcional(bruta) && (valor === null || valor === undefined || (typeof valor === 'number' && Number.isNaN(valor)))) continue
       if (typeof valor !== 'number' || Number.isNaN(valor)) {
         errores[nombre] = 'Introduce un número'
         continue
@@ -46,6 +52,8 @@ export function validarValores(esquema: EsquemaParametros, valores: Valores): Re
       else if (propiedad.maximum !== undefined && valor > propiedad.maximum) errores[nombre] = `Máximo ${propiedad.maximum}`
       else if (propiedad.exclusiveMinimum !== undefined && valor <= propiedad.exclusiveMinimum)
         errores[nombre] = `Debe ser mayor que ${propiedad.exclusiveMinimum}`
+      else if (propiedad.exclusiveMaximum !== undefined && valor >= propiedad.exclusiveMaximum)
+        errores[nombre] = `Debe ser menor que ${propiedad.exclusiveMaximum}`
     } else if (propiedad.type === 'string' && (valor === undefined || valor === '') && !propiedad.enum) {
       errores[nombre] = 'Obligatorio'
     }
@@ -104,7 +112,7 @@ export default function FormularioSchema({ esquema, valores, onChange, idBase = 
             <input id={id} type="number" className="campo num" value={typeof valor === 'number' && !Number.isNaN(valor) ? valor : ''}
               min={p.minimum} max={p.maximum} step={p.type === 'integer' ? 1 : 'any'} aria-invalid={!!error}
               aria-describedby={idAyuda}
-              onChange={(e) => cambiar(nombre, e.target.value === '' ? NaN : Number(e.target.value))} />
+              onChange={(e) => cambiar(nombre, e.target.value === '' ? (esOpcional(bruta) ? null : NaN) : Number(e.target.value))} />
           )
         } else {
           control = (

@@ -23,6 +23,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PesoFila } from '../api/tipos'
 import { porcentaje } from '../lib/formato'
+import { nombreCapa } from '../lib/senales'
 import { colorToken, PALETA_SERIES } from '../lib/tema'
 
 export interface PuntoSerie {
@@ -198,7 +199,7 @@ export function GraficoPesos({ pesos }: { pesos: PesoFila[] }) {
         {poligonos.map((p) => (
           <span key={p.capa} className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded-sm" style={{ background: p.color }} aria-hidden />
-            {p.capa}
+            {nombreCapa(p.capa)}
           </span>
         ))}
       </figcaption>
@@ -212,7 +213,7 @@ export function GraficoPesos({ pesos }: { pesos: PesoFila[] }) {
       <p className="num mt-2 text-xs text-suave" aria-live="polite">
         <span className="text-texto">{fechas[sel]}</span>
         {' — '}
-        {capas.filter((c) => tabla[sel][c] > 0.0005).map((c) => `${c} ${porcentaje(tabla[sel][c], 1)}`).join(' · ')}
+        {capas.filter((c) => tabla[sel][c] > 0.0005).map((c) => `${nombreCapa(c)} ${porcentaje(tabla[sel][c], 1)}`).join(' · ')}
       </p>
     </figure>
   )
