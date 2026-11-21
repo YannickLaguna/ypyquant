@@ -52,6 +52,7 @@ from ypyquant.optimization.data_preprocessing import (
     anualizar_retorno_medio,
     anualizar_volatilidad,
 )
+from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_riesgo, var_cvar_historicos
 from ypyquant.optimization.portfolio_models import (
     BayesSteinReturnsModel,
     BlackLittermanReturnsModel,
@@ -202,19 +203,10 @@ def optimizar_max_sharpe_pypfopt(
 
 
 def optimizar_risk_parity(cov_anual: pd.DataFrame, restricciones: dict | None = None) -> np.ndarray:
-    """Paridad de riesgo: contribuciones al riesgo iguales (mínimos cuadrados, SLSQP)."""
-    n = len(cov_anual)
-
-    def objetivo(pesos):
-        vol = np.sqrt(np.dot(pesos.T, np.dot(cov_anual, pesos)))
-        contribucion = pesos * (np.dot(cov_anual, pesos) / vol)
-        return np.sum((contribucion - vol / n) ** 2)
-
-    resultado = minimize(
-        objetivo, _pesos_iguales(n), method='SLSQP', bounds=_limites(n, restricciones),
-        constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}],
-    )
-    return resultado.x
+    """Paridad de riesgo: contribuciones al riesgo iguales (delega en `estimacion_robusta.riesgo`)."""
+    max_peso = restricciones.get('max_weight', 1.0) if restricciones else 1.0
+    pesos, _ = optimizar_paridad_riesgo(cov_anual, max_peso)
+    return pesos
 
 
 def optimizar_portafolio(
@@ -529,13 +521,9 @@ def calcular_cvar(
     Returns:
         {cvar, var, cvar_horizon, shortfall_risk, interpretation, tail_mean, confidence_level}
     """
-    retornos_cartera = (retornos_df * weights).sum(axis=1)
-    if target_return is not None:
-        retornos_cartera = retornos_cartera - target_return / _DIAS
-
-    var = np.percentile(retornos_cartera, (1 - confidence_level) * 100)
-    cola = retornos_cartera[retornos_cartera <= var]
-    cvar_diario = var if len(cola) == 0 else cola.mean()
+    var, cvar_diario = var_cvar_historicos(
+        retornos_df, weights, confidence_level, target_return / _DIAS if target_return is not None else 0.0
+    )
 
     cvar_anual = float(cvar_diario * np.sqrt(_DIAS))
     var_anual = float(var * np.sqrt(_DIAS))

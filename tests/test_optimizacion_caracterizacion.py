@@ -58,10 +58,20 @@ def _dif(a, b) -> float:
 
 
 @pytest.fixture(autouse=True)
-def _sin_avisos():
+def _aislar_cache_qp():
+    """
+    Silencia avisos y vacía la caché de problemas QP antes y después de cada test: el QP usa
+    `warm_start`, así que su resultado depende (en decimales lejanos) de las llamadas previas del
+    proceso, y estos tests no deben alterar el estado con el que corren los demás (p. ej. la
+    reproducibilidad de Michaud en tests/test_estimacion_robusta.py).
+    """
+    from ypyquant.optimization.estimacion_robusta import max_sharpe_qp
+
+    max_sharpe_qp._CACHE_QP.clear()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         yield
+    max_sharpe_qp._CACHE_QP.clear()
 
 
 # ---------------------------------------------------------------------------------------

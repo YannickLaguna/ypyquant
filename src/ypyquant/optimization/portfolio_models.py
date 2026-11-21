@@ -40,6 +40,7 @@ from ypyquant.optimization.estimacion_robusta.estimadores_mu import (
     estimar_mu_michaud,
 )
 from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe, optimizar_volatilidad_objetivo
+from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_riesgo, var_cvar_historicos
 from ypyquant.optimization.estimacion_robusta.sigma import estimar_sigma_ledoit_wolf
 from ypyquant.optimization.estimacion_robusta.w_mercado import CapitalizacionEstatica, pesos_mercado
 
@@ -856,34 +857,9 @@ class RiskParityOptimizer(PortfolioOptimizer):
     ) -> dict:
         self.validate_inputs(expected_returns, risk_matrix)
 
-        from scipy.optimize import minimize
-
-        num_assets = len(expected_returns)
-
-        def risk_parity_objective(weights):
-            portfolio_vol = np.sqrt(np.dot(weights.T, np.dot(risk_matrix, weights)))
-            if portfolio_vol == 0:
-                return 1e10
-            marginal_contrib = np.dot(risk_matrix, weights) / portfolio_vol
-            risk_contrib = weights * marginal_contrib
-            target_risk = portfolio_vol / num_assets
-            return np.sum((risk_contrib - target_risk) ** 2)
-
-        constraints_list = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
         max_weight = constraints.get('max_weight', 1.0) if constraints else 1.0
-        bounds = tuple((0, max_weight) for _ in range(num_assets))
-        initial_weights = np.array([1/num_assets] * num_assets)
+        weights, result = optimizar_paridad_riesgo(risk_matrix, max_weight, maxiter=1000)
 
-        result = minimize(
-            risk_parity_objective,
-            initial_weights,
-            method='SLSQP',
-            bounds=bounds,
-            constraints=constraints_list,
-            options={'maxiter': 1000}
-        )
-
-        weights = result.x
         metrics = self.calculate_metrics(weights, expected_returns, risk_matrix)
 
         return {
@@ -1182,13 +1158,8 @@ class PMPTMinCVaROptimizer(PortfolioOptimizer):
         T: Retornos del portafolio → percentil (1-α)% → media de la cola inferior.
         O: float — CVaR (negativo = pérdida).
         """
-        retornos_portafolio = (retornos_hist * pesos).sum(axis=1)
-        percentil = (1 - self.nivel_confianza) * 100
-        var = np.percentile(retornos_portafolio, percentil)
-        cola = retornos_portafolio[retornos_portafolio <= var]
-        if len(cola) == 0:
-            return var
-        return float(cola.mean())
+        _, cvar = var_cvar_historicos(retornos_hist, pesos, self.nivel_confianza)
+        return float(cvar)
 
     def optimize(
         self,

@@ -6,6 +6,7 @@ Responsabilidad: punto de entrada público del subpaquete. Agrupa funciones pura
 - sigma.py:           Σ Ledoit-Wolf.
 - estimadores_mu.py:  µ muestral, Bayes-Stein, BL-prior, BL-momentum, Michaud (+ diagnósticos).
 - max_sharpe_qp.py:   max-Sharpe long-only vía QP exacto con cascada de respaldo.
+- riesgo.py:          VaR/CVaR históricos y paridad de riesgo (única implementación, compartida con portfolio_models y optimizador_portafolio).
 - elipsoide.py:       optimización robusta con incertidumbre elipsoidal / de caja en µ (SOCP).
 - universo.py:        prioridad aleatoria, universos anidados y elegibilidad point-in-time.
 - w_mercado.py:       w_mkt por capitalización inyectada o proxy por volumen.
@@ -51,6 +52,7 @@ from ypyquant.optimization.estimacion_robusta.rejilla import (
     ejecutar_replica,
     preparar_panel,
 )
+from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_riesgo, var_cvar_historicos
 from ypyquant.optimization.estimacion_robusta.sigma import estimar_sigma_ledoit_wolf
 from ypyquant.optimization.estimacion_robusta.universo import (
     construir_mascara_membresia,
@@ -96,6 +98,7 @@ __all__ = [
     "matriz_incertidumbre",
     "optimizar_max_sharpe",
     "optimizar_min_varianza",
+    "optimizar_paridad_riesgo",
     "optimizar_robusto_caja",
     "optimizar_robusto_elipsoide",
     "optimizar_volatilidad_objetivo",
@@ -103,5 +106,6 @@ __all__ = [
     "preparar_panel",
     "seed_para",
     "seleccionar_universo_anidado",
+    "var_cvar_historicos",
     "z_confianza",
 ]
