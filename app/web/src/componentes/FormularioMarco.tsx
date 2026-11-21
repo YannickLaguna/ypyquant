@@ -15,12 +15,14 @@ import { interpretarUniverso } from '../paginas/EstrategiaDetalle'
 interface Props {
   /** Marco a editar; sin él se crea uno nuevo con valores sugeridos. */
   marco?: Marco
+  /** Valores iniciales para un marco nuevo (p. ej. copiados de un experimento); el nombre sigue siendo editable. */
+  inicial?: PeticionMarco
   alGuardar: (marco: PeticionMarco) => void
   guardando?: boolean
   textoBoton?: string
 }
 
-function comunesIniciales(marco?: Marco): EstadoComunes {
+function comunesIniciales(marco?: Marco | PeticionMarco): EstadoComunes {
   const estado: EstadoComunes = {}
   for (const c of COMUNES) {
     const valor = marco?.parametros_comunes[c.nombre]
@@ -29,11 +31,20 @@ function comunesIniciales(marco?: Marco): EstadoComunes {
   return estado
 }
 
-export default function FormularioMarco({ marco, alGuardar, guardando = false, textoBoton = 'Guardar marco' }: Props) {
+/** Texto del campo universo: la etiqueta del marco (p. ej. `sp500:30`), la lista de tickers o el nombre; `sp500_pit` por defecto. */
+function textoUniverso(marco?: Marco | PeticionMarco): string {
+  if (!marco) return 'sp500_pit'
+  if ('universo_etiqueta' in marco && marco.universo_etiqueta) return marco.universo_etiqueta
+  return Array.isArray(marco.universo) ? marco.universo.join(', ') : marco.universo
+}
+
+export default function FormularioMarco({ marco: editado, inicial, alGuardar, guardando = false, textoBoton = 'Guardar marco' }: Props) {
+  // Valores de partida: el marco que se edita o, al crear, los iniciales sugeridos.
+  const marco: (Marco | PeticionMarco) | undefined = editado ?? inicial
   const { data: universos } = useUniversos()
   const [nombre, setNombre] = useState(marco?.nombre ?? '')
   const [notas, setNotas] = useState(marco?.notas ?? '')
-  const [universo, setUniverso] = useState(marco ? (marco.universo_etiqueta ?? (Array.isArray(marco.universo) ? marco.universo.join(', ') : marco.universo)) : 'sp500_pit')
+  const [universo, setUniverso] = useState<string>(textoUniverso(marco))
   const [inicio, setInicio] = useState(marco?.fecha_inicio ?? '2015-01-01')
   const [fin, setFin] = useState(marco?.fecha_fin ?? '2024-12-31')
   const [frecuencia, setFrecuencia] = useState<Frecuencia | ''>(marco ? (marco.frecuencia_rebalanceo ?? '') : 'monthly')
@@ -72,7 +83,7 @@ export default function FormularioMarco({ marco, alGuardar, guardando = false, t
         <div role="alert" className="rounded-lg border border-neg/50 bg-neg/10 p-3 text-neg">{errores.map((m) => <p key={m}>{m}</p>)}</div>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Campo id="marco-nombre" etiqueta="Nombre"><input id="marco-nombre" className="campo" value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!!marco} /></Campo>
+        <Campo id="marco-nombre" etiqueta="Nombre"><input id="marco-nombre" className="campo" value={nombre} onChange={(e) => setNombre(e.target.value)} disabled={!!editado} /></Campo>
         <Campo id="marco-notas" etiqueta="Notas"><input id="marco-notas" className="campo" value={notas} onChange={(e) => setNotas(e.target.value)} /></Campo>
         <div className="sm:col-span-2">
           <label htmlFor="marco-universo" className="font-medium">Universo</label>

@@ -137,6 +137,8 @@ export interface ConfiguracionExperimento {
   frecuencia_rebalanceo: Frecuencia | null
   benchmark: string
   semilla: number
+  /** Días naturales de historia previa a `fecha_inicio` (defecto del motor: 1100). */
+  dias_historia_previa?: number
   etiqueta?: string
 }
 

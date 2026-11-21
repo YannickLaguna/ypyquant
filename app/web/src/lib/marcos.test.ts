@@ -3,8 +3,8 @@
  * Se relaciona con: lib/marcos.ts, componentes/FormularioMarco.tsx y paginas/Comparar.tsx.
  */
 import { describe, expect, it } from 'vitest'
-import type { EsquemaParametros } from '../api/tipos'
-import { COMUNES, comunesActivos, comunesDeConfiguracion, esquemaSinComunes, parametrosPropios, resumenDiferencias } from './marcos'
+import type { ConfiguracionExperimento, EsquemaParametros } from '../api/tipos'
+import { COMUNES, comunesActivos, comunesDeConfiguracion, esquemaSinComunes, marcoDesdeExperimento, parametrosPropios, resumenDiferencias } from './marcos'
 
 describe('resumenDiferencias', () => {
   it('es null cuando no hay diferencias', () => {
@@ -62,5 +62,31 @@ describe('parámetros comunes de una configuración', () => {
 
   it('parametrosPropios deja los que no son del entorno, para la propia estrategia', () => {
     expect(parametrosPropios(parametros)).toEqual({ delta: 18, kappa: 0 })
+  })
+})
+
+describe('marcoDesdeExperimento', () => {
+  const config: ConfiguracionExperimento = {
+    estrategia: 'bayes_stein',
+    parametros: { ventana_dias: 504, peso_maximo: 0.2, frecuencia_estimacion: 'mensual', n_replicas: 50 },
+    universo: 'sp500_pit', fecha_inicio: '2015-01-01', fecha_fin: '2024-12-31', capital_inicial: 50000,
+    comision: 0.002, slippage: 0.0005, frecuencia_rebalanceo: 'monthly', benchmark: 'SPY', semilla: 7,
+    dias_historia_previa: 1500,
+  }
+
+  it('copia el entorno del experimento y solo los parámetros comunes', () => {
+    const marco = marcoDesdeExperimento(config, 'bayes_stein-abc1234567')
+    expect(marco).toMatchObject({
+      universo: 'sp500_pit', fecha_inicio: '2015-01-01', fecha_fin: '2024-12-31', frecuencia_rebalanceo: 'monthly',
+      comision: 0.002, slippage: 0.0005, benchmark: 'SPY', capital_inicial: 50000, semilla: 7, dias_historia_previa: 1500,
+    })
+    expect(marco.parametros_comunes).toEqual({ ventana_dias: 504, peso_maximo: 0.2, frecuencia_estimacion: 'mensual' })
+    expect(marco.nombre).toContain('bayes_stein')
+    expect(marco.notas).toContain('bayes_stein-abc1234567')
+  })
+
+  it('sin historia previa en la config usa el defecto del motor', () => {
+    const { dias_historia_previa: _omitido, ...sinHistoria } = config
+    expect(marcoDesdeExperimento(sinHistoria, 'x').dias_historia_previa).toBe(1100)
   })
 })

@@ -6,7 +6,7 @@
  * Se relaciona con: componentes/FormularioMarco.tsx, componentes/LanzadorComparativa.tsx, paginas/Comparar.tsx
  * y api/tipos.ts (contratos); la lógica de fondo está en ypyquant.estrategias.marcos (Python).
  */
-import type { DiferenciaCeterisParibus, EsquemaParametros } from '../api/tipos'
+import type { ConfiguracionExperimento, DiferenciaCeterisParibus, EsquemaParametros, PeticionMarco } from '../api/tipos'
 
 export interface ComunSugerido {
   nombre: string
@@ -71,4 +71,27 @@ export function resumenDiferencias(diferencias: DiferenciaCeterisParibus[] | und
   const partes = diferencias.map((d) => (d.tipo === 'comun' ? `el parámetro común ${d.campo}` : (ETIQUETAS_CAMPO[d.campo] ?? d.campo)))
   const lista = partes.length === 1 ? partes[0] : `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
   return `No es ceteris paribus: ${partes.length === 1 ? 'difiere' : 'difieren'} ${lista}.`
+}
+
+/**
+ * Marco sugerido a partir de un experimento: copia su entorno (universo, fechas, rebalanceo, costes, benchmark,
+ * capital, semilla, historia previa) y solo sus parámetros comunes; los propios de la estrategia no forman parte
+ * del marco. Sirve para «Crear marco desde este experimento» y comparar otras estrategias en su mismo entorno.
+ */
+export function marcoDesdeExperimento(config: ConfiguracionExperimento, idExperimento: string): PeticionMarco {
+  return {
+    nombre: `Marco de ${config.estrategia} ${config.fecha_inicio.slice(0, 4)}-${config.fecha_fin.slice(0, 4)}`,
+    notas: `Entorno copiado del experimento ${idExperimento}`,
+    universo: config.universo,
+    fecha_inicio: config.fecha_inicio,
+    fecha_fin: config.fecha_fin,
+    frecuencia_rebalanceo: config.frecuencia_rebalanceo,
+    comision: config.comision,
+    slippage: config.slippage,
+    benchmark: config.benchmark,
+    capital_inicial: config.capital_inicial,
+    semilla: config.semilla,
+    dias_historia_previa: config.dias_historia_previa ?? 1100,
+    parametros_comunes: comunesDeConfiguracion(config.parametros),
+  }
 }

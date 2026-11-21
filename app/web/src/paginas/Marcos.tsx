@@ -5,20 +5,29 @@
  * estrategia (ceteris paribus). Es una página propia (no una sección de Configuraciones) porque tiene su flujo:
  * definir el entorno -> elegir estrategias -> comparar, y porque un marco agrupa muchas estrategias mientras una
  * configuración es una sola receta.
- * Se relaciona con: componentes/FormularioMarco.tsx, paginas/MarcoDetalle.tsx, api/hooks.ts (useMarcos, useGuardarMarco).
+ * Con `?desde=<id de experimento>` abre el alta con el entorno de ese experimento precargado (lib/marcos.ts,
+ * marcoDesdeExperimento); viene del botón «Crear marco desde este experimento» de ExperimentoDetalle.
+ * Se relaciona con: componentes/FormularioMarco.tsx, paginas/MarcoDetalle.tsx, api/hooks.ts (useMarcos, useGuardarMarco, useExperimento).
  */
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useGuardarMarco, useMarcos } from '../api/hooks'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useExperimento, useGuardarMarco, useMarcos } from '../api/hooks'
 import { CajaError, Cargando, Vacio } from '../componentes/Estado'
 import FormularioMarco from '../componentes/FormularioMarco'
 import { fechaCorta, resumenUniverso } from '../lib/formato'
+import { marcoDesdeExperimento } from '../lib/marcos'
 
 export default function Marcos() {
   const navegar = useNavigate()
   const { data, isPending, error } = useMarcos()
   const guardar = useGuardarMarco()
-  const [nuevo, setNuevo] = useState(false)
+  const [parametrosUrl] = useSearchParams()
+  const desde = parametrosUrl.get('desde') ?? undefined
+  const { data: experimento, error: errorExperimento } = useExperimento(desde)
+  const [nuevo, setNuevo] = useState(Boolean(desde))
+  const inicial = experimento?.config ? marcoDesdeExperimento(experimento.config, experimento.id) : undefined
+  // Con `?desde=` se espera al experimento para montar el formulario ya precargado.
+  const esperandoExperimento = Boolean(desde) && !experimento && !errorExperimento
 
   return (
     <div className="space-y-5">
@@ -37,7 +46,9 @@ export default function Marcos() {
         <section aria-labelledby="h-nuevo-marco" className="space-y-2">
           <h2 id="h-nuevo-marco">Nuevo marco</h2>
           {guardar.error && <CajaError error={guardar.error} titulo="No se pudo guardar el marco" />}
-          <FormularioMarco guardando={guardar.isPending} textoBoton="Crear marco" alGuardar={(marco) => guardar.mutate({ marco }, { onSuccess: (m) => navegar(`/marcos/${m.id}`) })} />
+          {desde && <p className="text-sm text-suave">Entorno copiado del experimento <Link to={`/experimentos/${desde}`} className="text-acento underline">{desde}</Link>; revísalo y crea el marco. Después, en su detalle, añade las estrategias a comparar.</p>}
+          {errorExperimento && <CajaError error={errorExperimento} titulo="No se pudo leer el experimento de origen" />}
+          {esperandoExperimento ? <Cargando texto="Leyendo el experimento…" /> : <FormularioMarco key={inicial ? desde : 'vacio'} inicial={inicial} guardando={guardar.isPending} textoBoton="Crear marco" alGuardar={(marco) => guardar.mutate({ marco }, { onSuccess: (m) => navegar(`/marcos/${m.id}`) })} />}
         </section>
       )}
 

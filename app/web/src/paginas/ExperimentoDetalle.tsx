@@ -4,7 +4,8 @@
  * Responsabilidad: mostrar los estados pendiente/en curso (sondeo automático), error (con traza) y
  * hecho; permitir borrar el experimento; mostrar la procedencia (commit, versiones, hash de datos) en
  * un bloque plegable y las métricas de coste/riesgo (Ulcer, Martin, costes sobre ganancia bruta).
- * «Guardar como configuración» congela la receta del experimento (ver componentes/GuardarConfiguracion.tsx).
+ * «Crear marco desde este experimento» abre Marcos con su entorno precargado (universo, fechas, rebalanceo, costes,
+ * parámetros comunes) para lanzar otras estrategias en las mismas condiciones (ver lib/marcos.ts, marcoDesdeExperimento).
  * Los experimentos importados del TFM (estrategia `tfm_*`) llevan la insignia «TFM · importado» y una
  * nota de solo lectura; esta página no ofrece relanzar ningún experimento.
  * Se relaciona con: api/hooks.ts (useExperimento, useBorrarExperimento), componentes/Graficos.tsx,
@@ -16,7 +17,6 @@ import { useBorrarExperimento, useExperimento } from '../api/hooks'
 import type { OperacionFila } from '../api/tipos'
 import { CajaError, Cargando, esImportadoTfm, Insignia, InsigniaTfm } from '../componentes/Estado'
 import { GraficoPesos, GraficoSeries, type MarcaGrafico, type SerieGrafico } from '../componentes/Graficos'
-import GuardarConfiguracion from '../componentes/GuardarConfiguracion'
 import { Kpi } from '../componentes/Piezas'
 import ProcedenciaExperimento from '../componentes/ProcedenciaExperimento'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
@@ -65,7 +65,6 @@ export default function ExperimentoDetalle() {
   const { data, isPending, error } = useExperimento(id)
   const borrar = useBorrarExperimento()
   const [verMarcas, setVerMarcas] = useState(false)
-  const [guardando, setGuardando] = useState(false)
 
   const series = useMemo<SerieGrafico[]>(() => {
     if (!data) return []
@@ -141,19 +140,13 @@ export default function ExperimentoDetalle() {
         </div>
         <div className="flex gap-2">
           {data.estado === 'hecho' && !esImportadoTfm(data.estrategia) && (
-            <button type="button" className="boton" onClick={() => setGuardando((v) => !v)} aria-expanded={guardando}>Guardar como configuración</button>
+            <Link to={`/marcos?desde=${encodeURIComponent(data.id)}`} className="boton" title="Lanza otras estrategias con el mismo universo, fechas, rebalanceo, costes y parámetros comunes">
+              Crear marco desde este experimento
+            </Link>
           )}
           <button type="button" className="boton boton-peligro" onClick={eliminar} disabled={borrar.isPending}>Borrar</button>
         </div>
       </header>
-
-      {guardando && (
-        <GuardarConfiguracion
-          fuente={{ tipo: 'experimento', id: data.id }}
-          nombreSugerido={`${data.estrategia} ${resumenParametros(data.parametros)}`.slice(0, 120)}
-          alCerrar={() => setGuardando(false)}
-        />
-      )}
 
       {esImportadoTfm(data.estrategia) && (
         <p role="note" className="rounded-lg border border-borde p-3 text-sm text-suave">

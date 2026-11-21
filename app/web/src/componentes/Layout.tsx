@@ -12,7 +12,6 @@ const ENLACES = [
   { a: '/estrategias', texto: 'Estrategias' },
   { a: '/experimentos', texto: 'Experimentos' },
   { a: '/barridos', texto: 'Barridos' },
-  { a: '/configuraciones', texto: 'Configuraciones' },
   { a: '/marcos', texto: 'Marcos' },
   { a: '/comparar', texto: 'Comparar' },
   { a: '/paper', texto: 'Paper trading' },
