@@ -68,7 +68,8 @@ def test_las_estrategias_de_ejemplo_aparecen_en_el_registro_con_formulario():
         propiedades = nombres[nombre]["parametros_schema"]["properties"]
         assert {"max_posiciones", "stop_perdida", "stop_trailing", "enfriamiento_dias"} <= set(propiedades)
         assert nombres[nombre]["frecuencia_rebalanceo"] == "daily"
-    assert nombres["cruce_medias"]["origen"] == "usuario"
+    # (`origen` depende del orden de los tests si otro recarga el registro; el módulo identifica el archivo de usuario)
+    assert registro.obtener_estrategia("cruce_medias").__module__ == "estrategia_usuario_cruce_medias"
     assert nombres["senales_tecnicas"]["origen"] == "incluida"
     assert {"rapida", "lenta"} <= set(nombres["cruce_medias"]["parametros_schema"]["properties"])
 
