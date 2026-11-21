@@ -281,7 +281,15 @@ class AlmacenMarcos:
             if not (carpeta / "marco.json").exists():
                 raise KeyError(marco.id)
             anterior = MarcoComparacion(**_leer_json(carpeta / "marco.json"))
-            _escribir_json(carpeta / "marco.json", marco.model_copy(update={"creado": anterior.creado}).model_dump())
+            cambios: dict = {"creado": anterior.creado}
+            # El formulario de marcos no envía el vínculo con la configuración de origen: si falta, se conserva.
+            if marco.id_configuracion is None:
+                cambios |= {
+                    "id_configuracion": anterior.id_configuracion,
+                    "version_configuracion": anterior.version_configuracion,
+                }
+            marco = marco.model_copy(update=cambios)
+            _escribir_json(carpeta / "marco.json", marco.model_dump())
         return marco
 
     def leer(self, id_marco: str) -> MarcoComparacion:

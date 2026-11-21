@@ -270,3 +270,13 @@ def test_fechas_por_defecto_prioriza_marco_luego_origen_y_luego_cinco_anios():
     con_origen = sin_fechas.model_copy(update={"origen": OrigenConfiguracion(tipo="experimento", fechas=["2018-01-01", "2024-12-31"])})
     assert fechas_por_defecto(con_origen, None, hoy) == ("2018-01-01", "2024-12-31")
     assert fechas_por_defecto(con_origen, _marco(), hoy) == ("2020-01-01", "2021-12-31")
+
+
+def test_actualizar_conserva_el_vinculo_con_la_configuracion_si_no_se_envia(tmp_path):
+    """El formulario de marcos no manda `id_configuracion`: editarlo a mano no debe romper el vínculo."""
+    almacen = AlmacenMarcos(tmp_path)
+    almacen.guardar(_marco(id_configuracion="cfg-receta", version_configuracion=2))
+    actualizado = almacen.actualizar(_marco(comision=0.002))
+    assert (actualizado.id_configuracion, actualizado.version_configuracion) == ("cfg-receta", 2)
+    leido = almacen.leer(actualizado.id)
+    assert (leido.id_configuracion, leido.version_configuracion, leido.comision) == ("cfg-receta", 2, 0.002)
