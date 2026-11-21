@@ -177,6 +177,16 @@ export interface Comparacion {
   ceteris_paribus?: CeterisParibus
 }
 
+/** Respuesta de `GET /api/comparar/series`: una serie por experimento (cada una con sus fechas) y los que no tienen dato. */
+export interface SeriesComparacion {
+  indicador: string
+  etiqueta: string
+  ids: string[]
+  periodos_por_anio: number
+  series: Record<string, { fechas: string[]; valores: (number | null)[] }>
+  sin_dato: string[]
+}
+
 export interface CuentaPaper {
   numero: string | null
   estado: string | null
@@ -535,6 +545,10 @@ export interface DetalleConfiguracion {
   versiones: VersionConfiguracion[]
   marco: Marco | null
   backtests: ResumenExperimento[]
+  /** [inicio, fin] propuestos para lanzar contra otras estrategias (marco, experimento de origen o últimos 5 años). */
+  fechas_sugeridas: [string, string]
+  /** Comparativas lanzadas desde esta configuración (todas sus versiones). */
+  comparativas: Comparativa[]
 }
 
 /** Fuente de una nueva configuración: exactamente una de `desde_experimento`, `desde_barrido` o `manual`. */
@@ -567,6 +581,9 @@ export interface Marco {
   dias_historia_previa: number
   parametros_comunes: Record<string, unknown>
   creado: string
+  /** Solo en marcos derivados de una configuración guardada. */
+  id_configuracion?: string | null
+  version_configuracion?: number | null
 }
 
 /** Cuerpo para crear o editar un marco (`id` opcional: se deduce del nombre). */

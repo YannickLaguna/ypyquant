@@ -15,6 +15,10 @@ Responsabilidad:
 - `AlmacenMarcos`: `data/marcos/<id>/marco.json` y las comparativas lanzadas en `data/marcos/_comparativas/<id>.json`
   (id del marco + experimentos, con una copia del marco y el informe de cada estrategia). El id de una comparativa
   sale de los experimentos: relanzar lo mismo la reutiliza.
+- `marco_desde_configuracion(configuracion, inicio, fin)` y `fechas_por_defecto(...)`: funciones puras que convierten
+  una configuración guardada en un marco (su ENTORNO: universo, frecuencia, costes, benchmark, capital, semilla,
+  historia previa y los `COMUNES_CONOCIDOS` que traiga) para lanzar la misma receta de entorno contra otras
+  estrategias. El id es determinista (configuración + versión + fechas): lanzarlo dos veces reutiliza el marco.
 - `diferencias_ceteris_paribus(configs)`: función pura que dice en qué difieren varios experimentos del entorno
   (universo, fechas, frecuencia, costes, benchmark, capital, semilla, historia) o de los parámetros comunes que
   declaran varias estrategias. La usa `GET /api/comparar` para avisar «no es ceteris paribus».
@@ -37,9 +41,9 @@ import re
 import shutil
 import threading
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -53,6 +57,9 @@ from ypyquant.estrategias.experimentos import (
     resolver_universo,
 )
 from ypyquant.estrategias.registro import obtener_estrategia
+
+if TYPE_CHECKING:  # solo para anotar: configuraciones.py ya importa este módulo de forma indirecta
+    from ypyquant.estrategias.configuraciones import ConfiguracionGuardada
 
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "marcos"
@@ -92,6 +99,10 @@ class MarcoComparacion(BaseModel):
     dias_historia_previa: int = Field(1100, ge=0, le=7300)
     parametros_comunes: dict[str, Any] = Field(default_factory=dict)
     creado: str = ""
+    # Solo en marcos derivados de una configuración guardada (`marco_desde_configuracion`): de qué receta y versión
+    # salen. Es el enlace configuración -> marco SIN tocar la configuración (sus versiones son inmutables).
+    id_configuracion: str | None = None
+    version_configuracion: int | None = Field(None, ge=1)
 
     @field_validator("fecha_inicio", "fecha_fin")
     @classmethod
@@ -116,6 +127,45 @@ class MarcoComparacion(BaseModel):
         if not self.creado:
             self.creado = datetime.now().isoformat(timespec="seconds")
         return self
+
+
+ANIOS_POR_DEFECTO = 5
+
+
+def marco_desde_configuracion(configuracion: ConfiguracionGuardada, fecha_inicio: str, fecha_fin: str) -> MarcoComparacion:
+    """
+    Marco con el entorno de una configuración guardada en `[fecha_inicio, fecha_fin]`.
+
+    Copia universo, frecuencia de rebalanceo, comisión, slippage, benchmark, capital, semilla y días de historia
+    previa, y de los parámetros de la configuración solo los de `COMUNES_CONOCIDOS` (los propios de su estrategia,
+    como `delta` o `top_k`, no son del entorno). Así la propia estrategia dentro del marco reproduce exactamente el
+    experimento de la configuración (misma huella) y las demás se evalúan en el mismo entorno. Lanza
+    `ValidationError` si las fechas son incoherentes.
+    """
+    sufijo = hashlib.sha256(json.dumps([configuracion.id, configuracion.version, fecha_inicio, fecha_fin]).encode("utf-8")).hexdigest()[:10]
+    return MarcoComparacion(
+        id=f"cfg-{sufijo}", nombre=f"{configuracion.nombre[:80]} (v{configuracion.version}, {fecha_inicio} a {fecha_fin})",
+        notas=f"Entorno de la configuración «{configuracion.id}» v{configuracion.version}, para compararla con otras estrategias.",
+        universo=configuracion.universo, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+        frecuencia_rebalanceo=configuracion.frecuencia_rebalanceo, comision=configuracion.comision,
+        slippage=configuracion.slippage, benchmark=configuracion.benchmark, capital_inicial=configuracion.capital_inicial,
+        semilla=configuracion.semilla, dias_historia_previa=configuracion.dias_historia_previa,
+        parametros_comunes={k: configuracion.parametros[k] for k in COMUNES_CONOCIDOS if k in configuracion.parametros},
+        id_configuracion=configuracion.id, version_configuracion=configuracion.version,
+    )
+
+
+def fechas_por_defecto(configuracion: ConfiguracionGuardada, marco: MarcoComparacion | None, hoy: date | None = None) -> tuple[str, str]:
+    """
+    Fechas sugeridas para comparar una configuración: las de su marco enlazado, si no las del experimento de
+    origen (`origen.fechas`) y, si no, los últimos `ANIOS_POR_DEFECTO` años hasta ayer.
+    """
+    if marco is not None:
+        return marco.fecha_inicio, marco.fecha_fin
+    if configuracion.origen.fechas and len(configuracion.origen.fechas) == 2:
+        return configuracion.origen.fechas[0], configuracion.origen.fechas[1]
+    fin = (hoy or date.today()) - timedelta(days=1)
+    return (fin - timedelta(days=365 * ANIOS_POR_DEFECTO)).isoformat(), fin.isoformat()
 
 
 class InformeAplicacion(BaseModel):

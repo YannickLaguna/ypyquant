@@ -5,33 +5,28 @@
  * ceteris paribus» cuando los experimentos difieren del entorno (universo, fechas, frecuencia, costes...) o de los
  * parámetros comunes (`ceteris_paribus` de `GET /api/comparar`); con `?comparativa=<id>` (viene de un marco) muestra
  * además qué comunes se aplicaron a cada estrategia.
- * Se relaciona con: api/hooks.ts (useExperimentos, useComparacion), componentes/Graficos.tsx y
- * lib/marcos.ts (texto del aviso), paginas/MarcoDetalle.tsx (enlace con `comparativa`) y paginas/Experimentos.tsx.
+ * Indicador conmutable (`?indicador=sharpe`, por defecto `equity`): escalares (sharpe, sortino, cagr, volatilidad, drawdown
+ * máx., alfa, turnover, nº de operaciones...) como barras ordenadas con «sin dato» para quien no tiene la métrica, y
+ * temporales (equity, drawdown, Sharpe y volatilidad móviles, turnover por rebalanceo) como líneas; el color de cada
+ * experimento es el mismo en barras, líneas y tabla. Las series temporales las calcula `GET /api/comparar/series`.
+ * Se relaciona con: api/hooks.ts (useExperimentos, useComparacion, useSeriesComparacion), componentes/Graficos.tsx,
+ * componentes/GraficoBarras.tsx, componentes/SelectorIndicador.tsx, lib/indicadores.ts, lib/marcos.ts (texto del
+ * aviso), paginas/MarcoDetalle.tsx (enlace con `comparativa`) y paginas/Experimentos.tsx.
  */
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useComparacion, useComparativa, useExperimentos } from '../api/hooks'
+import { useComparacion, useComparativa, useExperimentos, useSeriesComparacion } from '../api/hooks'
 import { CajaError, Cargando, InsigniaTfm, Vacio } from '../componentes/Estado'
 import { GraficoSeries, type SerieGrafico } from '../componentes/Graficos'
-import { dinero, entero, porcentaje, ratio, resumenParametros } from '../lib/formato'
+import GraficoBarras from '../componentes/GraficoBarras'
+import SelectorIndicador from '../componentes/SelectorIndicador'
+import { resumenParametros } from '../lib/formato'
+import { barrasOrdenadas, escalares, INDICADOR_POR_DEFECTO, indicadorDeUrl } from '../lib/indicadores'
 import { resumenDiferencias } from '../lib/marcos'
 import { colorToken, PALETA_SERIES } from '../lib/tema'
 
-/** [clave, etiqueta, formato, mejor = 'max' | 'min'] */
-const FILAS: [string, string, (v: number | null | undefined) => string, 'max' | 'min'][] = [
-  ['sharpe', 'Sharpe', ratio, 'max'],
-  ['sortino', 'Sortino', ratio, 'max'],
-  ['calmar', 'Calmar', ratio, 'max'],
-  ['cagr', 'CAGR', porcentaje, 'max'],
-  ['retorno_total', 'Retorno total', porcentaje, 'max'],
-  ['volatilidad', 'Volatilidad', porcentaje, 'min'],
-  ['max_drawdown', 'Máx. drawdown', porcentaje, 'max'],
-  ['alfa', 'Alfa', porcentaje, 'max'],
-  ['beta', 'Beta', ratio, 'min'],
-  ['turnover_anual', 'Turnover anual', (v) => porcentaje(v, 0), 'min'],
-  ['n_operaciones', 'Operaciones', entero, 'min'],
-  ['comisiones_totales', 'Comisiones', (v) => dinero(v, 0), 'min'],
-]
+/** Filas de la tabla: los indicadores escalares (misma lista y orden que las barras). */
+const FILAS = escalares()
 
 export default function Comparar() {
   const [params, setParams] = useSearchParams()
@@ -39,13 +34,34 @@ export default function Comparar() {
   const { data: lista, isPending: cargandoLista, error: errorLista } = useExperimentos({ estado: 'hecho' })
   const { data: comparacion, isFetching, error } = useComparacion(ids)
   const { data: comparativa } = useComparativa(params.get('comparativa'))
+  const indicador = indicadorDeUrl(params.get('indicador'))
+  const temporal = indicador.tipo === 'temporal' && indicador.clave !== 'equity'
+  const { data: temporales, isFetching: cargandoSeries, error: errorSeries } = useSeriesComparacion(ids, indicador.clave, temporal)
   const avisoCeteris = resumenDiferencias(comparacion?.ceteris_paribus?.diferencias)
   const avisosMarco = comparativa ? comparativa.experimentos.flatMap((e) => e.informe.avisos) : []
 
   const alternar = (id: string) => {
     const siguiente = ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]
-    setParams(siguiente.length ? { ids: siguiente.join(',') } : {}, { replace: true })
+    setParams(
+      (previos) => {
+        const nuevos = new URLSearchParams(previos) // conserva `indicador` y `comparativa`
+        if (siguiente.length) nuevos.set('ids', siguiente.join(','))
+        else nuevos.delete('ids')
+        return nuevos
+      },
+      { replace: true },
+    )
   }
+  const elegirIndicador = (clave: string) =>
+    setParams(
+      (previos) => {
+        const nuevos = new URLSearchParams(previos)
+        if (clave === INDICADOR_POR_DEFECTO) nuevos.delete('indicador')
+        else nuevos.set('indicador', clave)
+        return nuevos
+      },
+      { replace: true },
+    )
 
   const series = useMemo<SerieGrafico[]>(() => {
     if (!comparacion) return []
@@ -63,11 +79,26 @@ export default function Comparar() {
     return lineas
   }, [comparacion])
 
+  /** Líneas de un indicador temporal distinto de la equity: cada experimento con su color de siempre. */
+  const seriesTemporales = useMemo<SerieGrafico[]>(() => {
+    if (!temporales || !comparacion) return []
+    return comparacion.ids.flatMap((id, i) => {
+      const s = temporales.series[id]
+      if (!s || s.fechas.length === 0) return []
+      const datos = s.fechas.flatMap((f, k) => (s.valores[k] == null ? [] : [{ time: f, value: s.valores[k] as number }]))
+      return datos.length ? [{ id, nombre: id, color: PALETA_SERIES[i % PALETA_SERIES.length], datos }] : []
+    })
+  }, [temporales, comparacion])
+  const barras = useMemo(
+    () => (comparacion && indicador.tipo === 'escalar' ? barrasOrdenadas(comparacion.ids, comparacion.metricas, indicador.clave, indicador.mejor) : []),
+    [comparacion, indicador],
+  )
+
   return (
     <div className="space-y-5">
       <header>
         <h1>Comparar</h1>
-        <p className="text-suave">Equity normalizada a base 100 sobre las fechas comunes de los experimentos elegidos.</p>
+        <p className="text-suave">Compara los experimentos elegidos por indicador; las series usan las fechas comunes de todos ellos.</p>
       </header>
 
       <section aria-labelledby="h-sel" className="space-y-2">
@@ -121,7 +152,29 @@ export default function Comparar() {
               {avisosMarco.map((a) => <p key={a}>{a}</p>)}
             </div>
           )}
-          <GraficoSeries titulo="Equity normalizada (base 100)" series={series} formatoValor={(v) => v.toFixed(1)} altura={360} />
+          <SelectorIndicador valor={indicador.clave} onChange={elegirIndicador} />
+          <p className="text-xs text-suave">{indicador.ayuda}</p>
+          {indicador.tipo === 'escalar' ? (
+            <GraficoBarras titulo={`${indicador.etiqueta} por experimento`} barras={barras} formato={indicador.formato} />
+          ) : !temporal ? (
+            <GraficoSeries titulo="Equity normalizada (base 100)" series={series} formatoValor={(v) => v.toFixed(1)} altura={360} />
+          ) : errorSeries ? (
+            <CajaError error={errorSeries} />
+          ) : !temporales ? (
+            cargandoSeries && <Cargando texto="Calculando la serie…" />
+          ) : (
+            <>
+              {seriesTemporales.length > 0 && (
+                <GraficoSeries titulo={temporales.etiqueta} series={seriesTemporales} formatoValor={indicador.formato} altura={360} />
+              )}
+              {temporales.sin_dato.length > 0 && (
+                <p role="status" className="rounded-lg border border-borde p-3 text-sm text-suave">
+                  Sin dato para {indicador.etiqueta}: {temporales.sin_dato.join(', ')}.
+                  {indicador.clave === 'turnover_rebalanceo' ? ' No guardan pesos (p. ej. importados del TFM).' : ' La serie es demasiado corta o no hay volatilidad.'}
+                </p>
+              )}
+            </>
+          )}
           <div className="tarjeta overflow-x-auto">
             <table className="w-full text-sm" aria-label="Métricas lado a lado">
               <thead className="border-b border-borde">
@@ -136,7 +189,7 @@ export default function Comparar() {
                 </tr>
               </thead>
               <tbody>
-                {FILAS.map(([clave, etiqueta, fmt, mejor]) => {
+                {FILAS.map(({ clave, etiqueta, formato: fmt, mejor }) => {
                   const valores = comparacion.ids.map((id) => comparacion.metricas[id]?.[clave] ?? null)
                   const validos = valores.filter((v): v is number => typeof v === 'number')
                   const objetivo = validos.length > 1 ? (mejor === 'max' ? Math.max(...validos) : Math.min(...validos)) : null

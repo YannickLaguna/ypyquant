@@ -4,8 +4,11 @@
  * Responsabilidad: mostrar una versión concreta (`?version=`), lanzar un backtest en un rango de fechas (reutiliza el
  * experimento si ya existe: misma huella), editar los parámetros como NUEVA versión (la anterior no cambia) y archivar.
  * Si la configuración apunta a un marco, muestra el enlace y usa sus fechas por defecto.
- * Se relaciona con: api/hooks.ts, componentes/FormularioSchema.tsx (nueva versión), paginas/Marcos.tsx y
- * paginas/ExperimentoDetalle.tsx (destino del backtest).
+ * `LanzarContraOtras` («Lanzar contra otras estrategias»): toma el ENTORNO de la receta (universo, frecuencia, costes,
+ * benchmark, capital, semilla, historia y los parámetros comunes) como marco derivado, pide fechas (las sugeridas por el
+ * servidor) y reutiliza `LanzadorComparativa` con la propia estrategia marcada; las comparativas lanzadas se listan aparte.
+ * Se relaciona con: api/hooks.ts, componentes/FormularioSchema.tsx (nueva versión), componentes/LanzadorComparativa.tsx,
+ * lib/marcos.ts, paginas/Marcos.tsx y paginas/ExperimentoDetalle.tsx (destino del backtest).
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -14,11 +17,14 @@ import {
   useBacktestConfiguracion,
   useConfiguracion,
   useEstrategia,
+  useLanzarComparativaConfiguracion,
   useNuevaVersion,
 } from '../api/hooks'
 import type { Configuracion } from '../api/tipos'
 import { CajaError, Cargando, Insignia } from '../componentes/Estado'
 import FormularioSchema, { validarValores, type Valores } from '../componentes/FormularioSchema'
+import LanzadorComparativa, { enlaceComparar } from '../componentes/LanzadorComparativa'
+import { comunesDeConfiguracion, parametrosPropios } from '../lib/marcos'
 import { dinero, fechaCorta, porcentaje, ratio, resumenParametros, resumenUniverso } from '../lib/formato'
 
 export default function ConfiguracionDetalle() {
@@ -31,7 +37,7 @@ export default function ConfiguracionDetalle() {
 
   if (isPending) return <Cargando />
   if (error) return <CajaError error={error} />
-  const { configuracion: c, versiones, marco, backtests } = data
+  const { configuracion: c, versiones, marco, backtests, fechas_sugeridas: fechasSugeridas, comparativas } = data
   const origen = c.origen
 
   const eliminar = () => {
@@ -93,6 +99,22 @@ export default function ConfiguracionDetalle() {
         <LanzarBacktest c={c} fechasMarco={marco ? [marco.fecha_inicio, marco.fecha_fin] : null} />
         <NuevaVersion c={c} alCrear={(n) => setParams({ version: String(n) })} />
       </div>
+
+      <LanzarContraOtras key={`${c.id}-${c.version}`} c={c} fechasSugeridas={fechasSugeridas} />
+
+      {comparativas.length > 0 && (
+        <section aria-labelledby="h-comparativas" className="space-y-2">
+          <h2 id="h-comparativas">Comparativas lanzadas</h2>
+          <ul className="tarjeta divide-y divide-borde/60">
+            {comparativas.map((k) => (
+              <li key={k.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                <Link to={enlaceComparar(k)} className="num text-acento hover:underline">{k.experimentos.map((e) => e.estrategia).join(' · ')}</Link>
+                <span className="text-xs text-suave">v{k.marco.version_configuracion} · {fechaCorta(k.marco.fecha_inicio)} → {fechaCorta(k.marco.fecha_fin)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section aria-labelledby="h-versiones" className="space-y-2">
         <h2 id="h-versiones">Versiones</h2>
@@ -158,6 +180,57 @@ function LanzarBacktest({ c, fechasMarco }: { c: Configuracion; fechasMarco: str
       {lanzar.error && <CajaError error={lanzar.error} titulo="No se pudo lanzar" />}
       <button type="submit" className="boton boton-primario" disabled={lanzar.isPending}>{lanzar.isPending ? 'Lanzando…' : 'Lanzar backtest'}</button>
     </form>
+  )
+}
+
+/**
+ * Botón y panel «Lanzar contra otras estrategias»: la misma configuración de entorno contra N estrategias a la vez.
+ * La propia estrategia de la receta viene marcada con sus parámetros propios (reutiliza su backtest si ya existe).
+ */
+function LanzarContraOtras({ c, fechasSugeridas }: { c: Configuracion; fechasSugeridas: [string, string] }) {
+  const [abierto, setAbierto] = useState(false)
+  const [inicio, setInicio] = useState(fechasSugeridas[0])
+  const [fin, setFin] = useState(fechasSugeridas[1])
+  const lanzar = useLanzarComparativaConfiguracion(c.id)
+  const envio = {
+    mutate: (cuerpo: Parameters<typeof lanzar.mutate>[0], opciones: Parameters<typeof lanzar.mutate>[1]) =>
+      lanzar.mutate({ ...cuerpo, fecha_inicio: inicio, fecha_fin: fin, version: c.version }, opciones),
+    isPending: lanzar.isPending,
+    error: lanzar.error,
+  }
+  const comunes = comunesDeConfiguracion(c.parametros)
+  const fechasValidas = !!inicio && !!fin && inicio < fin
+  return (
+    <section aria-labelledby="h-contra-otras" className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 id="h-contra-otras">Comparar con otras estrategias</h2>
+        <button type="button" className="boton" aria-expanded={abierto} aria-controls="panel-contra-otras" onClick={() => setAbierto(!abierto)}>
+          Lanzar contra otras estrategias
+        </button>
+      </div>
+      {abierto && (
+        <div id="panel-contra-otras" className="tarjeta space-y-4 p-4">
+          <p className="text-suave">
+            Cada estrategia usa el entorno de esta configuración (universo, rebalanceo {c.frecuencia_rebalanceo}, costes, benchmark, capital,
+            semilla{Object.keys(comunes).length > 0 ? ` y los parámetros comunes ${Object.keys(comunes).join(', ')}` : ''}); tú eliges las fechas y los
+            parámetros propios de cada una. Se crea un marco derivado (no se modifica la configuración).
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1"><label htmlFor="cmp-inicio" className="font-medium">Inicio</label><input id="cmp-inicio" type="date" className="campo" value={inicio} onChange={(e) => setInicio(e.target.value)} /></div>
+            <div className="flex flex-col gap-1"><label htmlFor="cmp-fin" className="font-medium">Fin</label><input id="cmp-fin" type="date" className="campo" value={fin} onChange={(e) => setFin(e.target.value)} /></div>
+          </div>
+          {!fechasValidas && <p role="alert" className="text-neg">El inicio debe ser anterior al fin.</p>}
+          <fieldset disabled={!fechasValidas} className="min-w-0">
+            <LanzadorComparativa
+              marco={{ id: c.id, parametros_comunes: comunes }}
+              inicial={{ [c.estrategia]: parametrosPropios(c.parametros) }}
+              envio={envio}
+              titulo="Estrategias a comparar"
+            />
+          </fieldset>
+        </div>
+      )}
+    </section>
   )
 }
 

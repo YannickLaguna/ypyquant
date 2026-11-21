@@ -27,6 +27,7 @@ import type {
   OrdenPaper,
   PeticionConfiguracion,
   PeticionMarco,
+  SeriesComparacion,
   PeticionPermutacion,
   PosicionPaper,
   RespuestaPermutacion,
@@ -82,6 +83,14 @@ export const useComparacion = (ids: string[]) =>
     queryKey: ['comparar', ids],
     queryFn: () => pedir<Comparacion>(`/api/comparar${querystring({ ids: ids.join(',') })}`),
     enabled: ids.length > 0,
+  })
+
+/** Serie temporal de un indicador por experimento (drawdown, Sharpe/volatilidad móvil, turnover); solo si `activo`. */
+export const useSeriesComparacion = (ids: string[], indicador: string, activo: boolean) =>
+  useQuery({
+    queryKey: ['comparar-series', ids, indicador],
+    queryFn: () => pedir<SeriesComparacion>(`/api/comparar/series${querystring({ ids: ids.join(','), indicador })}`),
+    enabled: activo && ids.length > 0,
   })
 
 export function useLanzarExperimento() {
@@ -356,6 +365,29 @@ export function useLanzarComparativa(idMarco: string) {
     onSuccess: () => {
       cliente.invalidateQueries({ queryKey: ['experimentos'] })
       cliente.invalidateQueries({ queryKey: ['marco', idMarco] })
+    },
+  })
+}
+
+/** Cuerpo de `POST /api/configuraciones/{id}/comparativa`: estrategias con sus parámetros propios y fechas opcionales. */
+export interface PeticionComparativaConfiguracion {
+  estrategias: { estrategia: string; parametros: Record<string, unknown> }[]
+  fecha_inicio?: string
+  fecha_fin?: string
+  version?: number
+  forzar?: boolean
+}
+
+/** Lanza la misma configuración de entorno de una configuración guardada contra varias estrategias (crea o reutiliza el marco). */
+export function useLanzarComparativaConfiguracion(idConfiguracion: string) {
+  const cliente = useQueryClient()
+  return useMutation({
+    mutationFn: (cuerpo: PeticionComparativaConfiguracion) =>
+      pedir<Comparativa>(`/api/configuraciones/${encodeURIComponent(idConfiguracion)}/comparativa`, { metodo: 'POST', cuerpo }),
+    onSuccess: () => {
+      cliente.invalidateQueries({ queryKey: ['experimentos'] })
+      cliente.invalidateQueries({ queryKey: ['marcos'] })
+      cliente.invalidateQueries({ queryKey: ['configuracion', idConfiguracion] })
     },
   })
 }

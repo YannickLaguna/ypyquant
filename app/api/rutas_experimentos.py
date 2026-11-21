@@ -13,6 +13,13 @@ Responsabilidad:
   `POST /api/experimentos/borrar` (`{"ids": [...]}`: borrado múltiple; omite los que siguen en marcha).
 - `GET /api/comparar?ids=a,b,c`: equity normalizada a base 100 y métricas lado a lado (DuckDB), más
   `ceteris_paribus: {ok, diferencias}` (en qué difieren del entorno o de los parámetros comunes; ver `marcos.py`).
+- `GET /api/comparar/series?ids=a,b&indicador=`: series temporales por experimento para la página Comparar
+  (`drawdown`, `sharpe_movil`, `volatilidad_movil` sobre el eje de fechas común de `/api/comparar`, y
+  `turnover_rebalanceo` con los rebalanceos propios de cada uno recortados a ese rango). Responde
+  `{indicador, ids, series: {id: {fechas, valores}}, sin_dato: [ids]}`; un experimento sin pesos (TFM importado) o con
+  serie demasiado corta va en `sin_dato`, nunca como ceros. Se calcula en el servidor (no en el cliente) porque la
+  periodicidad (mensual del TFM frente a diaria) decide la ventana de 12 meses y las funciones viven en
+  `ypyquant.estrategias.series_comparacion`. 422 si el indicador no existe.
 
 Se relaciona con: app/api/contexto.py (almacén y ejecutor) y ypyquant.estrategias.experimentos
 (ConfiguracionExperimento, expandir_rejilla). Los errores de validación de la estrategia (nombre o
@@ -28,6 +35,14 @@ from app.api.contexto import Contexto, lanzar_barrido, lanzar_experimento, obten
 from ypyquant.estrategias.barridos import ConfiguracionBarrido
 from ypyquant.estrategias.experimentos import VALIDADORES, ConfiguracionExperimento, expandir_rejilla_con_omitidas
 from ypyquant.estrategias.marcos import diferencias_ceteris_paribus
+from ypyquant.estrategias.series_comparacion import (
+    INDICADORES_TEMPORALES,
+    drawdown_serie,
+    periodos_por_anio,
+    sharpe_movil,
+    turnover_por_rebalanceo,
+    volatilidad_movil,
+)
 
 router = APIRouter(prefix="/api", tags=["experimentos"])
 
@@ -147,3 +162,37 @@ def comparar(ids: str = Query(..., description="Identificadores separados por co
     configs = {i: ctx.almacen.leer_config(i) or {} for i in comparacion["ids"]}
     diferencias = diferencias_ceteris_paribus(configs)
     return {**comparacion, "ceteris_paribus": {"ok": not diferencias, "diferencias": diferencias}}
+
+
+@router.get("/comparar/series")
+def comparar_series(ids: str = Query(..., description="Identificadores separados por comas"),
+                    indicador: str = Query(..., description=f"Uno de: {', '.join(INDICADORES_TEMPORALES)}"),
+                    ctx: Contexto = Depends(obtener_contexto)):
+    """Serie temporal de `indicador` por experimento (ver la cabecera del módulo y `series_comparacion.py`)."""
+    if indicador not in INDICADORES_TEMPORALES:
+        raise HTTPException(422, f"Indicador desconocido '{indicador}' (disponibles: {', '.join(INDICADORES_TEMPORALES)})")
+    lista = [i.strip() for i in ids.split(",") if i.strip()]
+    if not lista:
+        raise HTTPException(422, "Indica al menos un id")
+    try:
+        comparacion = ctx.almacen.comparar(lista)
+    except (KeyError, ValueError) as error:
+        raise HTTPException(404, str(error.args[0])) from error
+    fechas = comparacion["fechas"]
+    periodos = periodos_por_anio(fechas)
+    series: dict[str, dict[str, list]] = {}
+    for id_experimento in comparacion["ids"]:
+        if indicador == "turnover_rebalanceo":
+            pesos = ctx.almacen.leer_pesos(id_experimento)
+            fechas_t, valores = turnover_por_rebalanceo(pesos) if pesos is not None else ([], [])
+            recortadas = [(f, v) for f, v in zip(fechas_t, valores, strict=True) if fechas[0] <= f <= fechas[-1]]
+            series[id_experimento] = {"fechas": [f for f, _ in recortadas], "valores": [v for _, v in recortadas]}
+            continue
+        equity = comparacion["series"][id_experimento]
+        valores = {"drawdown": lambda: drawdown_serie(equity),
+                   "sharpe_movil": lambda: sharpe_movil(equity, periodos),
+                   "volatilidad_movil": lambda: volatilidad_movil(equity, periodos)}[indicador]()
+        series[id_experimento] = {"fechas": fechas, "valores": valores}
+    sin_dato = [i for i, s in series.items() if not any(v is not None for v in s["valores"])]
+    return {"indicador": indicador, "etiqueta": INDICADORES_TEMPORALES[indicador], "ids": comparacion["ids"],
+            "periodos_por_anio": periodos, "series": series, "sin_dato": sin_dato}

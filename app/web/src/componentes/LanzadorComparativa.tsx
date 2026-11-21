@@ -4,8 +4,12 @@
  * que fija el marco (esos los pone el marco); valida en cliente, llama a `POST /api/marcos/{id}/comparativa` y
  * muestra el informe: qué comunes se aplicaron a cada estrategia, cuáles no y los avisos (frecuencia propia,
  * parámetro propio pisado), con el enlace para abrir Comparar con todos los experimentos de golpe.
+ * Sirve a dos orígenes: un marco existente (`MarcoDetalle`) y una configuración guardada (`ConfiguracionDetalle`), que
+ * pasa los comunes derivados de su receta (`marco`), la selección inicial (`inicial`: su propia estrategia) y su propio
+ * envío (`envio`, que añade las fechas y apunta a `POST /api/configuraciones/{id}/comparativa`).
  * Se relaciona con: lib/marcos.ts (esquemaSinComunes), componentes/FormularioSchema.tsx, api/hooks.ts
- * (useEstrategias, useLanzarComparativa) y paginas/Comparar.tsx (destino).
+ * (useEstrategias, useLanzarComparativa), paginas/MarcoDetalle.tsx, paginas/ConfiguracionDetalle.tsx y
+ * paginas/Comparar.tsx (destino).
  */
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -18,10 +22,30 @@ import FormularioSchema, { validarValores, valoresPorDefecto, type Valores } fro
 /** Enlace a Comparar con los experimentos de la comparativa (y su id para mostrar los avisos del marco). */
 export const enlaceComparar = (c: Comparativa) => `/comparar?ids=${c.experimentos.map((e) => e.id_experimento).join(',')}&comparativa=${c.id}`
 
-export default function LanzadorComparativa({ marco }: { marco: Marco }) {
+type CuerpoComparativa = { estrategias: { estrategia: string; parametros: Record<string, unknown> }[] }
+
+/** Cómo se envía la comparativa: la mutación de TanStack Query (o una equivalente). */
+export interface EnvioComparativa {
+  mutate: (cuerpo: CuerpoComparativa, opciones: { onSuccess: (c: Comparativa) => void }) => void
+  isPending: boolean
+  error: Error | null
+}
+
+interface Props {
+  /** Lo único que necesita del marco: su id y los parámetros comunes que fija (el resto lo aplica el servidor). */
+  marco: Pick<Marco, 'id' | 'parametros_comunes'>
+  /** Estrategias marcadas de entrada con sus parámetros propios (p. ej. la de la configuración). */
+  inicial?: Record<string, Valores>
+  /** Envío alternativo al de `POST /api/marcos/{id}/comparativa`. */
+  envio?: EnvioComparativa
+  titulo?: string
+}
+
+export default function LanzadorComparativa({ marco, inicial, envio, titulo = 'Lanzar comparativa' }: Props) {
   const { data, isPending, error } = useEstrategias()
-  const lanzar = useLanzarComparativa(marco.id)
-  const [elegidas, setElegidas] = useState<Record<string, Valores>>({})
+  const delMarco = useLanzarComparativa(marco.id)
+  const lanzar = envio ?? delMarco
+  const [elegidas, setElegidas] = useState<Record<string, Valores>>(inicial ?? {})
   const [resultado, setResultado] = useState<Comparativa | null>(null)
 
   if (isPending) return <Cargando />
@@ -48,7 +72,7 @@ export default function LanzadorComparativa({ marco }: { marco: Marco }) {
 
   return (
     <form onSubmit={enviar} className="space-y-4" aria-labelledby="h-comparativa">
-      <h2 id="h-comparativa">Lanzar comparativa</h2>
+      <h2 id="h-comparativa">{titulo}</h2>
       <p className="text-suave">
         Elige las estrategias. Cada una usa el entorno del marco; aquí solo eliges sus parámetros propios. Los experimentos ya
         calculados con el mismo entorno se reutilizan.
@@ -65,7 +89,8 @@ export default function LanzadorComparativa({ marco }: { marco: Marco }) {
       </ul>
 
       {lista.map((nombre) => {
-        const estrategia = data.estrategias.find((e) => e.nombre === nombre)!
+        const estrategia = data.estrategias.find((e) => e.nombre === nombre)
+        if (!estrategia) return <p key={nombre} role="alert" className="text-neg">La estrategia {nombre} ya no está disponible: desmárcala para lanzar.</p>
         const esquema = esquemaPropio(estrategia)
         const fijados = Object.keys(estrategia.parametros_schema.properties ?? {}).filter((p) => p in marco.parametros_comunes)
         return (
