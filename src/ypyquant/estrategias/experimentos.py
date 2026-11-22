@@ -31,7 +31,7 @@ Responsabilidad:
 Se relaciona con:
 - ypyquant.estrategias.registro (obtiene la clase de estrategia) y .base (adaptador al motor).
 - ypyquant.estrategias.simulacion (`simular`) y .evaluacion (`evaluar`, `reevaluar`): el núcleo de la ejecución.
-- ypyquant.estrategias.precios (cargadores), .almacen (persistencia Parquet + DuckDB),
+- ypyquant.data.fuente_precios y ypyquant.data.fuentes (fuente de precios), .almacen (persistencia Parquet + DuckDB),
   .procedencia (huella de reproducibilidad), .barridos y .validacion_barridos (usan
   `cargar_datos_experimento` y `ejecutar_con_datos`).
 - ypyquant.validacion (Ulcer, Martin, rachas y PSR para métricas y validadores).

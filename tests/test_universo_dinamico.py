@@ -33,7 +33,7 @@ from ypyquant.estrategias.experimentos import (
     listar_universos,
     resolver_universo,
 )
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.universo_dinamico import (
     NOMBRE_UNIVERSO_PIT,
     UniversoPuntoEnElTiempo,
@@ -294,8 +294,8 @@ def test_ejecutar_experimento_completo_con_universo_pit(con_membresias_de_prueba
     """Camino completo (carga con el cargador sintético, métricas, procedencia) con universo `sp500_pit`."""
     config = ConfiguracionExperimento(estrategia="momentum", parametros={"top_k": 1, "meses_retorno": 6},
                                       universo=NOMBRE_UNIVERSO_PIT, fecha_inicio="2020-01-02", fecha_fin="2020-12-31")
-    datos_carga = cargar_datos_experimento(config, CargadorSintetico())
+    datos_carga = cargar_datos_experimento(config, FuenteSintetica())
     assert set(datos_carga.precios) == {"AAA", "BBB", "CCC", "DDD", "FFF"}  # el sintético sirve precios a todos
-    resultado = ejecutar_experimento(config, CargadorSintetico())
+    resultado = ejecutar_experimento(config, FuenteSintetica())
     assert resultado.metricas["n_rebalanceos"] >= 10
     assert sum(a.startswith("Universo sp500_pit") for a in resultado.avisos) == 1

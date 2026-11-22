@@ -15,7 +15,7 @@ import pytest
 
 from ypyquant.estrategias.base import Estrategia, ParametrosBase, matriz_cierres
 from ypyquant.estrategias.causalidad import envenenar_futuro, verificar_sin_lookahead
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 
 TICKERS = ["AAA", "BBB", "CCC", "DDD", "EEE"]
 FECHAS_MUESTRA = [pd.Timestamp(f) for f in ("2020-03-31", "2020-06-30", "2020-09-30", "2020-12-31")]
@@ -23,7 +23,7 @@ FECHAS_MUESTRA = [pd.Timestamp(f) for f in ("2020-03-31", "2020-06-30", "2020-09
 
 @pytest.fixture(scope="module")
 def datos() -> dict[str, pd.DataFrame]:
-    cargador = CargadorSintetico()
+    cargador = FuenteSintetica()
     return {t: cargador(t, "2018-01-01", "2021-06-30") for t in TICKERS}
 
 

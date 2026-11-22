@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import crear_app
 from app.api.paper import BotControl, ServicioAlpaca
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 
 TICKERS = ["AAA", "BBB", "CCC", "DDD"]
 CONFIG = {"estrategia": "pesos_iguales", "universo": TICKERS, "fecha_inicio": "2020-01-01", "fecha_fin": "2021-12-31"}
@@ -29,7 +29,7 @@ def sin_claves(monkeypatch):
 
 
 def _cliente(tmp_path, alpaca=None, bot=None) -> TestClient:
-    app = crear_app(CargadorSintetico(), tmp_path / "exp", alpaca or ServicioAlpaca(),
+    app = crear_app(FuenteSintetica(), tmp_path / "exp", alpaca or ServicioAlpaca(),
                     bot or BotControl(tmp_path / "paper"), cargar_env=False)
     return TestClient(app)
 

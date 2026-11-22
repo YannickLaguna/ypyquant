@@ -33,7 +33,7 @@ from ypyquant.estrategias.experimentos import (
     expandir_rejilla,
     expandir_rejilla_con_omitidas,
 )
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.reservado import RegistroReservado, evaluar_reservado
 from ypyquant.estrategias.validacion_barridos import (
     BarridoEnCurso,
@@ -60,7 +60,7 @@ def _ejecutar_todo(almacen: AlmacenBarridos, config: ConfiguracionBarrido):
     id_barrido, _ = almacen.crear(config)
     for combinacion_config, _, _ in config.combinaciones():
         id_exp = almacen.experimentos.registrar(combinacion_config)
-        almacen.experimentos.guardar(id_exp, ejecutar_experimento(combinacion_config, CargadorSintetico()))
+        almacen.experimentos.guardar(id_exp, ejecutar_experimento(combinacion_config, FuenteSintetica()))
     return almacen.cargar(id_barrido)
 
 
@@ -202,26 +202,26 @@ def test_walk_forward_barrido_sin_lookahead(barrido):
 
 def test_permutacion_en_serie_in_sample(barrido):
     avances = []
-    r = prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=3, semilla=7,
+    r = prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=3, semilla=7,
                                    callback_progreso=lambda hechas, total: avances.append((hechas, total)))
     assert avances == [(1, 3), (2, 3), (3, 3)]
     assert r["modo"] == "in_sample" and r["n_validas"] == 3 and len(r["distribucion"]) == 3 and r["n_backtests"] == 27
     assert 0.25 <= r["p_valor"] <= 1.0 and r["valor_real"] == pytest.approx(
         max(barrido.almacen.experimentos.leer_metricas(i)["sharpe"] for i in barrido.ids))
     assert barrido.almacen.leer_resultado(barrido.id, "permutacion_in_sample")["p_valor"] == r["p_valor"]
-    otra = prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=3, semilla=7)
+    otra = prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=3, semilla=7)
     assert np.allclose(otra["distribucion"], r["distribucion"])  # misma semilla, misma distribución
 
 
 def test_permutacion_walk_forward_y_limites(barrido):
-    r = prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=2, modo="walk_forward",
+    r = prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=2, modo="walk_forward",
                                    ventana_entreno_dias=180, paso_dias=60)
     assert r["estadistico"] == "sharpe_periodo_walk_forward" and r["inicio_permutacion"] == "2020-06-29"
     assert 0.0 < r["p_valor"] <= 1.0 and math.isfinite(r["valor_real"])
     with pytest.raises(ValueError, match="1000"):
-        prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=1001)
+        prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=1001)
     with pytest.raises(ValueError, match="walk_forward necesita"):
-        prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=2, modo="walk_forward")
+        prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=2, modo="walk_forward")
 
 
 def test_permutacion_cancelacion_cooperativa(barrido):
@@ -231,14 +231,14 @@ def test_permutacion_cancelacion_cooperativa(barrido):
 
     evento = threading.Event()
     with pytest.raises(PruebaCancelada):
-        prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=5,
+        prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=5,
                                    callback_progreso=lambda h, t: evento.set(), cancelar=evento)
 
 
 @pytest.mark.lenta
 def test_permutacion_con_procesos_da_lo_mismo_que_en_serie(barrido):
-    serie = prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=4, semilla=3, procesos=1)
-    paralela = prueba_permutacion_barrido(barrido, CargadorSintetico(), n_permutaciones=4, semilla=3, procesos=2)
+    serie = prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=4, semilla=3, procesos=1)
+    paralela = prueba_permutacion_barrido(barrido, FuenteSintetica(), n_permutaciones=4, semilla=3, procesos=2)
     assert np.allclose(paralela["distribucion"], serie["distribucion"]) and paralela["p_valor"] == serie["p_valor"]
 
 
@@ -247,34 +247,34 @@ def test_permutacion_con_procesos_da_lo_mismo_que_en_serie(barrido):
 
 def test_reservado_cuenta_usos_y_avisa_en_el_segundo(tmp_path, barrido):
     registro = RegistroReservado(tmp_path / "reservado.json")
-    primero = evaluar_reservado(barrido, barrido.etiquetas[barrido.ids[0]], CargadorSintetico(), registro)
+    primero = evaluar_reservado(barrido, barrido.etiquetas[barrido.ids[0]], FuenteSintetica(), registro)
     assert primero["usos_previos"] == [] and primero["aviso"] is None and primero["n_usos"] == 1
     assert primero["periodo"] == {"inicio": "2021-07-01", "fin": "2021-12-31"} and primero["metricas"]["sharpe"] is not None
     reservado = barrido.almacen.experimentos.leer(primero["experimento_reservado"])
     assert reservado["equity"][0]["fecha"] >= "2021-07-01" and reservado["procedencia"]["hash_precios"]
 
-    segundo = evaluar_reservado(barrido, barrido.ids[4], CargadorSintetico(), registro)  # otra combinación, mismo periodo
+    segundo = evaluar_reservado(barrido, barrido.ids[4], FuenteSintetica(), registro)  # otra combinación, mismo periodo
     assert len(segundo["usos_previos"]) == 1 and "ya se había usado 1 vez" in segundo["aviso"]
     assert segundo["usos_previos"][0]["experimento"] == barrido.ids[0] and segundo["usos_previos"][0]["barrido"] == barrido.id
     assert len(registro.ruta.read_text(encoding="utf-8")) > 0
     assert len(barrido.almacen.leer_resultado(barrido.id, "reservado")) >= 2
 
     with pytest.raises(ValueError, match="ni un id ni una etiqueta"):
-        evaluar_reservado(barrido, "no-existe", CargadorSintetico(), registro)
+        evaluar_reservado(barrido, "no-existe", FuenteSintetica(), registro)
 
 
 def test_reservado_exige_fecha_fin_desarrollo(tmp_path):
     almacen = AlmacenBarridos(tmp_path / "b", AlmacenExperimentos(tmp_path / "e"))
     sin = _ejecutar_todo(almacen, _barrido_config(rejilla={"top_k": [1, 2]}, fecha_fin_desarrollo=None))
     with pytest.raises(ValueError, match="fecha_fin_desarrollo"):
-        evaluar_reservado(sin, sin.ids[0], CargadorSintetico(), RegistroReservado(tmp_path / "r.json"))
+        evaluar_reservado(sin, sin.ids[0], FuenteSintetica(), RegistroReservado(tmp_path / "r.json"))
 
 
 # ---- API ------------------------------------------------------------------------------
 
 
 def _cliente(tmp_path) -> TestClient:
-    app = crear_app(CargadorSintetico(), tmp_path / "exp", ServicioAlpaca(), BotControl(tmp_path / "paper"),
+    app = crear_app(FuenteSintetica(), tmp_path / "exp", ServicioAlpaca(), BotControl(tmp_path / "paper"),
                     cargar_env=False, raiz_barridos=tmp_path / "barridos")
     return TestClient(app)
 

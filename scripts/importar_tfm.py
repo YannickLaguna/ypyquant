@@ -35,7 +35,7 @@ from ypyquant.estrategias.importacion_tfm import (
     celdas_disponibles,
     importar_experimentos_tfm,
 )
-from ypyquant.estrategias.precios import CargadorPreciosCache
+from ypyquant.data.fuentes import FuenteYFinanceCache
 
 RAIZ_TFM = Path(os.environ.get("TFM_DIR", "C:/Users/yanni/Documents/Codigo/Proyectos/tfm"))
 CARPETA_TFM_POR_DEFECTO = RAIZ_TFM / "data" / "reportes" / "rejilla_v2"
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             celdas = celdas_disponibles(argumentos.origen)
         else:
             celdas = list(CELDAS_POR_DEFECTO)
-        cargador = None if argumentos.sin_benchmark else CargadorPreciosCache(argumentos.cache_precios)
+        cargador = None if argumentos.sin_benchmark else FuenteYFinanceCache(argumentos.cache_precios)
         almacen = AlmacenExperimentos(argumentos.almacen)
         acciones = importar_experimentos_tfm(
             argumentos.origen, almacen, celdas=celdas, estrategias=argumentos.estrategia, replica=argumentos.replica,

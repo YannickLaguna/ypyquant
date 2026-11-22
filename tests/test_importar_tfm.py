@@ -31,7 +31,7 @@ from ypyquant.estrategias.importacion_tfm import (
     identificador_tfm,
     importar_experimentos_tfm,
 )
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 
 MESES = pd.date_range("2010-01-01", periods=24, freq="MS")
 ESTRATEGIAS = ["mpt_muestral", "igual_ponderacion"]
@@ -162,7 +162,7 @@ def test_sin_benchmark_se_avisa(carpeta_tfm, tmp_path):
 
 def test_benchmark_que_no_cubre_el_periodo_se_ignora(carpeta_tfm, tmp_path):
     almacen = AlmacenExperimentos(tmp_path / "exp")
-    _importar(carpeta_tfm, almacen, cargador_precios=CargadorSintetico())  # empieza en 2010-01-04: falta 2009-12
+    _importar(carpeta_tfm, almacen, cargador_precios=FuenteSintetica())  # empieza en 2010-01-04: falta 2009-12
     detalle = almacen.leer("tfm-mpt_muestral-n20-t12-media")
     assert any("no cubren todo el periodo" in a for a in detalle["metricas_completas"]["avisos"])
 
@@ -216,7 +216,7 @@ def test_listar_leer_y_comparar_con_un_experimento_normal(carpeta_tfm, tmp_path,
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
     raiz = tmp_path / "exp"
-    app = crear_app(CargadorSintetico(), raiz, ServicioAlpaca(), BotControl(tmp_path / "paper"), cargar_env=False)
+    app = crear_app(FuenteSintetica(), raiz, ServicioAlpaca(), BotControl(tmp_path / "paper"), cargar_env=False)
     cliente = TestClient(app)
     normal = cliente.post("/api/experimentos", json={
         "estrategia": "pesos_iguales", "universo": TICKERS, "fecha_inicio": "2010-03-01", "fecha_fin": "2011-12-31",
