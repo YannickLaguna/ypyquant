@@ -3,8 +3,9 @@ Marcos de comparación: el mismo entorno para varias estrategias, para comparar 
 (ceteris paribus).
 
 Responsabilidad:
-- `MarcoComparacion` (Pydantic): universo, fechas, frecuencia de rebalanceo, costes, benchmark, capital, semilla,
-  historia previa y `parametros_comunes` (p. ej. `ventana_dias`, `peso_maximo`, `tasa_libre_riesgo`,
+- `MarcoComparacion` (Pydantic) = `Entorno` (ver `receta.py`: universo, frecuencia, costes, benchmark, semilla, historia
+  previa) + id, fechas, capital y `parametros_comunes`; `receta_para(estrategia, parametros)` compone la `Receta`.
+  Los `parametros_comunes` son p. ej. `ventana_dias`, `peso_maximo`, `tasa_libre_riesgo`,
   `estimador_sigma`, `frecuencia_estimacion`). Un universo con nombre de archivo se congela como lista (la etiqueta
   conserva el nombre); `sp500_pit` es dinámico y se conserva.
 - `aplicar_marco(marco, estrategia, parametros_propios) -> (ConfiguracionExperimento, InformeAplicacion)`: función
@@ -21,14 +22,16 @@ Responsabilidad:
   estrategias. El id es determinista (configuración + versión + fechas): lanzarlo dos veces reutiliza el marco.
 - `diferencias_ceteris_paribus(configs)`: función pura que dice en qué difieren varios experimentos del entorno
   (universo, fechas, frecuencia, costes, benchmark, capital, semilla, historia) o de los parámetros comunes que
-  declaran varias estrategias. La usa `GET /api/comparar` para avisar «no es ceteris paribus».
+  declaran varias estrategias; compara con `receta.valor_comparable` (la misma canonización que la huella). La usa
+  `GET /api/comparar` para avisar «no es ceteris paribus».
 
 Los experimentos que crea una comparativa son experimentos normales (mismo almacén, misma huella): los ya
 calculados se reutilizan. Los experimentos importados del TFM (`tfm_*`, sin código) no se pueden lanzar en un marco,
 pero sí se comparan por los campos de su configuración.
 
 Se relaciona con:
-- ypyquant.estrategias.experimentos (ConfiguracionExperimento), .registro (clases y `Parametros`) y .almacen
+- ypyquant.estrategias.receta (`Entorno`, `Receta`, canonización de `diferencias_ceteris_paribus`), .experimentos
+  (ConfiguracionExperimento), .registro (clases y `Parametros`) y .almacen
   (E/S JSON atómica); .configuraciones (una configuración puede apuntar a un marco con `id_marco`).
 - app/api/rutas_marcos.py (las expone) y app/web (páginas Marcos y Comparar).
 """
@@ -46,16 +49,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ypyquant.estrategias.almacen import _escribir_json, _leer_json
 from ypyquant.estrategias.configuraciones import crear_slug
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
-    Frecuencia,
     es_universo_pit,
     resolver_universo,
 )
+from ypyquant.estrategias.receta import CAMPOS_ENTORNO as CAMPOS_ENTORNO_RECETA
+from ypyquant.estrategias.receta import Entorno, Frecuencia, Receta, valor_comparable
 from ypyquant.estrategias.registro import obtener_estrategia
 
 if TYPE_CHECKING:  # solo para anotar: configuraciones.py ya importa este módulo de forma indirecta
@@ -67,36 +71,31 @@ CARPETA_COMPARATIVAS = "_comparativas"
 # Parámetros que suelen ser comunes entre estrategias; se sugieren en la UI y se vigilan en `diferencias_ceteris_paribus`
 COMUNES_CONOCIDOS = ("ventana_dias", "peso_maximo", "tasa_libre_riesgo", "estimador_sigma", "frecuencia_estimacion")
 # Campos de entorno que deben coincidir entre experimentos para que la comparación sea ceteris paribus
+# (los del entorno de la receta, más el periodo y el capital del experimento; el orden es el del aviso en la UI)
 CAMPOS_ENTORNO = ("universo", "fecha_inicio", "fecha_fin", "frecuencia_rebalanceo", "comision", "slippage",
                   "benchmark", "capital_inicial", "semilla", "dias_historia_previa")
+assert set(CAMPOS_ENTORNO) == {*CAMPOS_ENTORNO_RECETA, "fecha_inicio", "fecha_fin", "capital_inicial"}
 
 
 class MarcoExistente(ValueError):
     """Ya hay un marco con ese id."""
 
 
-class MarcoComparacion(BaseModel):
+class MarcoComparacion(Entorno):
     """
-    Entorno común de una comparación (ver cabecera del módulo). `frecuencia_rebalanceo=None` deja a cada
-    estrategia con la suya (y `aplicar_marco` lo avisa: ya no es ceteris paribus).
+    Entorno común de una comparación (ver cabecera del módulo): ES un `Entorno` (universo, frecuencia, costes,
+    benchmark, semilla, historia previa) más identidad, periodo, capital y parámetros comunes. `frecuencia_rebalanceo=None`
+    deja a cada estrategia con la suya (y `aplicar_marco` lo avisa: ya no es ceteris paribus).
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     id: str = ""
     nombre: str = Field(min_length=1)
     notas: str = ""
-    universo: list[str] | str
     universo_etiqueta: str | None = None
     fecha_inicio: str
     fecha_fin: str
     frecuencia_rebalanceo: Frecuencia | None = "monthly"
-    comision: float = Field(0.001, ge=0, le=0.1)
-    slippage: float = Field(0.001, ge=0, le=0.1)
-    benchmark: str = "SPY"
     capital_inicial: float = Field(100_000.0, gt=0)
-    semilla: int = 42
-    dias_historia_previa: int = Field(1100, ge=0, le=7300)
     parametros_comunes: dict[str, Any] = Field(default_factory=dict)
     creado: str = ""
     # Solo en marcos derivados de una configuración guardada (`marco_desde_configuracion`): de qué receta y versión
@@ -116,9 +115,7 @@ class MarcoComparacion(BaseModel):
         if not self.id:
             self.id = crear_slug(self.nombre)
         if isinstance(self.universo, list):
-            if not self.universo:
-                raise ValueError("el universo no puede estar vacío")
-            self.universo = list(dict.fromkeys(t.strip().upper() for t in self.universo if t.strip()))
+            pass  # ya limpio por `Entorno`
         elif not es_universo_pit(self.universo):  # nombre de archivo: se congela
             self.universo_etiqueta = self.universo
             self.universo = resolver_universo(self.universo)
@@ -127,6 +124,10 @@ class MarcoComparacion(BaseModel):
         if not self.creado:
             self.creado = datetime.now().isoformat(timespec="seconds")
         return self
+
+    def receta_para(self, estrategia: str, parametros: Mapping[str, Any] | None = None) -> Receta:
+        """La receta de `estrategia` con los parámetros dados dentro de este entorno (sin normalizar)."""
+        return Receta(**self.entorno(), estrategia=estrategia, parametros=dict(parametros or {}))
 
 
 ANIOS_POR_DEFECTO = 5
@@ -144,12 +145,10 @@ def marco_desde_configuracion(configuracion: ConfiguracionGuardada, fecha_inicio
     """
     sufijo = hashlib.sha256(json.dumps([configuracion.id, configuracion.version, fecha_inicio, fecha_fin]).encode("utf-8")).hexdigest()[:10]
     return MarcoComparacion(
-        id=f"cfg-{sufijo}", nombre=f"{configuracion.nombre[:80]} (v{configuracion.version}, {fecha_inicio} a {fecha_fin})",
+        **configuracion.entorno(), id=f"cfg-{sufijo}",
+        nombre=f"{configuracion.nombre[:80]} (v{configuracion.version}, {fecha_inicio} a {fecha_fin})",
         notas=f"Entorno de la configuración «{configuracion.id}» v{configuracion.version}, para compararla con otras estrategias.",
-        universo=configuracion.universo, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
-        frecuencia_rebalanceo=configuracion.frecuencia_rebalanceo, comision=configuracion.comision,
-        slippage=configuracion.slippage, benchmark=configuracion.benchmark, capital_inicial=configuracion.capital_inicial,
-        semilla=configuracion.semilla, dias_historia_previa=configuracion.dias_historia_previa,
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, capital_inicial=configuracion.capital_inicial,
         parametros_comunes={k: configuracion.parametros[k] for k in COMUNES_CONOCIDOS if k in configuracion.parametros},
         id_configuracion=configuracion.id, version_configuracion=configuracion.version,
     )
@@ -200,13 +199,9 @@ def aplicar_marco(marco: MarcoComparacion, estrategia: str,
     aplicados = {k: v for k, v in marco.parametros_comunes.items() if k in campos}
     no_aplicados = [k for k in marco.parametros_comunes if k not in campos]
     sobrescritos = [k for k, v in aplicados.items() if k in propios and propios[k] != v]
-    config = ConfiguracionExperimento(
-        estrategia=estrategia, parametros={**propios, **aplicados}, universo=marco.universo,
-        fecha_inicio=marco.fecha_inicio, fecha_fin=marco.fecha_fin, capital_inicial=marco.capital_inicial,
-        comision=marco.comision, slippage=marco.slippage, frecuencia_rebalanceo=marco.frecuencia_rebalanceo,
-        benchmark=marco.benchmark, semilla=marco.semilla, dias_historia_previa=marco.dias_historia_previa,
-        etiqueta=f"marco {marco.id}",
-    ).normalizada()
+    receta = marco.receta_para(estrategia, {**propios, **aplicados})
+    config = ConfiguracionExperimento.desde_receta(
+        receta, marco.fecha_inicio, marco.fecha_fin, marco.capital_inicial, etiqueta=f"marco {marco.id}").normalizada()
     avisos = []
     if no_aplicados:
         avisos.append(f"No se aplicó en {estrategia}: {', '.join(sorted(no_aplicados))} (la estrategia no lo declara)")
@@ -350,13 +345,6 @@ class AlmacenMarcos:
 # ---- ceteris paribus ---------------------------------------------------------------------
 
 
-def _clave(valor: Any) -> str:
-    """Valor comparable: el universo como lista se compara sin orden; todo lo demás por su JSON canónico."""
-    if isinstance(valor, list):
-        valor = sorted(valor)
-    return json.dumps(valor, sort_keys=True, default=str)
-
-
 def diferencias_ceteris_paribus(configs: Mapping[str, Mapping[str, Any]],
                                 comunes: Iterable[str] = COMUNES_CONOCIDOS) -> list[dict[str, Any]]:
     """
@@ -373,10 +361,10 @@ def diferencias_ceteris_paribus(configs: Mapping[str, Mapping[str, Any]],
     diferencias: list[dict[str, Any]] = []
     for campo in CAMPOS_ENTORNO:
         valores = {i: c.get(campo) for i, c in configs.items()}
-        if len({_clave(v) for v in valores.values()}) > 1:
+        if len({valor_comparable(v) for v in valores.values()}) > 1:
             diferencias.append({"campo": campo, "tipo": "entorno", "valores": valores})
     for campo in comunes:
         valores = {i: c["parametros"][campo] for i, c in configs.items() if campo in (c.get("parametros") or {})}
-        if len(valores) > 1 and len({_clave(v) for v in valores.values()}) > 1:
+        if len(valores) > 1 and len({valor_comparable(v) for v in valores.values()}) > 1:
             diferencias.append({"campo": campo, "tipo": "comun", "valores": valores})
     return diferencias

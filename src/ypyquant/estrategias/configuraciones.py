@@ -2,11 +2,12 @@
 Configuraciones guardadas: recetas congeladas y versionadas de una estrategia lista para relanzar.
 
 Responsabilidad:
-- `ConfiguracionGuardada` (Pydantic): estrategia + parámetros + universo + frecuencia + costes + benchmark +
-  semilla, SIN fechas (las fechas pertenecen al backtest, no a la receta). `a_experimento(inicio, fin)` construye
-  una `ConfiguracionExperimento` normal (misma huella que el experimento de origen si coinciden fechas y
-  capital: se reutilizan los resultados ya calculados). `huella_estrategia` = `huella_receta()` de esa
-  configuración (sin fechas ni capital). `id_marco` (opcional) enlaza con un `MarcoComparacion` (ver `marcos.py`).
+- `ConfiguracionGuardada` (Pydantic): ES una `Receta` (ver `receta.py`: estrategia + parámetros + entorno, SIN fechas,
+  porque las fechas pertenecen al backtest, no a la receta) más identidad, notas, versión, capital por defecto y
+  origen. `receta()` da la receta pura; `a_experimento(inicio, fin)` la compone con un periodo
+  (`ConfiguracionExperimento.desde_receta`: misma huella que el experimento de origen si coinciden fechas y capital,
+  así se reutilizan los resultados ya calculados). `huella_estrategia` = `receta().huella()`, sin fechas falsas.
+  `id_marco` (opcional) enlaza con un `MarcoComparacion` (ver `marcos.py`).
 - `OrigenConfiguracion`: de dónde sale (`experimento` | `barrido` | `manual`), criterio de elección en un barrido
   (`mejor` | `meseta` | `elegida`) y las métricas EN EL MOMENTO DE GUARDAR (para medir luego la degradación).
 - `AlmacenConfiguraciones`: persistencia en `data/configuraciones/<id>/v<n>.json` + `indice.json` (archivada,
@@ -16,7 +17,7 @@ Responsabilidad:
   `sp500_pit` es dinámico por definición y se guarda como nombre.
 
 Se relaciona con:
-- ypyquant.estrategias.experimentos (ConfiguracionExperimento, resolver_universo) y .almacen (E/S JSON atómica).
+- ypyquant.estrategias.receta (`Receta`), .experimentos (ConfiguracionExperimento, resolver_universo) y .almacen (E/S JSON atómica).
 - ypyquant.estrategias.marcos (el `id_marco` de una configuración).
 - app/api/rutas_configuraciones.py (las expone) y app/web (página Configuraciones).
 """
@@ -35,10 +36,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from ypyquant.estrategias.almacen import _escribir_json, _leer_json
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
-    Frecuencia,
     es_universo_pit,
     resolver_universo,
 )
+from ypyquant.estrategias.receta import Frecuencia, Receta
 
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "configuraciones"
@@ -77,29 +78,21 @@ class OrigenConfiguracion(BaseModel):
     aviso: str | None = None
 
 
-class ConfiguracionGuardada(BaseModel):
+class ConfiguracionGuardada(Receta):
     """
-    Receta congelada de una estrategia (ver cabecera del módulo). `version` empieza en 1; `deriva_de` es la
+    Receta congelada de una estrategia (ver cabecera del módulo): ES una `Receta` (estrategia, parámetros y entorno
+    heredados) más identidad, notas, versión y capital por defecto. `version` empieza en 1; `deriva_de` es la
     versión de la que se creó (None en la primera). `universo` es una lista de tickers o el nombre `sp500_pit`.
+    A diferencia de la receta pura, la frecuencia ya está resuelta (obligatoria).
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     id: str
     version: int = Field(1, ge=1)
     nombre: str = Field(min_length=1)
     notas: str = ""
-    estrategia: str
-    parametros: dict[str, Any] = Field(default_factory=dict)
-    universo: list[str] | str
     universo_etiqueta: str | None = None
-    frecuencia_rebalanceo: Frecuencia
-    comision: float = Field(0.001, ge=0, le=0.1)
-    slippage: float = Field(0.001, ge=0, le=0.1)
-    benchmark: str = "SPY"
+    frecuencia_rebalanceo: Frecuencia  # type: ignore[assignment]  # obligatoria: la receta congelada ya la resolvió
     capital_inicial: float = Field(100_000.0, gt=0)
-    semilla: int = 42
-    dias_historia_previa: int = Field(1100, ge=0, le=7300)
     origen: OrigenConfiguracion = Field(default_factory=OrigenConfiguracion)
     creada: str = ""
     etiquetas: list[str] = Field(default_factory=list)
@@ -118,31 +111,25 @@ class ConfiguracionGuardada(BaseModel):
         `ValidationError` con parámetros inválidos y `ValueError` si el universo con nombre no existe.
         """
         config = config.normalizada()
-        universo = config.universo
+        receta = config.receta()
+        universo = receta.universo
         etiqueta = None
         if isinstance(universo, str):
             etiqueta = universo
             if not es_universo_pit(universo):
                 universo = resolver_universo(universo)
         guardada = cls(
-            id=id or crear_slug(nombre), nombre=nombre, notas=notas, estrategia=config.estrategia,
-            parametros=config.parametros, universo=universo, universo_etiqueta=etiqueta,
-            frecuencia_rebalanceo=config.frecuencia_rebalanceo, comision=config.comision, slippage=config.slippage,
-            benchmark=config.benchmark, capital_inicial=config.capital_inicial, semilla=config.semilla,
-            dias_historia_previa=config.dias_historia_previa, origen=origen or OrigenConfiguracion(),
+            **{**receta.model_dump(), "universo": universo}, id=id or crear_slug(nombre), nombre=nombre, notas=notas,
+            universo_etiqueta=etiqueta, capital_inicial=config.capital_inicial, origen=origen or OrigenConfiguracion(),
             creada=datetime.now().isoformat(timespec="seconds"), etiquetas=etiquetas or [], id_marco=id_marco,
         )
-        guardada.huella_estrategia = guardada.a_experimento("2000-01-01", "2000-01-02").huella_receta()
+        guardada.huella_estrategia = guardada.receta().huella()
         return guardada
 
     def a_experimento(self, fecha_inicio: str, fecha_fin: str, capital_inicial: float | None = None) -> ConfiguracionExperimento:
         """Configuración de backtest de esta receta en `[fecha_inicio, fecha_fin]` (capital: el de la receta por defecto)."""
-        return ConfiguracionExperimento(
-            estrategia=self.estrategia, parametros=self.parametros, universo=self.universo,
-            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, capital_inicial=capital_inicial or self.capital_inicial,
-            comision=self.comision, slippage=self.slippage, frecuencia_rebalanceo=self.frecuencia_rebalanceo,
-            benchmark=self.benchmark, semilla=self.semilla, dias_historia_previa=self.dias_historia_previa,
-        ).normalizada()
+        return ConfiguracionExperimento.desde_receta(
+            self.receta(), fecha_inicio, fecha_fin, capital_inicial or self.capital_inicial).normalizada()
 
 
 class AlmacenConfiguraciones:
@@ -232,9 +219,9 @@ class AlmacenConfiguraciones:
             datos.update(version=actual.version + 1, deriva_de=actual.version, origen=OrigenConfiguracion(),
                          creada=datetime.now().isoformat(timespec="seconds"))
             nueva = ConfiguracionGuardada(**datos)
-            experimento = nueva.a_experimento("2000-01-01", "2000-01-02")  # valida parámetros y universo
-            nueva.parametros = experimento.parametros
-            nueva.huella_estrategia = experimento.huella_receta()
+            receta = nueva.receta().normalizada()  # valida parámetros y universo
+            nueva.parametros = receta.parametros
+            nueva.huella_estrategia = receta.huella()
             _escribir_json(carpeta / f"v{nueva.version}.json", nueva.model_dump())
             _escribir_json(carpeta / "indice.json", {"ultima_version": nueva.version, "archivada": actual.archivada})
         return nueva

@@ -62,6 +62,7 @@ def test_la_huella_de_receta_de_las_configuraciones_guardadas_no_cambia():
         guardada = ConfiguracionGuardada(**datos)
         recalculada = guardada.a_experimento("2000-01-01", "2000-01-02").huella_receta()
         assert recalculada == datos["huella_estrategia"], ruta
+        assert guardada.receta().huella() == datos["huella_estrategia"], ruta
 
 
 def test_los_marcos_guardados_se_cargan_y_sus_comparativas_apuntan_a_los_mismos_ids():

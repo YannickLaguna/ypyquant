@@ -2,9 +2,11 @@
 Experimentos reproducibles: configuración, ejecución con el motor de backtest y barridos.
 
 Responsabilidad:
-- `ConfiguracionExperimento` (Pydantic): estrategia + parámetros + universo + fechas + capital +
-  costes + frecuencia + benchmark + semilla. `huella()` es un hash estable (misma configuración,
-  mismo identificador); `normalizada()` rellena los parámetros por defecto de la estrategia.
+- `ConfiguracionExperimento` (Pydantic) = `Receta` (estrategia + parámetros + entorno: universo, frecuencia, costes,
+  benchmark, semilla, historia previa; ver `receta.py`) + periodo (fechas) + capital + validaciones + etiqueta.
+  `huella()` es un hash estable (misma configuración, mismo identificador) calculado con la canonización única de
+  `receta.huella_de`; `huella_receta()` / `receta()` dan la parte sin periodo ni capital; `normalizada()` (heredada)
+  rellena los parámetros por defecto de la estrategia; `desde_receta(receta, inicio, fin, capital)` la compone.
 - `cargar_datos_experimento(config, cargador)` -> `DatosExperimento` (precios con historia previa,
   benchmark, avisos) y `ejecutar_con_datos(config, datos)` -> `ResultadoExperimento`: carga y
   simulación separadas, para correr muchos backtests con una sola carga (barridos, permutación).
@@ -29,7 +31,7 @@ Responsabilidad:
   conjunto de configuraciones (DSR, PBO, permutación) vive en `validacion_barridos.py`.
 
 Se relaciona con:
-- ypyquant.estrategias.registro (obtiene la clase de estrategia) y .base (adaptador al motor).
+- ypyquant.estrategias.receta (`Receta`, `Entorno`, huella canónica), .registro (clase de estrategia) y .base (adaptador al motor).
 - ypyquant.estrategias.simulacion (`simular`) y .evaluacion (`evaluar`, `reevaluar`): el núcleo de la ejecución.
 - ypyquant.estrategias.precios (cargadores), .almacen (persistencia Parquet + DuckDB),
   .procedencia (huella de reproducibilidad), .barridos y .validacion_barridos (usan
@@ -42,23 +44,21 @@ Se relaciona con:
 
 from __future__ import annotations
 
-import hashlib
 import itertools
-import json
 import logging
 import math
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from ypyquant.data.matriz_precios import CargadorPrecios
-from ypyquant.estrategias.registro import obtener_estrategia
+from ypyquant.estrategias.receta import Frecuencia, Receta, huella_de  # noqa: F401 - Frecuencia se reexporta
 from ypyquant.estrategias.universo_dinamico import (
     NOMBRE_UNIVERSO_PIT,
     RUTA_MEMBRESIAS,
@@ -77,14 +77,14 @@ DIAS_ANIO = 252
 DIAS_PRECIO_CADUCADO = 5  # días sin cotizar antes de la venta a partir de los cuales se avisa de la liquidación
 MAX_COMBINACIONES_REJILLA = 500
 
-Frecuencia = Literal["daily", "weekly", "monthly", "quarterly"]
 
-
-class ConfiguracionExperimento(BaseModel):
+class ConfiguracionExperimento(Receta):
     """
-    Todo lo necesario para reproducir un backtest.
+    Todo lo necesario para reproducir un backtest: una `Receta` (estrategia + parámetros + entorno) más el periodo,
+    el capital, las validaciones y una etiqueta. Es plana (los campos de la receta no van anidados) para conservar
+    el JSON de `config.json` y el cuerpo de la API.
 
-    Campos:
+    Campos (los de entorno y estrategia vienen de `Receta`/`Entorno`, ver `receta.py`):
         estrategia: nombre registrado. parametros: valores de `Estrategia.Parametros` (los que falten usan el defecto).
         universo: lista de tickers o nombre de un archivo de `universos/` (`'sp500'`, o `'sp500:30'` = los 30 primeros);
             `'sp500_pit'` = miembros del S&P 500 en cada fecha de rebalanceo (point-in-time, sin sesgo de supervivencia).
@@ -97,22 +97,18 @@ class ConfiguracionExperimento(BaseModel):
         etiqueta: nota libre; NO entra en la huella.
     """
 
-    model_config = ConfigDict(extra="forbid")
-
-    estrategia: str
-    parametros: dict[str, Any] = Field(default_factory=dict)
-    universo: list[str] | str
     fecha_inicio: str
     fecha_fin: str
     capital_inicial: float = Field(100_000.0, gt=0)
-    comision: float = Field(0.001, ge=0, le=0.1)
-    slippage: float = Field(0.001, ge=0, le=0.1)
-    frecuencia_rebalanceo: Frecuencia | None = None
-    benchmark: str = "SPY"
-    semilla: int = 42
-    dias_historia_previa: int = Field(1100, ge=0, le=7300)
     validaciones: list[str] = Field(default_factory=list)
     etiqueta: str = ""
+
+    @classmethod
+    def desde_receta(cls, receta: Receta, fecha_inicio: str, fecha_fin: str, capital_inicial: float = 100_000.0,
+                     etiqueta: str = "") -> ConfiguracionExperimento:
+        """El experimento de `receta` en `[fecha_inicio, fecha_fin]` con ese capital (sin normalizar)."""
+        return cls(**receta.receta().model_dump(), fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+                   capital_inicial=capital_inicial, etiqueta=etiqueta)
 
     @field_validator("fecha_inicio", "fecha_fin")
     @classmethod
@@ -123,61 +119,23 @@ class ConfiguracionExperimento(BaseModel):
     def _fechas_ordenadas(self) -> ConfiguracionExperimento:
         if self.fecha_inicio >= self.fecha_fin:
             raise ValueError("fecha_inicio debe ser anterior a fecha_fin")
-        if isinstance(self.universo, list):
-            if not self.universo:
-                raise ValueError("el universo no puede estar vacío")
-            self.universo = list(dict.fromkeys(t.strip().upper() for t in self.universo if t.strip()))
         return self
-
-    def normalizada(self) -> ConfiguracionExperimento:
-        """Copia con los parámetros validados y completados con los defectos, y la frecuencia resuelta."""
-        clase = obtener_estrategia(self.estrategia)
-        parametros = clase.Parametros(**self.parametros).model_dump()
-        return self.model_copy(update={
-            "parametros": parametros,
-            "frecuencia_rebalanceo": self.frecuencia_rebalanceo or clase.frecuencia_rebalanceo,
-        })
-
-    def _hash_sin(self, excluir: set[str]) -> str:
-        """SHA-256 del JSON canónico de la configuración sin los campos `excluir` (universo ordenado)."""
-        datos = self.model_dump(exclude=excluir)
-        _omitir_parametros_nuevos_en_defecto(datos)
-        if isinstance(datos["universo"], list):
-            datos["universo"] = sorted(datos["universo"])
-        canonico = json.dumps(datos, sort_keys=True, ensure_ascii=False, default=str, separators=(",", ":"))
-        return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
     def huella(self) -> str:
         """Hash SHA-256 estable de la configuración (sin la etiqueta; el orden del universo no importa)."""
-        return self._hash_sin({"etiqueta"})
+        return huella_de(self.model_dump(exclude={"etiqueta"}))
 
     def huella_receta(self) -> str:
         """
-        Hash de la «receta»: estrategia, parámetros, universo, frecuencia, costes, benchmark, semilla e historia
-        previa, SIN fechas, capital, validaciones ni etiqueta. Dos backtests de la misma receta en periodos o con
-        capitales distintos comparten esta huella (la usan las configuraciones guardadas).
+        Hash de la receta: estrategia, parámetros y entorno, SIN fechas, capital, validaciones ni etiqueta. Dos
+        backtests de la misma receta en periodos o con capitales distintos la comparten (la usan las
+        configuraciones guardadas y el índice por receta del almacén).
         """
-        return self._hash_sin({"etiqueta", "fecha_inicio", "fecha_fin", "capital_inicial", "validaciones"})
+        return self.receta().huella()
 
     def identificador(self) -> str:
         """Identificador legible y estable: `<estrategia>-<10 primeros caracteres de la huella>`."""
         return f"{self.estrategia}-{self.huella()[:10]}"
-
-
-def _omitir_parametros_nuevos_en_defecto(datos: dict[str, Any]) -> None:
-    """
-    Quita de `datos['parametros']` los parámetros que la estrategia declara como posteriores a los experimentos
-    guardados (`parametros_fuera_de_huella_si_defecto`) mientras valgan su defecto. Así `normalizada()` puede
-    rellenar los parámetros nuevos sin cambiar la huella de ningún experimento anterior.
-    """
-    try:
-        clase = obtener_estrategia(datos["estrategia"])
-    except KeyError:  # estrategia no registrada (p. ej. importada del TFM): la huella usa los parámetros tal cual
-        return
-    for nombre in clase.parametros_fuera_de_huella_si_defecto:
-        campo = clase.Parametros.model_fields.get(nombre)
-        if campo is not None and nombre in datos["parametros"] and datos["parametros"][nombre] == campo.default:
-            del datos["parametros"][nombre]
 
 
 @dataclass
