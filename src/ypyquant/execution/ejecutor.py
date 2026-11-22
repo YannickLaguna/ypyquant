@@ -17,10 +17,9 @@ Responsabilidad:
     Semántica de CASH (`TICKER_EFECTIVO`): es el peso que se queda en efectivo. NUNCA genera orden ni se
     omite «por no tener precio»: se separa explícitamente antes de decidir. Su valor entra en la
     normalización de la suma (un 0.5 + CASH 0.5 suma 1) y el efectivo no invertido es la diferencia
-    hasta el equity. Compatibilidad: el motor histórico cuenta el CASH también como «valor operado»
-    en la rotación (el 50 % en CASH da rotación 0.5 fantasma en cada rebalanceo); `POLITICA_MOTOR` lo
-    conserva (`rotacion_cuenta_cash=True`) para no cambiar resultados guardados. Con
-    `rotacion_cuenta_cash=False` (por defecto) la rotación es la real.
+    hasta el equity. La rotación no cuenta el CASH como valor operado: hasta 2026-11-22 el motor sí lo
+    hacía (el 50 % en CASH daba una rotación fantasma de 0.5 en cada rebalanceo); los experimentos
+    guardados antes de esa fecha con CASH tienen el turnover inflado (los costes no: no hubo órdenes).
 
     Orden de las órdenes: primero los cierres (peso <= 0 o fuera del objetivo, en el orden de las
     posiciones), después el resto por (objetivo - actual) ascendente, es decir, ventas antes que compras
@@ -72,18 +71,15 @@ class PoliticaEjecucion:
       `umbral_absoluto` (divisa) y `umbral_relativo * equity`; los cierres de posición no lo respetan.
     - tolerancia_suma: si no es None y la suma de pesos (CASH incluido) se desvía más que esto de 1,
       se normaliza a 1; None = no se normaliza (lo no asignado queda en efectivo).
-    - rotacion_cuenta_cash: ver la nota de CASH en la cabecera (compatibilidad del motor).
     """
     fraccionable: bool = True
     umbral_absoluto: float = 0.0
     umbral_relativo: float = 0.0
     tolerancia_suma: float | None = None
-    rotacion_cuenta_cash: bool = False
 
 
 # Política del motor de backtest: fracciones, umbral de 10 unidades de divisa, normaliza si |suma-1| > 0.01
-POLITICA_MOTOR = PoliticaEjecucion(fraccionable=True, umbral_absoluto=10.0, tolerancia_suma=0.01,
-                                   rotacion_cuenta_cash=True)
+POLITICA_MOTOR = PoliticaEjecucion(fraccionable=True, umbral_absoluto=10.0, tolerancia_suma=0.01)
 # Política del bot de Alpaca y de Nautilus: acciones enteras, umbral del 1 % del equity, sin normalizar
 POLITICA_BOT = PoliticaEjecucion(fraccionable=False, umbral_relativo=0.01)
 
@@ -128,16 +124,14 @@ def _normalizar(pesos: Mapping[str, float], politica: PoliticaEjecucion) -> dict
     return pesos
 
 
-def _rotacion(pesos: Mapping[str, float], precios: Mapping[str, float], cuenta: EstadoCuenta,
-              politica: PoliticaEjecucion) -> float:
+def _rotacion(pesos: Mapping[str, float], precios: Mapping[str, float], cuenta: EstadoCuenta) -> float:
     """
     Valor que hay que operar (posiciones a la deriva -> objetivo, más el cambio de efectivo) entre
     2·equity. Un ticker sin precio se valora a 0 en la cartera actual (comportamiento histórico).
     """
     if cuenta.equity <= 0:
         return 0.0
-    valores_objetivo = {t: cuenta.equity * w for t, w in pesos.items()
-                        if politica.rotacion_cuenta_cash or t != TICKER_EFECTIVO}
+    valores_objetivo = {t: cuenta.equity * w for t, w in pesos.items() if t != TICKER_EFECTIVO}
     valores_actuales = {t: q * precios.get(t, 0.0) for t, q in cuenta.posiciones.items()}
     operado = sum(abs(valores_objetivo.get(t, 0.0) - valores_actuales.get(t, 0.0))
                   for t in sorted(set(valores_objetivo) | set(valores_actuales)))
@@ -161,7 +155,7 @@ def planificar_rebalanceo(
     para cerrarlo. CASH se interpreta como efectivo y nunca genera orden.
     """
     pesos = _normalizar(pesos, politica)
-    rotacion = _rotacion(pesos, precios, cuenta, politica)
+    rotacion = _rotacion(pesos, precios, cuenta)
     bloqueados = set(tickers_bloqueados)
     posiciones = {t: q for t, q in cuenta.posiciones.items() if q > 0 and t != TICKER_EFECTIVO}
     omitidas: list[Omision] = []

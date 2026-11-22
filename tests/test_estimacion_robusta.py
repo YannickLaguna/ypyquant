@@ -230,7 +230,7 @@ class TestSolver:
         mu = np.random.default_rng(14).uniform(0.02, 0.12, size=8)
         base = er.optimizar_max_sharpe(mu, sigma)
         con_cero = er.optimizar_max_sharpe(mu, sigma, pesos_previos=np.full(8, 1 / 8), penalizacion_turnover=0.0)
-        np.testing.assert_allclose(base[0], con_cero[0], atol=1e-9)  # warm_start de OSQP: ruido ~1e-14
+        np.testing.assert_allclose(base[0], con_cero[0], atol=1e-9)
         assert base[2] == con_cero[2]
 
     def test_penalizacion_reduce_turnover_y_converge_a_pesos_previos(self):
@@ -249,6 +249,24 @@ class TestSolver:
         dist = [np.abs(w - previos).sum() for w in (tangente, pesos_media, pesos_grande)]
         assert dist[0] >= dist[1] >= dist[2]
         assert dist[2] < 1e-3
+
+    def test_resultado_no_depende_de_lo_resuelto_antes(self):
+        # La caché de problemas compilados no debe arrastrar estado entre llamadas: con warm_start=True el
+        # mismo (µ, Σ) daba pesos distintos (~1e-6) según lo resuelto antes con el mismo tamaño.
+        def sigma_realista(n, semilla):
+            a = np.random.default_rng(semilla).normal(size=(n, n))
+            return a @ a.T / n + 0.01 * np.eye(n)
+
+        for n, peso_maximo in ((10, 0.1), (10, 0.15), (30, 0.1), (80, 0.1)):
+            for k in range(4):
+                sigma, mu = sigma_realista(n, k), np.random.default_rng(1000 + k).uniform(-0.02, 0.15, n)
+                qp._CACHE_QP.clear()
+                en_frio, _, _ = er.optimizar_max_sharpe(mu, sigma, peso_maximo=peso_maximo)
+                for j in range(3):  # problemas distintos del mismo tamaño
+                    er.optimizar_max_sharpe(np.random.default_rng(j).uniform(0, 0.1, n), sigma_realista(n, 500 + j),
+                                            peso_maximo=peso_maximo)
+                tras_otros, _, _ = er.optimizar_max_sharpe(mu, sigma, peso_maximo=peso_maximo)
+                np.testing.assert_array_equal(en_frio, tras_otros)
 
     def test_penalizacion_longitud_incorrecta_lanza(self):
         sigma = _sigma_spd_aleatoria(4, seed=15)

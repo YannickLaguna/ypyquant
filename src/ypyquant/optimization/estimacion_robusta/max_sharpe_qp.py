@@ -52,7 +52,9 @@ class _ProblemaQPMaxSharpe:
     `µ'y = 1`, `y >= 0` (y `y <= peso_maximo·1'y` si hay tope de peso).
 
     Se compila una vez por (n, peso_maximo) con parámetros (L = Cholesky de Σ, µ)
-    y se reutiliza con `warm_start`. `resolver` devuelve los pesos normalizados o
+    y se reutiliza, pero cada resolución arranca en frío (`warm_start=False`): con
+    arranque en caliente el resultado dependía (~1e-6) de lo resuelto antes con el mismo
+    tamaño, y dos ejecuciones idénticas podían diferir según el orden (corregido 2026-11-22). `resolver` devuelve los pesos normalizados o
     None si algo falla (entradas no finitas, Σ no definida positiva, solver).
     """
 
@@ -85,7 +87,7 @@ class _ProblemaQPMaxSharpe:
             return None
         for solver in (self._cp.OSQP, self._cp.CLARABEL):
             try:
-                self.problema.solve(solver=solver, warm_start=True)
+                self.problema.solve(solver=solver, warm_start=False)
                 y = self.y.value
                 if y is not None and np.all(np.isfinite(y)) and y.sum() > 1e-8:
                     w = np.maximum(y, 0.0)
@@ -95,7 +97,8 @@ class _ProblemaQPMaxSharpe:
         return None
 
 
-# Caché de problemas compilados por (n, peso_maximo) dentro del proceso.
+# Caché de problemas compilados por (n, peso_maximo) dentro del proceso. Solo guarda la compilación,
+# no soluciones: `resolver` arranca en frío, así que el resultado no depende del orden de las llamadas.
 _CACHE_QP: dict[tuple[int, float], _ProblemaQPMaxSharpe | None] = {}
 
 

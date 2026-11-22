@@ -11,7 +11,7 @@ Responsabilidad:
       posiciones aunque estén bajo el umbral, tickers bloqueados, CASH/sin precio descartados, suma de
       pesos distinta de 1 (el bot NO normaliza).
     Los valores numéricos están fijados con el código previo; si alguno cambia, el refactor ha alterado
-    resultados.
+    resultados. Excepción deliberada (2026-11-22): la rotación ya no cuenta el CASH como valor operado.
 
 Se relaciona con:
     - src/ypyquant/portfolio/backtest_engine.py (motor) y src/ypyquant/ejecucion/ejecutor.py (Ejecutor).
@@ -86,14 +86,14 @@ class TestMotorPesosAOrdenes:
         assert motor.cash == pytest.approx(50.0)
         assert motor.rotaciones[0][1] == pytest.approx(0.995)
 
-    def test_cash_parcial_no_genera_orden_y_su_rotacion_cuenta_doble(self):
-        # CASH no tiene precio: se salta. La rotación actual lo cuenta como valor operado (1.0 en vez
-        # del 0.5 real); se fija tal cual porque GrowSave/experimentos guardados dependen de ella
+    def test_cash_parcial_no_genera_orden_y_su_rotacion_es_la_real(self):
+        # CASH no genera orden. Desde 2026-11-22 la rotación ya no lo cuenta como valor operado
+        # (antes daba 1.0): solo se opera la compra de AAA, el 50 % del equity
         motor = _motor()
         motor._execute_rebalance({"AAA": 0.5, "CASH": 0.5}, {"AAA": 100.0}, DIA)
         assert [t.ticker for t in motor.trades] == ["AAA"]
         assert motor.cash == pytest.approx(4995.0)
-        assert motor.rotaciones[0][1] == pytest.approx(1.0)
+        assert motor.rotaciones[0][1] == pytest.approx(0.5)
 
     def test_ticker_sin_precio_no_se_compra_ni_se_cierra(self):
         # AAA compra; ZZZ (sin precio hoy) no se puede cerrar y queda en cartera; la rotación lo valora a 0
@@ -131,8 +131,8 @@ def test_backtest_completo_con_cash_equity_y_rotaciones_fijadas():
     curva = pd.DataFrame(motor.equity_curve)
     assert curva["equity"].iloc[-1] == pytest.approx(PIN_EQUITY_FINAL, abs=1e-6)
     assert curva["cash"].iloc[-1] == pytest.approx(PIN_CAJA_FINAL, abs=1e-6)
-    # Rotación fantasma del CASH: ~0.5 en cada rebalanceo aunque casi no haya deriva
-    assert [round(r, 3) for _, r in resultado.rotaciones[1:4]] == pytest.approx([0.5, 0.5, 0.5], abs=0.01)
+    # Sin la rotación fantasma del CASH (corregida 2026-11-22): solo la deriva mensual, casi nula
+    assert all(r < 0.01 for _, r in resultado.rotaciones[1:])
 
 
 PIN_EQUITY_FINAL = 10413.350749977026

@@ -38,10 +38,10 @@ def test_cash_es_efectivo_nunca_una_orden_ni_una_omision_por_precio():
         assert plan.omitidas == ()  # CASH no aparece como «sin precio»
 
 
-def test_rotacion_real_con_cash_y_rotacion_historica_del_motor():
+def test_rotacion_con_cash_es_la_real_en_todas_las_politicas():
     pesos, precios = {"AAA": 0.5, "CASH": 0.5}, {"AAA": 100.0}
-    assert planificar_rebalanceo(pesos, precios, CUENTA, PoliticaEjecucion()).rotacion == pytest.approx(0.5)
-    assert planificar_rebalanceo(pesos, precios, CUENTA, POLITICA_MOTOR).rotacion == pytest.approx(1.0)  # compat.
+    for politica in (POLITICA_MOTOR, POLITICA_BOT, PoliticaEjecucion()):
+        assert planificar_rebalanceo(pesos, precios, CUENTA, politica).rotacion == pytest.approx(0.5)
 
 
 def test_posicion_en_cash_se_ignora_y_no_se_vende():
