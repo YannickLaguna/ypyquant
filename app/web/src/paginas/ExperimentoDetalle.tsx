@@ -8,13 +8,15 @@
  * parámetros comunes) para lanzar otras estrategias en las mismas condiciones (ver lib/marcos.ts, marcoDesdeExperimento).
  * Los experimentos importados del TFM (estrategia `tfm_*`) llevan la insignia «TFM · importado» y una
  * nota de solo lectura; esta página no ofrece relanzar ningún experimento.
+ * El botón «Paper interno» abre `CrearSesionPaper` (sesión forward con la receta congelada del experimento terminado).
  * Se relaciona con: api/hooks.ts (useExperimento, useBorrarExperimento), componentes/Graficos.tsx,
- * componentes/TablaOrdenable.tsx y componentes/Piezas.tsx.
+ * componentes/TablaOrdenable.tsx, componentes/Piezas.tsx y componentes/CrearSesionPaper.tsx.
  */
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useBorrarExperimento, useExperimento } from '../api/hooks'
 import type { OperacionFila } from '../api/tipos'
+import CrearSesionPaper from '../componentes/CrearSesionPaper'
 import { CajaError, Cargando, esImportadoTfm, Insignia, InsigniaTfm } from '../componentes/Estado'
 import { GraficoPesos, GraficoSeries, type MarcaGrafico, type SerieGrafico } from '../componentes/Graficos'
 import { Kpi } from '../componentes/Piezas'
@@ -65,6 +67,7 @@ export default function ExperimentoDetalle() {
   const { data, isPending, error } = useExperimento(id)
   const borrar = useBorrarExperimento()
   const [verMarcas, setVerMarcas] = useState(false)
+  const [creandoPaper, setCreandoPaper] = useState(false)
 
   const series = useMemo<SerieGrafico[]>(() => {
     if (!data) return []
@@ -144,9 +147,16 @@ export default function ExperimentoDetalle() {
               Crear marco desde este experimento
             </Link>
           )}
+          {data.estado === 'hecho' && !esImportadoTfm(data.estrategia) && (
+            <button type="button" className="boton" onClick={() => setCreandoPaper((v) => !v)} aria-expanded={creandoPaper} title="Sigue la receta de este experimento día a día con precios reales (simulación forward, sin broker)">
+              Paper interno
+            </button>
+          )}
           <button type="button" className="boton boton-peligro" onClick={eliminar} disabled={borrar.isPending}>Borrar</button>
         </div>
       </header>
+
+      {creandoPaper && <CrearSesionPaper idExperimento={data.id} nombreSugerido={`${data.estrategia} ${resumenParametros(data.parametros)}`.slice(0, 80)} alCerrar={() => setCreandoPaper(false)} />}
 
       {esImportadoTfm(data.estrategia) && (
         <p role="note" className="rounded-lg border border-borde p-3 text-sm text-suave">
