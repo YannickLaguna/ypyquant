@@ -115,6 +115,19 @@ uv run python -m pipelines.paper_trading --config pipelines/paper_trading/estrat
 
 La estrategia (tickers, generadores de señales, umbral, riesgo) se define en un JSON (ver `estrategia_ejemplo.json`). Las órdenes son de mercado DAY y solo se envían con el mercado abierto. Los fills reales (no al enviar la orden, sino cuando se ejecuta) se guardan en `data/paper_trading/fills.jsonl`. Variables opcionales: `NAUTILUS_POLL_INTERVAL` (segundos entre iteraciones) y `NAUTILUS_LOOKBACK_DAYS` (**mínimo** de días de historia: en modo registro se descargan más si la estrategia los necesita; también `--dias-historico`). En modo registro (`--estrategia`) el bot rebalancea solo cuando toca según la frecuencia de la estrategia (o `--frecuencia`), recuerda el último rebalanceo en `data/paper_trading/estado_bot.json` y no envía órdenes sobre tickers con una orden abierta. Detalle en `docs/ui.md`.
 
+### Paper interno (sin broker)
+
+`ypyquant.paper` simula hacia delante, con precios reales y sin broker, la receta congelada de un experimento terminado (botón «Paper interno» en la ficha del experimento; página `/paper-interno`). Desde la consola:
+
+```bash
+uv run python -m ypyquant.paper crear --experimento <id> --modo apertura_siguiente
+uv run python -m ypyquant.paper avanzar        # procesa los días cerrados pendientes (idempotente; catch-up si el PC estuvo apagado)
+uv run python -m ypyquant.paper estado
+.\scripts\instalar_tarea_paper.ps1 -SoloMostrar # tarea diaria de Windows (no registra nada con -SoloMostrar); log: data\paper_interno\avance.log
+```
+
+Detalle: `docs/ypyquant.md` («Paper interno») y `docs/ui.md`.
+
 ---
 
 ## Próximas sesiones (Fase 3+4)

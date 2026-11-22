@@ -29,6 +29,8 @@ ypyquant/
 ├── ml/                 # Clustering, regímenes de mercado, PCA, LSTM, RL
 ├── portfolio/          # Backtest (motor + benchmark), selección de activos, métricas, rebalanceo
 ├── data/               # Descargadores, indicadores y matriz_precios (cargador inyectado)
+├── execution/          # Ejecutor (pesos -> órdenes), brokers (simulado, Alpaca), calendario de rebalanceo
+├── paper/              # Paper interno: sesiones forward de una receta congelada (ver «Paper interno»)
 └── utils/              # Serialización NumPy→JSON y divisas (ServicioCambio)
 ```
 
@@ -57,6 +59,52 @@ apalancamiento escala la tangente long-only (sin cortos, peso <= 2). `LedoitWolf
 
 > `ypyquant.quantlib` está deprecated y existe solo como shim de retrocompatibilidad.
 > Importar directamente desde `ypyquant.optimization`, `ypyquant.portfolio` o `ypyquant.data`.
+
+## Paper interno
+
+`ypyquant.paper` simula **hacia delante** (forward, con precios reales y sin broker) la receta congelada de un experimento
+terminado. Una sesión fija `fecha_alta`, `capital_inicial`, `modo_ejecucion` y, opcionalmente, comisión y slippage propios
+(Alpaca no cobra comisión: así se compara «costes realistas» con «costes Alpaca» sin tocar la receta). No envuelve el
+motor: **planifica con el Ejecutor** (`planificar_rebalanceo` + `POLITICA_MOTOR`) y **ejecuta con el `BrokerSimulado`**
+aplicando la misma comisión y slippage que `BacktestEngine`; el calendario de rebalanceo es el único de
+`execution/calendario.py` (`toca_rebalancear`).
+
+```python
+from ypyquant.data.fuentes import fuente_por_defecto
+from ypyquant.paper import AlmacenPaper, ServicioPaper
+from ypyquant.paper.servicio import receta_de_experimento
+
+servicio = ServicioPaper(AlmacenPaper("data/paper_interno"), fuente_por_defecto())
+sesion = servicio.crear_sesion(receta_de_experimento(almacen_experimentos, "momentum-abc123"),
+                               modo_ejecucion="apertura_siguiente", capital_inicial=100_000)
+servicio.avanzar()           # procesa los días cerrados pendientes de las sesiones activas (idempotente, con catch-up)
+servicio.listar()            # una fila por sesión: retorno, Sharpe, drawdown, costes, estado, días pendientes
+```
+
+- **Modos**: `apertura_siguiente` (por defecto) decide con el cierre de D y ejecuta a la apertura de D+1; `cierre` decide y
+  ejecuta con el cierre del mismo día, igual que el backtest (optimista; sirve para la prueba de paridad y se avisa como
+  «ejecución optimista»).
+- **Bucle diario** (`SimuladorPaper`): precios -> re-base por ajuste -> ejecución -> valoración (fila de equity) -> decisión
+  si toca. El commit de cada día escribe las tablas y, AL FINAL, `estado.json` con `ultima_fecha_procesada`: una caída a mitad
+  repite el día entero sin duplicar filas. Una sesión `D` solo se procesa si ya es definitiva (en Nueva York, tras las 16:30)
+  y su barra es completa (benchmark y al menos el 80 % del universo; si no, se pospone el último día o se omite uno intermedio
+  con aviso). Un ticker sin barra 5 sesiones seguidas se liquida a su último precio con aviso.
+- **Re-base por ajuste**: `Close` viene ajustado, así que cada dividendo o split reescribe el histórico. Antes de avanzar se
+  compara el último cierre guardado de cada posición con el recién descargado; si el factor `f` difiere más de 1e-6 se hace
+  `cantidad /= f` y `precio_medio *= f` (el valor no salta). `FuentePrecios.refrescar_reciente` (no-op por defecto; en
+  `FuenteYFinanceCache` añade solo las sesiones nuevas y vuelve a descargar un símbolo únicamente si el solape revela un ajuste).
+- **Persistencia** (`data/paper_interno/<id>/`, vía `AlmacenDocumentos`): `sesion.json`, `estado.json`, `eventos.json` y
+  `equity|operaciones|pesos|rotaciones.parquet` (mismo formato que un experimento, con `efectivo`, `n_posiciones` y `slippage`
+  de más). Bloqueo entre procesos con `sesion.lock` (pid del dueño; un bloqueo huérfano se roba). Raíz: `RaizDatos.paper_interno`.
+- **Métricas forward**: `evaluar(simulacion_desde_tablas(...), validar=False)`, la misma función que el backtest. Costes =
+  comisiones + slippage.
+- **Paridad** (`tests/test_paper_paridad.py`): en modo `cierre`, avanzar día a día, de golpe o partido en dos procesos da la
+  misma equity, operaciones, pesos y rotaciones que `simular` del mismo rango (tolerancia 1e-9). Protege el motor que usa GrowSave.
+- **CLI**: `uv run python -m ypyquant.paper avanzar [--sesion ID] [--hasta AAAA-MM-DD]`, `estado`, `crear --experimento ID`,
+  `pausar|reanudar|detener ID`. Código de salida 1 si alguna sesión falló. `YPYQUANT_PAPER_RAIZ` cambia la raíz y
+  `YPYQUANT_PRECIOS=sintetico` usa precios sin red. Tarea diaria de Windows: `scripts/instalar_tarea_paper.ps1` (ver `docs/ui.md`).
+- **Limitaciones**: universo fijo (`sp500_pit` no se admite), solo largo, cantidades fraccionarias (política del motor),
+  barras diarias (sin intradía), y el estado de la estrategia (p. ej. precios de entrada de las de señales) no se re-basa por ajustes.
 
 ## Uso rápido
 

@@ -111,6 +111,11 @@ Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUAN
 | GET | `/api/paper/{estado,cuenta,posiciones,ordenes,historial,fills}` | Alpaca paper; **503** sin claves, 502 si Alpaca falla |
 | POST | `/api/paper/bot/{arrancar,parar}` | Subproceso `python -m pipelines.paper_trading --estrategia ...`; `arrancar` admite `dias_historico` (mínimo, 30-10000) y `frecuencia_rebalanceo` opcionales |
 | GET | `/api/paper/bot/{estado,log?desde=N}` | Estado y log (polling por línea) |
+| GET / POST | `/api/paper/interno/sesiones` | Sesiones de **paper interno** (distinto de `/api/paper`, que es Alpaca): lista con retorno, Sharpe, drawdown, costes, estado y `dias_pendientes` / `al_dia` / crea desde `{id_experimento o id_configuracion (+version), capital_inicial?, modo_ejecucion, comision?, slippage?, nombre?, fecha_alta?}` (201; 404 origen inexistente, 409 experimento sin terminar, 422 incoherente, estrategia sin código o `sp500_pit`) |
+| GET | `/api/paper/interno/sesiones/{id}` y `/equity`, `/operaciones`, `/pesos` | Detalle (receta congelada, métricas forward, posiciones, pesos objetivo y pendientes, avisos) y series |
+| POST | `/api/paper/interno/sesiones/{id}/{pausar,reanudar,detener}` | Control; 409 si la transición no es válida (una detenida no se reanuda) |
+| POST / GET | `/api/paper/interno/avanzar`, `/avanzar/estado` | Avanza todas las activas en un hilo del ejecutor (202; 409 si ya hay un avance); estado `{en_curso, inicio, fin, resultados, error}` para el sondeo |
+| GET | `/api/paper/interno/sesiones/{id}/espejo` | Lanza (o reutiliza por huella) el backtest de la misma receta del alta a la última fecha y devuelve `real` y `espejo` (`estado` mientras se calcula) |
 
 ## Procedencia de un experimento
 
@@ -270,7 +275,7 @@ Una **configuración** es una receta congelada y versionada (`data/configuracion
 - **Versiones inmutables**: editar crea la v(n+1) (`deriva_de`); solo `nombre`, `notas`, `etiquetas`, `parametros`, `universo`, `frecuencia_rebalanceo`, costes, `benchmark`, `capital_inicial`, `semilla`, `dias_historia_previa` e `id_marco` son editables (la estrategia no: otra estrategia es otra configuración).
 - **UI** (`/configuraciones`, `/configuraciones/<id>?version=`): tabla, detalle con origen, historial de versiones, backtests de la receta, lanzar backtest y nueva versión (formulario autogenerado). «Guardar como configuración» está junto a ★ y ◆ en el detalle de barrido.
 - **Fuera del menú (2026-11-21):** la página sigue accesible en `/configuraciones`, pero el menú ya no la muestra: para comparar estrategias se usan los marcos. Las configuraciones se reservan para congelar la receta que irá a paper/live (fases 3-5, capa «Ejecutor»). En el detalle de experimento, el botón es ahora **«Crear marco desde este experimento»**: abre `/marcos?desde=<id>` con el entorno del experimento (universo, fechas, rebalanceo, costes, benchmark, capital, semilla, historia previa y parámetros comunes) precargado (`lib/marcos.ts`, `marcoDesdeExperimento`).
-- Pendiente de fases siguientes: sesiones de paper interno y vinculación con Alpaca (`/api/configuraciones/{id}/paper` y `/alpaca`).
+- Las sesiones de paper interno se crean desde un experimento terminado (también admiten `id_configuracion`; ver «Paper interno»). Pendiente: vinculación con Alpaca (`/api/configuraciones/{id}/alpaca`).
 
 ## Marcos de comparación (ceteris paribus)
 
@@ -298,6 +303,29 @@ Reglas del bot en modo registro:
 - **Frecuencia**: solo rebalancea cuando toca según la frecuencia de la estrategia (`frecuencia_rebalanceo`: momentum y las del TFM son `monthly`), o la indicada con `--frecuencia` / `frecuencia_rebalanceo` en la API. Toca el primer día de mercado de un periodo de calendario nuevo (día, semana ISO, mes o trimestre) tras el último rebalanceo. La fecha se guarda en `data/paper_trading/estado_bot.json` (con la firma estrategia + parámetros + tickers: si cambias la configuración, el calendario se reinicia). Los días que no toca, el bot solo loguea. Si algún envío falla, no se marca como hecho y se reintenta en la siguiente iteración.
 - **Órdenes abiertas**: antes de decidir consulta las órdenes abiertas y no envía ninguna sobre un ticker que ya tenga una; si no puede consultarlas, no envía nada.
 - **Fills**: una orden de mercado recién enviada tiene `filled_qty` 0, así que el bot anota su id como pendiente (en `estado_bot.json`) y registra el fill real en `data/paper_trading/fills.jsonl` cuando la orden termina (al cerrar cada iteración, con unos reintentos, y al empezar la siguiente). Un mismo `id_orden` no se registra dos veces.
+
+## Paper interno
+
+Página **Paper interno** (`/paper-interno`, entrada del menú; la de Alpaca sigue en `/paper`). Simula hacia delante, con precios
+reales y sin broker, la receta congelada de un experimento terminado (núcleo: `docs/ypyquant.md`, «Paper interno»).
+
+- **Crear una sesión**: en la ficha de un experimento terminado, botón **«Paper interno»**: nombre, modo de ejecución
+  (apertura siguiente por defecto; «al cierre» es optimista), capital (100 000 por defecto), comisión y slippage opcionales
+  (en %; vacío = los del experimento; 0 = costes tipo Alpaca) y fecha de alta (vacío = hoy). Navega al detalle de la sesión.
+- **Lista** (`/paper-interno`): nombre, estrategia, modo, días, retorno, Sharpe, drawdown, costes, estado y «Al día / n días
+  pendientes». **Avanzar ahora** procesa los días cerrados pendientes (el botón se deshabilita y la página sondea mientras está
+  en curso; al acabar muestra días procesados, avisos y errores por sesión). Selección múltiple: equity a base 100 en la
+  primera fecha común, con el benchmark.
+- **Detalle** (`/paper-interno/<id>`): KPIs forward, **curva real frente al backtest espejo** (la misma receta del alta a la
+  última fecha, al cierre; en modo `cierre` deben coincidir), avisos (re-bases, liquidaciones, errores de estrategia), decisión
+  pendiente (modo apertura siguiente), posiciones actuales, pesos objetivo, operaciones y pausar / reanudar / detener.
+- **Al arrancar la API** se hace el catch-up en segundo plano si hay sesiones activas (`crear_app(catchup_paper_al_arrancar=False)`
+  lo desactiva en los tests).
+- **Programador de Windows**: `scripts/instalar_tarea_paper.ps1` registra la tarea «Sistema_trading paper interno» (diaria a
+  las 23:30 hora local y al iniciar sesión, `StartWhenAvailable`: si el PC estaba apagado se ejecuta al encender y recupera todos
+  los días pendientes), que lanza `uv run python -m ypyquant.paper avanzar` y añade la salida a `data/paper_interno/avance.log`.
+  No registra nada sin que lo ejecutes tú: `-SoloMostrar` enseña lo que haría, `-Hora 23:45`, `-Despertar` (WakeToRun) y
+  `-Desinstalar`. Ver el log: `Get-Content data\paper_interno\avance.log -Tail 50`.
 
 ## Tests
 
