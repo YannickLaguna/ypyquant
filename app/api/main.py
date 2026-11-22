@@ -41,6 +41,7 @@ from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.barridos import AlmacenBarridos
 from ypyquant.estrategias.configuraciones import AlmacenConfiguraciones
 from ypyquant.estrategias.marcos import AlmacenMarcos
+from ypyquant.raiz_datos import RaizDatos
 from ypyquant.data.fuentes import fuente_por_defecto
 
 RAIZ_REPO = Path(__file__).resolve().parents[2]
@@ -80,21 +81,25 @@ def crear_app(
 
     api = FastAPI(title="Sistema_trading — interfaz interna", version="0.1.0")
     api.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
-    almacen = AlmacenExperimentos(raiz_experimentos)
+    raiz = RaizDatos.de_experimentos(raiz_experimentos) if raiz_experimentos else RaizDatos()
+    almacen = AlmacenExperimentos(raiz.experimentos)
     almacen.marcar_interrumpidos()  # lo que quedó en curso al caer el servidor anterior
-    almacen_barridos = AlmacenBarridos(raiz_barridos or almacen.raiz.parent / "barridos", almacen)
+    # con una carpeta de barridos propia el contador del reservado sigue junto a ella (su carpeta padre)
+    almacen_barridos = AlmacenBarridos(raiz_barridos or raiz.barridos, almacen, None if raiz_barridos else raiz.reservado)
     almacen_barridos.marcar_interrumpidos()
+    almacen_marcos = AlmacenMarcos(raiz_marcos or raiz.marcos)
     api.state.ctx = Contexto(
         almacen=almacen,
         almacen_barridos=almacen_barridos,
-        almacen_configuraciones=AlmacenConfiguraciones(raiz_configuraciones or almacen.raiz.parent / "configuraciones"),
-        almacen_marcos=AlmacenMarcos(raiz_marcos or almacen.raiz.parent / "marcos"),
+        almacen_configuraciones=AlmacenConfiguraciones(raiz_configuraciones or raiz.configuraciones),
+        almacen_marcos=almacen_marcos,
         cargador_precios=cargador_precios or fuente_por_defecto(),
         alpaca=servicio_alpaca or ServicioAlpaca(),
         bot=bot or BotControl(),
     )
 
     almacen.indexar()  # índice receta -> experimentos (backtests de una configuración sin recorrer el disco)
+    almacen_marcos.indexar_comparativas()  # índice configuración -> comparativas
 
     @api.get("/api/salud", tags=["sistema"])
     def salud():

@@ -15,7 +15,7 @@ Responsabilidad:
 Códigos: 404 barrido o estrategia inexistente, 409 experimentos sin terminar o tarea ya en curso,
 422 parámetros inválidos (mensaje en `detail`).
 
-Se relaciona con: app/api/contexto.py (almacén, ejecutores, `ctx.servicio` y `lanzar_permutacion`), ypyquant.estrategias.barridos,
+Se relaciona con: app/api/contexto.py (almacén, ejecutores y `ctx.servicio`, que lanza y cancela las permutaciones), ypyquant.estrategias.barridos,
 .validacion_barridos y .reservado (toda la lógica; esta capa solo traduce a HTTP).
 """
 
@@ -27,7 +27,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from app.api.contexto import Contexto, lanzar_permutacion, nombre_tarea_permutacion, obtener_contexto
+from app.api.contexto import Contexto, obtener_contexto
 from ypyquant.estrategias.barridos import Barrido, ConfiguracionBarrido, superficie_registros
 from ypyquant.estrategias.reservado import RegistroReservado, clave_reservado, evaluar_reservado
 from ypyquant.estrategias.validacion_barridos import (
@@ -189,7 +189,7 @@ def permutacion(id_barrido: str, peticion: PeticionPermutacion, ctx: Contexto = 
         raise HTTPException(422, str(error)) from error
     _terminado(barrido, minimo=2 if peticion.modo == "walk_forward" else 1)
     try:
-        tarea = lanzar_permutacion(ctx, id_barrido, parametros)
+        tarea = ctx.servicio.lanzar_permutacion(id_barrido, parametros)
     except RuntimeError as error:
         raise HTTPException(409, str(error)) from error
     n_backtests = len(barrido.ids) * peticion.n_permutaciones
@@ -201,11 +201,9 @@ def permutacion(id_barrido: str, peticion: PeticionPermutacion, ctx: Contexto = 
 def cancelar_permutacion(id_barrido: str, peticion: PeticionCancelar | None = None,
                          ctx: Contexto = Depends(obtener_contexto)):
     _cargar(ctx, id_barrido)
-    nombre = nombre_tarea_permutacion((peticion or PeticionCancelar()).modo)
-    evento = ctx.cancelaciones.get((id_barrido, nombre))
-    if evento is None:
+    nombre = ctx.servicio.nombre_tarea_permutacion((peticion or PeticionCancelar()).modo)
+    if not ctx.servicio.cancelar_permutacion(id_barrido, nombre):
         raise HTTPException(409, f"No hay una {nombre} en curso")
-    evento.set()
     return {"tarea": nombre, "cancelando": True}
 
 

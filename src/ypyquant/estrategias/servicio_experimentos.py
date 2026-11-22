@@ -11,6 +11,8 @@ Responsabilidad:
   configuración guardada con fechas por defecto: las de su marco enlazado, las de su origen o los últimos 5 años).
 - Consultas: `backtests_de_receta(configuracion)` usa el índice por receta del almacén (no recorre el disco);
   `estado_de`, `borrar` y `borrar_varios` (omite los que siguen en marcha: el ejecutor escribiría en su carpeta).
+- Tareas largas de un barrido: `lanzar_permutacion` (prueba de permutación en un hilo aparte, con estado y progreso en
+  `barrido.json` -> `tareas`) y `cancelar_permutacion` (cancelación cooperativa con un `threading.Event` por tarea).
 - Errores: lanza las excepciones del dominio sin traducir (`KeyError` estrategia desconocida, `ValueError` /
   `pydantic.ValidationError` configuración o parámetros inválidos, `BarridoEnCurso`...). Traducirlas a códigos HTTP
   (404/409/422) es trabajo de `app/api/rutas_*.py`.
@@ -22,11 +24,13 @@ Se relaciona con:
   .receta (huella por receta) y .experimentos (`ejecutar_experimento`).
 - app/api/contexto.py (lo construye y lo guarda en el contexto) y app/api/rutas_experimentos.py, rutas_barridos.py,
   rutas_marcos.py y rutas_configuraciones.py (lo llaman).
+- .validacion_barridos (`prueba_permutacion_barrido`, `PruebaCancelada`).
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Mapping, Sequence
 from concurrent.futures import Executor
 from datetime import date, timedelta
@@ -46,6 +50,7 @@ from ypyquant.estrategias.marcos import (
     marco_desde_configuracion,
     preparar_comparativa,
 )
+from ypyquant.estrategias.validacion_barridos import PruebaCancelada, prueba_permutacion_barrido
 
 logger = logging.getLogger(__name__)
 ESTADOS_EN_MARCHA = ("pendiente", "en_curso")
@@ -67,15 +72,20 @@ class ServicioExperimentos:
         almacen: persistencia de experimentos. cargador_precios: fuente de precios del backtest.
         ejecutor: dónde corre cada experimento (`ThreadPoolExecutor` en la API; uno síncrono en los tests).
         almacen_barridos / almacen_marcos: necesarios solo para `lanzar_barrido` y las comparativas.
+        ejecutor_barridos: dónde corren las pruebas de permutación (1 a la vez: ya paralelizan por dentro); necesario
+        solo para `lanzar_permutacion`.
     """
 
     def __init__(self, almacen: AlmacenExperimentos, cargador_precios: CargadorPrecios, ejecutor: Executor,
-                 almacen_barridos: AlmacenBarridos | None = None, almacen_marcos: AlmacenMarcos | None = None):
+                 almacen_barridos: AlmacenBarridos | None = None, almacen_marcos: AlmacenMarcos | None = None,
+                 ejecutor_barridos: Executor | None = None):
         self.almacen = almacen
         self.cargador_precios = cargador_precios
         self.ejecutor = ejecutor
         self.almacen_barridos = almacen_barridos
         self.almacen_marcos = almacen_marcos
+        self.ejecutor_barridos = ejecutor_barridos
+        self._cancelaciones: dict[tuple[str, str], threading.Event] = {}  # tareas en curso, por (id_barrido, tarea)
 
     # ---- experimentos ---------------------------------------------------------------------
 
@@ -147,6 +157,60 @@ class ServicioExperimentos:
         id_barrido, creado = self.almacen_barridos.crear(config, forzar)
         ids = self.lanzar_varios([combinacion for combinacion, _, _ in config.combinaciones()], forzar)
         return id_barrido, ids, not creado
+
+    # ---- tareas largas de un barrido --------------------------------------------------------
+
+    @staticmethod
+    def nombre_tarea_permutacion(modo: str) -> str:
+        """Nombre de la tarea en `barrido.json` -> `tareas` (`permutacion_in_sample` | `permutacion_walk_forward`)."""
+        return f"permutacion_{modo}"
+
+    def lanzar_permutacion(self, id_barrido: str, parametros: dict[str, Any]) -> str:
+        """
+        Encola la prueba de permutación del barrido y devuelve el nombre de la tarea.
+
+        `parametros` son los argumentos de `prueba_permutacion_barrido` (n_permutaciones, modo...).
+        Lanza `RuntimeError` si ya hay una igual en curso.
+        """
+        nombre = self.nombre_tarea_permutacion(parametros["modo"])
+        actual = self.almacen_barridos.tarea(id_barrido, nombre)
+        if actual and actual.get("estado") in ESTADOS_EN_MARCHA:
+            raise RuntimeError(f"Ya hay una {nombre} en curso para este barrido")
+        self.almacen_barridos.actualizar_tarea(
+            id_barrido, nombre, estado="pendiente", error=None, p_valor=None, parametros=parametros,
+            progreso={"completadas": 0, "total": parametros["n_permutaciones"]})
+        evento = threading.Event()
+        self._cancelaciones[(id_barrido, nombre)] = evento
+        self.ejecutor_barridos.submit(self._ejecutar_permutacion, id_barrido, nombre, parametros, evento)
+        return nombre
+
+    def cancelar_permutacion(self, id_barrido: str, nombre: str) -> bool:
+        """Pide la cancelación (cooperativa) de la tarea en curso; False si no hay ninguna en marcha."""
+        evento = self._cancelaciones.get((id_barrido, nombre))
+        if evento is None:
+            return False
+        evento.set()
+        return True
+
+    def _ejecutar_permutacion(self, id_barrido: str, nombre: str, parametros: dict[str, Any],
+                              evento: threading.Event) -> None:
+        """Cuerpo del hilo de la permutación: en_curso -> hecho | cancelado | error, con progreso. Nunca lanza."""
+        almacen = self.almacen_barridos
+        try:
+            almacen.actualizar_tarea(id_barrido, nombre, estado="en_curso")
+            resultado = prueba_permutacion_barrido(
+                almacen.cargar(id_barrido), self.cargador_precios, cancelar=evento,
+                callback_progreso=lambda hechas, total: almacen.actualizar_tarea(
+                    id_barrido, nombre, progreso={"completadas": hechas, "total": total}),
+                **parametros)
+            almacen.actualizar_tarea(id_barrido, nombre, estado="hecho", p_valor=resultado["p_valor"])
+        except PruebaCancelada:
+            almacen.actualizar_tarea(id_barrido, nombre, estado="cancelado", error=None)
+        except BaseException as error:
+            logger.exception("Permutación de %s falló", id_barrido)
+            almacen.actualizar_tarea(id_barrido, nombre, estado="error", error=f"{type(error).__name__}: {error}")
+        finally:
+            self._cancelaciones.pop((id_barrido, nombre), None)
 
     # ---- configuraciones guardadas y marcos -----------------------------------------------
 

@@ -219,8 +219,7 @@ def detalle_configuracion(id_configuracion: str, version: int | None = None, ctx
     versiones = [{"version": v.version, "creada": v.creada, "deriva_de": v.deriva_de, "notas": v.notas}
                  for v in ctx.almacen_configuraciones.versiones(id_configuracion)]
     marco = ctx.servicio.marco_enlazado(configuracion)  # None si no tiene o se borró: la configuración sigue siendo válida
-    comparativas = [con_estado(ctx, c) for c in ctx.almacen_marcos.listar_comparativas()
-                    if c["marco"].get("id_configuracion") == id_configuracion]
+    comparativas = [con_estado(ctx, c) for c in ctx.almacen_marcos.comparativas_de_configuracion(id_configuracion)]
     return {"configuracion": configuracion, "versiones": versiones, "marco": marco,
             "backtests": ctx.servicio.backtests_de_receta(configuracion),
             "fechas_sugeridas": list(fechas_por_defecto(configuracion, marco)), "comparativas": comparativas}
