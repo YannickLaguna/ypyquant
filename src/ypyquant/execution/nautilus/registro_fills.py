@@ -5,6 +5,12 @@ Responsabilidad:
     Sustituir al `DBWriter` de GrowSave (que escribía en PostgreSQL vía `quant_bridge`):
     normaliza un order de Alpaca a un dict en español y lo añade a un fichero .jsonl.
 
+    Fills enriquecidos (multi-perfil): al registrar se pueden añadir campos opcionales al final de la fila:
+    `perfil`, `experimento_id` / `configuracion_id`, `tipo` ("rebalanceo") y `precio_referencia` (el último
+    cierre cuando se decidió la orden, para medir luego el slippage). Los pone `RegistroFills(etiquetas=...)`
+    (comunes a todas las filas de ese bot) y el parámetro `extras` de `registrar` (propios de cada orden). Las
+    filas antiguas, sin estos campos, se leen igual: son siempre opcionales.
+
 Se relaciona con:
     - pipelines/paper_trading/alpaca_vivo.py: `sincronizar_fills` llama a `RegistroFills.registrar` cuando una
       orden enviada ya se ha ejecutado (con el fill real, no al enviarla).
@@ -29,9 +35,9 @@ def parsear_fecha_alpaca(texto: str | None) -> datetime:
         return datetime.now(UTC)
 
 
-def normalizar_fill(orden_alpaca: dict) -> dict:
-    """Convierte el dict de un order de Alpaca en un registro normalizado (lado compra/venta)."""
-    return {
+def normalizar_fill(orden_alpaca: dict, extras: dict | None = None) -> dict:
+    """Convierte el dict de un order de Alpaca en un registro normalizado (lado compra/venta) más los `extras` no nulos."""
+    fila = {
         "ticker": orden_alpaca.get("symbol", ""),
         "lado": "compra" if orden_alpaca.get("side") == "buy" else "venta",
         "cantidad": float(orden_alpaca.get("filled_qty") or 0),
@@ -40,13 +46,20 @@ def normalizar_fill(orden_alpaca: dict) -> dict:
         "fecha": parsear_fecha_alpaca(orden_alpaca.get("filled_at")).isoformat(),
         "id_orden": orden_alpaca.get("id", ""),
     }
+    fila.update({k: v for k, v in (extras or {}).items() if v is not None})
+    return fila
 
 
 class RegistroFills:
-    """Añade fills normalizados a un fichero JSONL (una operación por línea), sin repetir el mismo `id_orden`."""
+    """
+    Añade fills normalizados a un fichero JSONL (una operación por línea), sin repetir el mismo `id_orden`.
 
-    def __init__(self, ruta: Path):
+    `etiquetas`: campos que acompañan a TODOS los fills de este registro (perfil, experimento_id, tipo...).
+    """
+
+    def __init__(self, ruta: Path, etiquetas: dict | None = None):
         self.ruta = Path(ruta)
+        self.etiquetas = dict(etiquetas or {})
 
     def ids_registrados(self) -> set[str]:
         """Ids de orden que ya constan en el fichero (vacío si no existe; las líneas corruptas se saltan)."""
@@ -60,12 +73,13 @@ class RegistroFills:
                 continue
         return ids
 
-    def registrar(self, orden_alpaca: dict) -> dict | None:
+    def registrar(self, orden_alpaca: dict, extras: dict | None = None) -> dict | None:
         """
-        Guarda el fill; ignora los de cantidad 0 (órdenes aún sin ejecutar) y los de un `id_orden` ya
-        registrado (idempotente: reintentar tras un reinicio no duplica). Devuelve el registro o None.
+        Guarda el fill (con las `etiquetas` del registro y los `extras` de esta orden, p. ej. `precio_referencia`);
+        ignora los de cantidad 0 (órdenes aún sin ejecutar) y los de un `id_orden` ya registrado (idempotente:
+        reintentar tras un reinicio no duplica). Devuelve el registro o None.
         """
-        registro = normalizar_fill(orden_alpaca)
+        registro = normalizar_fill(orden_alpaca, {**self.etiquetas, **(extras or {})})
         if registro["cantidad"] <= 0:
             logger.warning("Fill ignorado: cantidad 0 para %s", registro["ticker"])
             return None
