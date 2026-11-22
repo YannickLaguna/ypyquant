@@ -105,15 +105,16 @@ CLI en `pipelines/paper_trading/` (cuenta **paper** de Alpaca; no opera con dine
 
 ```bash
 uv sync --extra trading                       # instala el extra
-cp .env.example .env                          # y rellena ALPACA_API_KEY / ALPACA_SECRET_KEY (claves paper)
+cp .env.example .env                          # y rellena ALPACA_<PERFIL>_API_KEY / _SECRET_KEY por cada cuenta paper (o ALPACA_API_KEY / ALPACA_SECRET_KEY = perfil DEFECTO)
 
 uv run python -m pipelines.paper_trading --backtest          # backtest de las señales (sin claves de Alpaca)
 uv run python -m pipelines.paper_trading --una-vez           # una iteración en vivo contra Alpaca paper
 uv run python -m pipelines.paper_trading                     # bucle continuo (Ctrl+C para parar)
 uv run python -m pipelines.paper_trading --config pipelines/paper_trading/estrategia_ejemplo.json
+uv run python -m pipelines.paper_trading --perfil TREND --experimento <id> --modo diario   # cuenta TREND opera un experimento (una pasada)
 ```
 
-La estrategia (tickers, generadores de señales, umbral, riesgo) se define en un JSON (ver `estrategia_ejemplo.json`). Las órdenes son de mercado DAY y solo se envían con el mercado abierto. Los fills reales (no al enviar la orden, sino cuando se ejecuta) se guardan en `data/paper_trading/fills.jsonl`. Variables opcionales: `NAUTILUS_POLL_INTERVAL` (segundos entre iteraciones) y `NAUTILUS_LOOKBACK_DAYS` (**mínimo** de días de historia: en modo registro se descargan más si la estrategia los necesita; también `--dias-historico`). En modo registro (`--estrategia`) el bot rebalancea solo cuando toca según la frecuencia de la estrategia (o `--frecuencia`), recuerda el último rebalanceo en `data/paper_trading/estado_bot.json` y no envía órdenes sobre tickers con una orden abierta. Detalle en `docs/ui.md`.
+La estrategia (tickers, generadores de señales, umbral, riesgo) se define en un JSON (ver `estrategia_ejemplo.json`). Las órdenes son de mercado DAY y solo se envían con el mercado abierto. Los fills reales (no al enviar la orden, sino cuando se ejecuta) se guardan en `data/paper_trading/fills.jsonl`. Variables opcionales: `NAUTILUS_POLL_INTERVAL` (segundos entre iteraciones) y `NAUTILUS_LOOKBACK_DAYS` (**mínimo** de días de historia: en modo registro se descargan más si la estrategia los necesita; también `--dias-historico`). En modo registro (`--estrategia`) el bot rebalancea solo cuando toca según la frecuencia de la estrategia (o `--frecuencia`), recuerda el último rebalanceo en `data/paper_trading/estado_bot.json` y no envía órdenes sobre tickers con una orden abierta. Con varias cuentas (hasta 3 perfiles, cada una con un experimento vinculado, `--perfil X --experimento ID`) los datos van a `data/paper_trading/<PERFIL>/` y se gestionan desde la página Paper trading. Detalle en `docs/ui.md` («Alpaca multi-perfil»).
 
 ---
 

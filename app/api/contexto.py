@@ -8,6 +8,8 @@ Responsabilidad:
   (con su cancelación). Las rutas lo llaman y solo traducen sus excepciones a HTTP; la API no tiene lógica de negocio:
   delega todo en `ypyquant.estrategias`.
 - Las rutas de los almacenes salen de una sola `RaizDatos` (`ypyquant.raiz_datos`): aquí no se recomponen.
+- Alpaca multi-perfil: `alpacas` (un `ServicioAlpaca` por perfil; `alpaca` es el perfil DEFECTO y `alpaca_de` crea el resto
+  al pedirlos), `almacen_perfiles` (datos de cada cuenta en disco) y `gestor_bots` (un bot por perfil).
 
 Se relaciona con:
 - app/api/main.py (crea el contexto), app/api/rutas_*.py (lo consumen vía `obtener_contexto`).
