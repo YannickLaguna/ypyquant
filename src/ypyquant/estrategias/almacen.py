@@ -15,7 +15,8 @@ a la vez), `ejecutar_sql` (vistas `equity`, `pesos`, `operaciones` con la column
 (recalcula `metricas.json` desde los Parquet con `evaluacion.reevaluar`, sin repetir el backtest).
 
 Se relaciona con:
-- ypyquant.estrategias.experimentos (ConfiguracionExperimento, ResultadoExperimento), .evaluacion (`reevaluar`) y
+- ypyquant.estrategias.indice_recetas (índice en memoria receta -> experimentos: `indexar`, `resumenes_de_receta`),
+  .experimentos (ConfiguracionExperimento, ResultadoExperimento), .evaluacion (`reevaluar`) y
   .procedencia (qué contiene `procedencia.json`).
 - ypyquant.estrategias.barridos (`AlmacenBarridos` lee las métricas y `equity.parquet` de aquí).
 - app/api (el lanzador en segundo plano escribe el estado; las rutas leen y comparan).
@@ -42,6 +43,7 @@ from ypyquant.estrategias.experimentos import (
     ResultadoExperimento,
     _limpiar,
 )
+from ypyquant.estrategias.indice_recetas import IndiceRecetas
 
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "experimentos"
@@ -129,6 +131,7 @@ class AlmacenExperimentos:
         self.raiz = Path(raiz) if raiz else RAIZ_POR_DEFECTO
         self.raiz.mkdir(parents=True, exist_ok=True)
         self._cerrojo = threading.Lock()
+        self._indice = IndiceRecetas()  # receta -> ids; se construye en la primera consulta (o con `indexar`)
 
     # ---- escritura -----------------------------------------------------------
 
@@ -148,6 +151,7 @@ class AlmacenExperimentos:
             _escribir_json(carpeta / "config.json", config.model_dump())
             _escribir_json(carpeta / "estado.json", {"estado": "pendiente", "creado": datetime.now().isoformat(),
                                                      "actualizado": datetime.now().isoformat(), "error": None})
+        self._indice.anadir(id_experimento, config.model_dump())  # también sin construir: una construcción en curso lo vería
         return id_experimento
 
     def marcar_estado(self, id_experimento: str, estado: str, error: BaseException | str | None = None) -> None:
@@ -215,6 +219,7 @@ class AlmacenExperimentos:
         if not carpeta.exists():
             return False
         shutil.rmtree(carpeta)
+        self._indice.quitar(id_experimento)
         return True
 
     def marcar_interrumpidos(self) -> int:
@@ -231,6 +236,27 @@ class AlmacenExperimentos:
 
     def existe(self, id_experimento: str) -> bool:
         return (self._carpeta(id_experimento) / "estado.json").exists()
+
+    def indexar(self) -> None:
+        """(Re)construye el índice por receta leyendo los `config.json` del disco (una vez al arrancar basta)."""
+        configs = ((c.name, config) for c in self.raiz.iterdir() if c.is_dir()
+                   if (config := _leer_json(c / "config.json")) is not None)
+        self._indice.construir(configs)
+
+    def resumenes_de_receta(self, huella_receta: str) -> list[dict[str, Any]]:
+        """
+        Resúmenes (más recientes primero) de los experimentos de una receta (`ConfiguracionExperimento.huella_receta`),
+        sin recorrer el almacén: usa el índice en memoria (ver `indice_recetas.py`) y solo lee esos experimentos.
+        """
+        if not self._indice.construido:
+            self.indexar()
+        resumenes = []
+        for id_experimento in self._indice.ids(huella_receta):
+            carpeta = self._carpeta(id_experimento)
+            resumen = self._resumen(carpeta) if carpeta.is_dir() else None
+            if resumen is not None:
+                resumenes.append(resumen)
+        return sorted(resumenes, key=lambda r: r["creado"] or "", reverse=True)
 
     def estado_de(self, id_experimento: str) -> str | None:
         """Estado (`pendiente|en_curso|hecho|error`) del experimento; None si no existe (lectura ligera)."""
