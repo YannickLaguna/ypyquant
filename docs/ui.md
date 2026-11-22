@@ -15,6 +15,7 @@ src/ypyquant/estrategias/  │  núcleo (sin UI): Estrategia, registro, experime
   almacen.py     Parquet + DuckDB en data/experimentos/<id>/
   barridos.py    ConfiguracionBarrido, AlmacenBarridos (data/barridos/<id>/), matriz de retornos, superficie y meseta
   configuraciones.py  ConfiguracionGuardada (receta sin fechas, versionada), AlmacenConfiguraciones (data/configuraciones/<id>/v<n>.json)
+  receta.py      Entorno, Receta y la huella canónica; servicio_experimentos.py: lanzar/reutilizar/barridos/comparativas sin FastAPI; indice_recetas.py
   marcos.py      MarcoComparacion, aplicar_marco, AlmacenMarcos (data/marcos/), comparativas y diferencias_ceteris_paribus
   validacion_barridos.py  DSR, PBO, rachas, walk-forward y permutación del barrido
   reservado.py   periodo reservado con contador de usos (data/reservado.json)
