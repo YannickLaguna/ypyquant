@@ -37,6 +37,7 @@ y el módulo original del TFM `estrategias_rejilla_v2.py` (del que se porta).
 """
 
 import logging
+import threading
 import warnings
 
 import numpy as np
@@ -97,14 +98,16 @@ class _ProblemaQPMaxSharpe:
         return None
 
 
-# Caché de problemas compilados por (n, peso_maximo) dentro del proceso. Solo guarda la compilación,
-# no soluciones: `resolver` arranca en frío, así que el resultado no depende del orden de las llamadas.
-_CACHE_QP: dict[tuple[int, float], _ProblemaQPMaxSharpe | None] = {}
+# Caché de problemas compilados por (hilo, n, peso_maximo). Solo guarda la compilación, no soluciones:
+# `resolver` arranca en frío, así que el resultado no depende del orden de las llamadas. Va por hilo
+# porque el problema tiene `cp.Parameter` mutables: compartido, dos experimentos en paralelo (la API
+# usa varios hilos) se pisaban µ y Σ (corregido 2026-11-22).
+_CACHE_QP: dict[tuple[int, int, float], _ProblemaQPMaxSharpe | None] = {}
 
 
 def _obtener_qp(n: int, peso_maximo: float) -> _ProblemaQPMaxSharpe | None:
-    """Devuelve (y cachea) el problema QP compilado para (n, peso_maximo); None si cvxpy falla."""
-    clave = (n, peso_maximo)
+    """Devuelve (y cachea) el problema QP compilado para (n, peso_maximo) en este hilo; None si cvxpy falla."""
+    clave = (threading.get_ident(), n, peso_maximo)
     if clave not in _CACHE_QP:
         try:
             _CACHE_QP[clave] = _ProblemaQPMaxSharpe(n, peso_maximo)

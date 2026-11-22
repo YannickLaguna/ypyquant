@@ -40,13 +40,12 @@ reevaluar(config, equity, pesos, operaciones, rotaciones=None) -> Evaluacion
 - Convención nueva para estrategias de usuario: sortear solo con `self.generador_azar()`; `np.random.*` global ya no
   se siembra.
 
-## Pendiente conocido (fuera de alcance: `optimization/`)
+## Concurrencia del QP (resuelto 2026-11-22)
 
-`optimization/estimacion_robusta/max_sharpe_qp.py` comparte entre hilos un problema cvxpy compilado con
-`cp.Parameter` mutables (`_CACHE_QP`), así que dos Michaud simultáneos (o cualquier estrategia con QP max-Sharpe)
-pueden dar resultados distintos a los de serie. Arreglo de una línea: incluir `threading.get_ident()` en la clave de
-la caché. Hay un test `xfail(strict=True)` (`test_michaud_en_hilos_distintos_no_interfiere`) que pasará a verde con
-ese arreglo y habrá que quitarle el marcador.
+`optimization/estimacion_robusta/max_sharpe_qp.py` compartía entre hilos un problema cvxpy compilado con
+`cp.Parameter` mutables (`_CACHE_QP`): dos Michaud simultáneos (o cualquier estrategia con QP max-Sharpe) podían dar
+resultados distintos a los de serie. La clave de la caché incluye ahora `threading.get_ident()`;
+`test_michaud_en_hilos_distintos_no_interfiere` lo cubre.
 
 ## Cómo encajará el paper interno (fases 3-5)
 

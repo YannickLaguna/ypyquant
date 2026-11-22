@@ -188,10 +188,6 @@ def test_rng_explicito_equivale_a_la_semilla_de_la_configuracion(datos):
     assert por_defecto == explicito and por_defecto != otro
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Defecto ajeno al azar: optimization/estimacion_robusta/max_sharpe_qp.py comparte entre hilos un problema cvxpy "
-    "con cp.Parameter mutables (_CACHE_QP). Se arregla incluyendo threading.get_ident() en la clave de la caché; "
-    "pendiente porque optimization/ está fuera del alcance de este cambio."))
 def test_michaud_en_hilos_distintos_no_interfiere(datos):
     """La API usa un ThreadPoolExecutor de 2: lo concurrente debe dar lo mismo que lo secuencial."""
     configs = [_config_michaud(1), _config_michaud(2)]
