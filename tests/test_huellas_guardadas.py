@@ -25,7 +25,7 @@ from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.marcos import MarcoComparacion
 
 DATOS_REALES = Path(__file__).resolve().parents[1] / "data"  # data/ local del repo
-pytestmark = pytest.mark.skipif(not DATOS_REALES.is_dir(), reason="no está el repo principal con sus datos")
+pytestmark = pytest.mark.skipif(not (DATOS_REALES / "experimentos").is_dir(), reason="no hay data/experimentos local")
 
 
 def _json(ruta: Path):
