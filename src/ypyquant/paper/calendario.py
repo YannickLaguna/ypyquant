@@ -11,6 +11,8 @@ Responsabilidad:
       fecha procesada y ya cerrados (catch-up exacto tras un parón).
     - `dias_pendientes_estimados(ultima_fecha, ahora)`: lo mismo sin datos, contando días laborables (los festivos
       cuentan como pendientes hasta el primer avance); sirve para la etiqueta «n días pendientes» de la lista.
+    - `proximo_rebalanceo(frecuencia, ultimo_rebalanceo, ultima_fecha)`: fecha estimada del siguiente rebalanceo según la
+      frecuencia de la receta (primer día laborable >= la fecha programada por `execution.calendario`; sin festivos).
     Módulo puro: sin red ni disco. Los días de trading salen de los datos (unión de fechas con barra, como el
     motor), no de un calendario bursátil externo.
 
@@ -27,6 +29,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+
+from ypyquant.execution.calendario import fechas_programadas
 
 ZONA_NUEVA_YORK = ZoneInfo("America/New_York")
 HORA_DATOS_DEFINITIVOS = time(16, 30)  # cierre 16:00 NY + margen para que el proveedor consolide la barra
@@ -57,3 +61,25 @@ def dias_pendientes_estimados(ultima_fecha: date, ahora: datetime) -> int:
     if tope <= ultima_fecha:
         return 0
     return int(np.busday_count(ultima_fecha + timedelta(days=1), tope + timedelta(days=1)))
+
+
+def _siguiente_laborable(dia: date) -> date:
+    """`dia` si es laborable (lunes a viernes); si no, el lunes siguiente."""
+    return np.busday_offset(dia, 0, roll="forward").astype(date)
+
+
+def proximo_rebalanceo(frecuencia: str, ultimo_rebalanceo: date | None, ultima_fecha: date) -> date:
+    """
+    Fecha estimada del próximo rebalanceo de una sesión con `frecuencia` (la de la receta).
+
+    Es el primer día laborable >= la siguiente fecha programada tras `ultimo_rebalanceo` (inicio de semana, mes o
+    trimestre, o cada día; la misma definición que usa el simulador con `toca_rebalancear`) y nunca anterior a la
+    próxima sesión posterior a `ultima_fecha`: sin rebalanceo previo, o si ya venció (parón largo), toca en la próxima
+    sesión que se procese. No conoce los festivos bursátiles: un festivo desplaza el rebalanceo real a la sesión siguiente.
+    """
+    proxima_sesion = _siguiente_laborable(ultima_fecha + timedelta(days=1))
+    if ultimo_rebalanceo is None:
+        return proxima_sesion
+    inicio = ultimo_rebalanceo + timedelta(days=1)
+    programada = fechas_programadas(inicio, inicio + timedelta(days=130), frecuencia)[0].date()
+    return max(_siguiente_laborable(programada), proxima_sesion)

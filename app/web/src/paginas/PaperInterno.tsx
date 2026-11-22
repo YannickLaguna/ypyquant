@@ -2,14 +2,17 @@
  * Página Paper interno: las sesiones de simulación forward (receta congelada de un experimento, precios reales, sin
  * broker) en una tabla ordenable, con el botón «Avanzar ahora» y el gráfico de la selección.
  * Responsabilidad:
- * - Tabla: nombre (enlace al detalle), estrategia, modo de ejecución, días, retorno, Sharpe, drawdown, costes, estado y
- *   «Al día / n días pendientes».
+ * - Tabla: nombre (enlace al detalle), estrategia, modo de ejecución, periodo (alta → última fecha procesada), duración
+ *   («11 sesiones de mercado · 2 semanas»), retorno total (%), Sharpe, drawdown máximo (%), costes (USD), estado, días
+ *   pendientes y rebalanceo (frecuencia de la receta y fecha del próximo). Las cabeceras llevan su unidad.
+ * - Comprobación automática: el temporizador de la API (`GET /planificador`) avanza las sesiones cada N minutos mientras
+ *   la API vive; aquí se ve cuándo es la próxima comprobación y qué hizo la última.
  * - «Avanzar ahora» lanza `POST /avanzar` y sondea su estado mientras está en curso (botón deshabilitado, aviso de
  *   progreso); al terminar muestra qué hizo cada sesión (días procesados, avisos, errores) y la tabla se refresca.
  * - Selección múltiple -> equity a base 100 en la fecha común (lib/paperInterno.ts) con el benchmark de la primera,
  *   con el mismo gráfico que Comparar. Las sesiones se crean desde la ficha de un experimento terminado.
  * Se relaciona con: api/paper_interno.ts (hooks), componentes/Graficos.tsx, TablaOrdenable.tsx, Estado.tsx,
- * InsigniaSesionPaper.tsx, lib/paperInterno.ts y paginas/PaperInternoDetalle.tsx. NO es PaperTrading.tsx (Alpaca).
+ * InsigniaSesionPaper.tsx, lib/paperInterno.ts (textos de tiempo) y paginas/PaperInternoDetalle.tsx. NO es PaperTrading.tsx (Alpaca).
  */
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -17,6 +20,7 @@ import {
   useAvanzarPaper,
   useEquitiesSesionesPaper,
   useEstadoAvancePaper,
+  usePlanificadorPaper,
   useSesionesPaper,
   type ResumenSesionPaper,
 } from '../api/paper_interno'
@@ -25,12 +29,13 @@ import { GraficoSeries, type SerieGrafico } from '../componentes/Graficos'
 import InsigniaSesionPaper from '../componentes/InsigniaSesionPaper'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, dinero, entero, fechaHora, porcentaje, ratio } from '../lib/formato'
-import { normalizarBase100, textoModo, textoPendientes } from '../lib/paperInterno'
+import { normalizarBase100, resumenTiempo, textoModo, textoResultadoComprobacion } from '../lib/paperInterno'
 import { colorToken, PALETA_SERIES } from '../lib/tema'
 
 export default function PaperInterno() {
   const { data, isPending, error } = useSesionesPaper()
   const avance = useEstadoAvancePaper()
+  const planificador = usePlanificadorPaper().data
   const avanzar = useAvanzarPaper()
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set())
   const enCurso = avance.data?.en_curso ?? false
@@ -78,17 +83,27 @@ export default function PaperInterno() {
     { clave: 'nombre', titulo: 'Sesión', valor: (s) => s.nombre, render: (s) => <Link to={`/paper-interno/${s.id}`} className="text-acento hover:underline">{s.nombre}</Link> },
     { clave: 'estrategia', titulo: 'Estrategia', valor: (s) => s.estrategia, render: (s) => s.estrategia },
     { clave: 'modo', titulo: 'Modo', valor: (s) => s.modo_ejecucion, render: (s) => textoModo(s.modo_ejecucion) },
-    { clave: 'dias', titulo: 'Días', alinear: 'der', valor: (s) => s.dias, render: (s) => entero(s.dias) },
-    { clave: 'retorno', titulo: 'Retorno', alinear: 'der', valor: (s) => s.retorno_total, render: (s) => <span className={claseSigno(s.retorno_total)}>{porcentaje(s.retorno_total, 2)}</span> },
+    { clave: 'periodo', titulo: 'Periodo (alta → última fecha)', valor: (s) => s.fecha_alta, render: (s) => resumenTiempo(s).periodo },
+    { clave: 'duracion', titulo: 'Duración', alinear: 'der', valor: (s) => s.dias, render: (s) => resumenTiempo(s).duracion },
+    { clave: 'retorno', titulo: 'Retorno total (%)', alinear: 'der', valor: (s) => s.retorno_total, render: (s) => <span className={claseSigno(s.retorno_total)}>{porcentaje(s.retorno_total, 2)}</span> },
     { clave: 'sharpe', titulo: 'Sharpe', alinear: 'der', valor: (s) => s.sharpe, render: (s) => ratio(s.sharpe) },
-    { clave: 'dd', titulo: 'Drawdown', alinear: 'der', valor: (s) => s.max_drawdown, render: (s) => <span className="text-neg">{porcentaje(s.max_drawdown, 1)}</span> },
-    { clave: 'costes', titulo: 'Costes', alinear: 'der', valor: (s) => s.costes, render: (s) => dinero(s.costes, 0) },
+    { clave: 'dd', titulo: 'Drawdown máx. (%)', alinear: 'der', valor: (s) => s.max_drawdown, render: (s) => <span className="text-neg">{porcentaje(s.max_drawdown, 1)}</span> },
+    { clave: 'costes', titulo: 'Costes (USD)', alinear: 'der', valor: (s) => s.costes, render: (s) => dinero(s.costes, 0) },
     { clave: 'estado', titulo: 'Estado', valor: (s) => s.estado, render: (s) => <InsigniaSesionPaper estado={s.estado} /> },
     {
       clave: 'pendientes',
-      titulo: 'Al día',
+      titulo: 'Pendientes (días hábiles)',
       valor: (s) => s.dias_pendientes,
-      render: (s) => <span className={s.al_dia ? 'text-pos' : 'text-aviso'}>{textoPendientes(s.dias_pendientes, s.al_dia)}</span>,
+      render: (s) => <span className={s.al_dia ? 'text-pos' : 'text-aviso'}>{resumenTiempo(s).pendientes}</span>,
+    },
+    {
+      clave: 'rebalanceo',
+      titulo: 'Rebalanceo (frecuencia · próximo)',
+      valor: (s) => s.proximo_rebalanceo,
+      render: (s) => {
+        const t = resumenTiempo(s)
+        return <>{t.frecuencia}<span className="block text-xs text-suave">próximo: {t.proximo}</span></>
+      },
     },
   ]
 
@@ -116,6 +131,22 @@ export default function PaperInterno() {
         </button>
       </header>
 
+      {planificador && planificador.intervalo_min !== undefined && (
+        <p role="note" className="rounded-lg border border-borde p-3 text-sm text-suave">
+          {planificador.activo ? (
+            <>
+              Comprobación automática cada {entero(planificador.intervalo_min)} min mientras la API esté en marcha
+              {planificador.proxima_comprobacion && <> · próxima: <span className="num">{fechaHora(planificador.proxima_comprobacion)}</span></>}
+              {planificador.ultima && (
+                <> · última ({fechaHora(planificador.ultima.hora)}): {textoResultadoComprobacion(planificador.ultima)}</>
+              )}
+              .
+            </>
+          ) : (
+            <>La comprobación automática está desactivada (YPYQUANT_PAPER_INTERVALO_MIN=0): usa «Avanzar ahora» o el catch-up al arrancar la API.</>
+          )}
+        </p>
+      )}
       {avanzar.error && <CajaError error={avanzar.error} titulo="No se pudo avanzar" />}
       {enCurso && <Cargando texto="Avanzando las sesiones: descargando precios y procesando días…" />}
       {!enCurso && avance.data?.fin && (
@@ -148,7 +179,7 @@ export default function PaperInterno() {
 
       {ids.length > 0 && (
         <section aria-labelledby="h-curvas" className="space-y-2">
-          <h2 id="h-curvas">Equity de la selección (base 100)</h2>
+          <h2 id="h-curvas">Equity de la selección (base 100 en la primera fecha común)</h2>
           {cargandoCurvas ? (
             <Cargando texto="Cargando curvas…" />
           ) : series.every((s) => s.datos.length === 0) ? (

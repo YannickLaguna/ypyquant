@@ -7,8 +7,10 @@ Responsabilidad:
   (la de la receta o la sugerida por la estrategia), la fecha de alta y el equity inicial de la cuenta. Si el
   experimento se borra o se edita después, el bot sigue operando lo que se congeló.
 - `receta_de_origen`: obtiene la receta de un experimento (o, como extra barato, de una configuración guardada).
-- `resolver_tickers`: el universo de la receta como lista. El universo dinámico `sp500_pit` NO se soporta en vivo:
-  decide la elegibilidad por fecha con la historia del índice, y el bot no la tiene; lanza `UniversoNoSoportado`.
+- `resolver_tickers`: el universo de la receta como lista. El universo dinámico `sp500_pit` se admite: en vivo es la
+  membresía VIGENTE en cada día (point-in-time con la fecha de hoy); aquí se resuelve a los miembros de hoy solo para
+  mostrarlos y el bot lo vuelve a resolver en cada rebalanceo (ver pipelines/paper_trading/alpaca_vivo.py). El vínculo
+  guarda `universo_dinamico`.
 - `vincular`: escribe `vinculo.json`. Es idempotente: si la cuenta ya está vinculada a la misma receta y origen, no
   cambia nada (conserva fecha de alta y equity inicial). Si es otra receta, guarda la anterior en
   `vinculos_anteriores`, escribe el vínculo nuevo y borra el estado de la estrategia (es memoria de la anterior).
@@ -22,10 +24,10 @@ Se relaciona con:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
-from ypyquant.data.universos import es_universo_pit, resolver_universo
+from ypyquant.data.universos import cargar_membresias_sp500, es_universo_pit, miembros_vigentes_en, resolver_universo
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.receta import Receta
 from ypyquant.perfiles_alpaca.almacen import AlmacenPerfiles
@@ -38,7 +40,7 @@ class RecetaNoOperable(ValueError):
 
 
 class UniversoNoSoportado(RecetaNoOperable):
-    """El universo de la receta no se puede operar en vivo (p. ej. `sp500_pit`)."""
+    """El universo de la receta no se puede operar en vivo (hoy ninguno lo provoca: `sp500_pit` se resuelve por fecha)."""
 
 
 def validar_operable(receta: Receta) -> list[str]:
@@ -52,12 +54,21 @@ def validar_operable(receta: Receta) -> list[str]:
     return resolver_tickers(receta)
 
 
-def resolver_tickers(receta: Receta) -> list[str]:
-    """Universo de la receta como lista de tickers (mayúsculas, sin duplicados). `UniversoNoSoportado` si es dinámico."""
-    if isinstance(receta.universo, str) and es_universo_pit(receta.universo):
-        raise UniversoNoSoportado(
-            f"El universo dinámico '{receta.universo}' no se puede operar en Alpaca: la elegibilidad por fecha necesita la "
-            "historia de membresías del índice. Usa un universo fijo (p. ej. 'sp500:30') o una lista de tickers.")
+def es_universo_dinamico(receta: Receta) -> bool:
+    """True si el universo de la receta es `sp500_pit` (se resuelve en cada rebalanceo)."""
+    return isinstance(receta.universo, str) and es_universo_pit(receta.universo)
+
+
+def resolver_tickers(receta: Receta, fecha: str | date | None = None) -> list[str]:
+    """
+    Universo de la receta como lista de tickers (mayúsculas, sin duplicados).
+
+    Con `sp500_pit` son los miembros vigentes en `fecha` (hoy por defecto): una foto, porque el bot resuelve la
+    membresía de nuevo en cada rebalanceo.
+    """
+    if es_universo_dinamico(receta):
+        hoy = fecha or datetime.now(UTC).date()
+        return miembros_vigentes_en(cargar_membresias_sp500(), hoy)
     tickers = resolver_universo(receta.universo)
     return list(dict.fromkeys(t.strip().upper() for t in tickers if t.strip()))
 
@@ -108,6 +119,7 @@ def vincular(almacen: AlmacenPerfiles, perfil: str, receta: Receta, tipo: str, i
         "receta": receta.model_dump(),
         "huella_receta": huella,
         "tickers": resolver_tickers(receta),
+        "universo_dinamico": es_universo_dinamico(receta),
         "frecuencia_rebalanceo": receta.frecuencia_rebalanceo,
         "fecha_alta": (ahora or datetime.now(UTC)).isoformat(),
         "equity_inicial": equity_inicial,

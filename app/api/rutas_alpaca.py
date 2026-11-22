@@ -10,7 +10,7 @@ Responsabilidad (prefijo `/api/paper/alpaca`; los datos de cada cuenta siguen en
   `continuo`|`diario` e intervalo), `POST /bots/{perfil}/parar`, `GET /bots/{perfil}/log?desde=N` (log redactado) y
   `GET /{perfil}/instantaneas` (equity y posiciones diarias de la cuenta).
 - Errores: 503 si el perfil no tiene claves, 404 si el experimento no existe, 422 si su receta no se puede operar
-  (estrategia o parámetros inválidos, universo dinámico), 409 si el perfil está ocupado o se supera el límite blando.
+  (estrategia o parámetros inválidos, apalancamiento > 1), 409 si el perfil está ocupado o se supera el límite blando.
 
 Se relaciona con: app/api/gestor_bots.py (los procesos), app/api/paper.py (ServicioAlpaca), app/api/contexto.py
 (`alpaca_de`), ypyquant.perfiles_alpaca (perfiles, vínculo, almacén) y app/web (página Paper trading).
@@ -98,7 +98,7 @@ def arrancar_bot_perfil(perfil: str, peticion: PeticionBotPerfil, ctx: Contexto 
                        else ("configuracion", peticion.configuracion_id))
     try:
         receta = receta_de_origen(tipo, id_origen, ctx.almacen, ctx.almacen_configuraciones)
-        validar_operable(receta)  # falla pronto (422): universo dinámico o apalancamiento > 1
+        validar_operable(receta)  # falla pronto (422): apalancamiento > 1
     except KeyError as error:
         raise HTTPException(404, str(error.args[0])) from error
     except RecetaNoOperable as error:

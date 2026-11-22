@@ -4,12 +4,13 @@
  * (`['paper-interno', ...]`): lista de sesiones, detalle, equity (una o varias a la vez), operaciones, backtest
  * espejo, estado del avance con sondeo mientras está en curso (al terminar refresca lista y detalle) y las
  * mutaciones (crear sesión, avanzar, pausar/reanudar/detener). Vive aparte de `hooks.ts`/`tipos.ts` para no
- * mezclar el paper interno con el resto de recursos.
+ * mezclar el paper interno con el resto de recursos. `usePlanificadorPaper` lee el temporizador automático de la API.
  * Se relaciona con: api/cliente.ts (fetch), paginas/PaperInterno.tsx, PaperInternoDetalle.tsx,
  * componentes/CrearSesionPaper.tsx y lib/paperInterno.ts (utilidades puras de las series).
  */
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
+import type { UltimaComprobacionPaper } from '../lib/paperInterno'
 import { pedir } from './cliente'
 
 const RAIZ = '/api/paper/interno'
@@ -38,6 +39,10 @@ export interface ResumenSesionPaper {
   costes: number
   dias_pendientes: number
   al_dia: boolean
+  /** Frecuencia de la receta (`daily` | `weekly` | `monthly` | `quarterly`) y fechas (YYYY-MM-DD) del último y próximo rebalanceo. */
+  frecuencia_rebalanceo: string
+  ultimo_rebalanceo: string | null
+  proximo_rebalanceo: string | null
   id_experimento: string | null
   id_configuracion: string | null
 }
@@ -70,6 +75,9 @@ export interface DetalleSesionPaper extends ResumenSesionPaper {
   avisos: EventoSesionPaper[]
   n_operaciones: number
   ejecucion_optimista: boolean
+  /** `sp500_pit`: los miembros se resuelven en cada fecha; `avisos_universo` avisa de membresías antiguas o anómalas. */
+  universo_dinamico: boolean
+  avisos_universo: string[]
 }
 
 export interface PuntoEquitySesion {
@@ -111,6 +119,14 @@ export interface EstadoAvancePaper {
   error: string | null
 }
 
+/** Temporizador en segundo plano de la API (`GET /planificador`): cuándo vuelve a comprobar si hay días pendientes. */
+export interface EstadoPlanificadorPaper {
+  activo: boolean
+  intervalo_min: number
+  proxima_comprobacion: string | null
+  ultima: UltimaComprobacionPaper | null
+}
+
 export interface EspejoSesionPaper {
   estado: 'sin_datos' | 'pendiente' | 'en_curso' | 'hecho' | 'error' | null
   id_experimento: string | null
@@ -131,6 +147,14 @@ export interface PeticionSesionPaper {
 
 export const useSesionesPaper = () =>
   useQuery({ queryKey: ['paper-interno', 'sesiones'], queryFn: () => pedir<{ sesiones: ResumenSesionPaper[] }>(`${RAIZ}/sesiones`) })
+
+/** Estado del temporizador automático; se relee cada minuto (y al terminar un avance) para que la próxima hora sea fiable. */
+export const usePlanificadorPaper = () =>
+  useQuery({
+    queryKey: ['paper-interno', 'planificador'],
+    queryFn: () => pedir<EstadoPlanificadorPaper>(`${RAIZ}/planificador`),
+    refetchInterval: 60_000,
+  })
 
 export const useDetalleSesionPaper = (id: string | undefined) =>
   useQuery({

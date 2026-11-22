@@ -6,10 +6,13 @@
  *   (se calcula en segundo plano y la página lo sondea); en modo `cierre` ambas curvas deben coincidir, en
  *   `apertura_siguiente` la diferencia es el coste de ejecutar a la apertura siguiente.
  * - Avisa de que el modo `cierre` es optimista y muestra la decisión pendiente de ejecutar (modo apertura siguiente).
+ * - «Tiempo en paper interno»: periodo (alta → última fecha procesada), duración legible («11 sesiones de mercado · 2
+ *   semanas»), días pendientes, frecuencia de rebalanceo y fecha del próximo (y del último) rebalanceo.
+ * - Con universo `sp500_pit` avisa de membresías antiguas o con un número de miembros anómalo (`avisos_universo`).
  * - Detener pide confirmación (no se puede reanudar). Los avisos (re-bases, liquidaciones, errores de estrategia) salen
  *   de `avisos` de la API.
  * Se relaciona con: api/paper_interno.ts (hooks), componentes/Graficos.tsx, TablaOrdenable.tsx, Piezas.tsx (Kpi),
- * Estado.tsx, InsigniaSesionPaper.tsx, lib/paperInterno.ts y paginas/PaperInterno.tsx (lista).
+ * Estado.tsx, InsigniaSesionPaper.tsx, lib/paperInterno.ts (textos de tiempo) y paginas/PaperInterno.tsx (lista).
  */
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -28,7 +31,7 @@ import InsigniaSesionPaper from '../componentes/InsigniaSesionPaper'
 import { Kpi } from '../componentes/Piezas'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, dinero, entero, fechaCorta, porcentaje, ratio, resumenParametros } from '../lib/formato'
-import { textoModo, textoPendientes } from '../lib/paperInterno'
+import { resumenTiempo, textoModo } from '../lib/paperInterno'
 import { colorToken } from '../lib/tema'
 
 const FILAS_OPERACIONES = 20
@@ -56,6 +59,7 @@ export default function PaperInternoDetalle() {
   const num = (k: string) => (typeof m[k] === 'number' ? (m[k] as number) : null)
   const receta = data.sesion.receta
   const activa = data.estado === 'activa'
+  const tiempo = resumenTiempo(data)
   const detener = () => {
     if (window.confirm(`¿Detener la sesión ${data.nombre}? No se podrá reanudar.`)) control.mutate('detener')
   }
@@ -114,10 +118,22 @@ export default function PaperInternoDetalle() {
           la paridad; para ver cómo se comportaría de verdad usa «apertura siguiente».
         </p>
       )}
-      <p className={`text-sm ${data.al_dia ? 'text-pos' : 'text-aviso'}`}>
-        {textoPendientes(data.dias_pendientes, data.al_dia)}
-        {data.ultima_fecha && <span className="text-suave"> · último día procesado {fechaCorta(data.ultima_fecha)}</span>}
-      </p>
+      <section aria-labelledby="h-tiempo" className="space-y-2">
+        <h2 id="h-tiempo">Tiempo en paper interno</h2>
+        <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <Kpi etiqueta="Periodo (alta → última fecha)" valor={tiempo.periodo} />
+          <Kpi etiqueta="Duración" valor={tiempo.duracion} ayuda="Sesiones de mercado procesadas y tiempo de calendario desde el alta" />
+          <Kpi etiqueta="Pendientes (días hábiles)" valor={tiempo.pendientes} clase={data.al_dia ? 'text-pos' : 'text-aviso'} ayuda="Días cerrados aún sin procesar; se avanzan solos mientras la API esté en marcha" />
+          <Kpi etiqueta="Frecuencia" valor={tiempo.frecuencia} ayuda={data.ultimo_rebalanceo ? `Último rebalanceo: ${fechaCorta(data.ultimo_rebalanceo)}` : 'Aún no ha rebalanceado'} />
+          <Kpi etiqueta="Próximo rebalanceo" valor={tiempo.proximo} ayuda="Estimado: no tiene en cuenta los festivos bursátiles" />
+        </dl>
+      </section>
+      {data.avisos_universo.length > 0 && (
+        <div role="status" className="rounded-lg border border-aviso/50 bg-aviso/10 p-3 text-sm text-aviso">
+          <p className="font-medium">Universo {typeof receta.universo === 'string' ? receta.universo : ''}: calidad de las membresías</p>
+          <ul className="mt-1 list-disc pl-5">{data.avisos_universo.map((a) => <li key={a}>{a}</li>)}</ul>
+        </div>
+      )}
       {data.pesos_pendientes && (
         <div role="status" className="rounded-lg border border-borde p-3 text-sm text-suave">
           Decisión del {fechaCorta(data.fecha_decision_pendiente)} pendiente de ejecutar a la apertura siguiente:{' '}
@@ -134,13 +150,13 @@ export default function PaperInternoDetalle() {
       )}
 
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-        <Kpi etiqueta="Equity" valor={dinero(data.equity, 0)} />
-        <Kpi etiqueta="Retorno" valor={porcentaje(data.retorno_total, 2)} clase={claseSigno(data.retorno_total)} />
-        <Kpi etiqueta="Sharpe" valor={ratio(num('sharpe'))} ayuda="Con pocos días no es fiable" />
-        <Kpi etiqueta="Máx. DD" valor={porcentaje(num('max_drawdown'))} clase="text-neg" />
-        <Kpi etiqueta="Volatilidad" valor={porcentaje(num('volatilidad'))} />
-        <Kpi etiqueta="Costes" valor={dinero(data.costes_detalle.total, 0)} ayuda={`Comisiones ${dinero(data.costes_detalle.comisiones, 0)} + slippage ${dinero(data.costes_detalle.slippage, 0)}`} />
-        <Kpi etiqueta="Días" valor={entero(data.dias)} />
+        <Kpi etiqueta="Equity (USD)" valor={dinero(data.equity, 0)} />
+        <Kpi etiqueta="Retorno total (%)" valor={porcentaje(data.retorno_total, 2)} clase={claseSigno(data.retorno_total)} />
+        <Kpi etiqueta="Sharpe" valor={ratio(num('sharpe'))} ayuda="Con pocas sesiones no es fiable" />
+        <Kpi etiqueta="Máx. drawdown (%)" valor={porcentaje(num('max_drawdown'))} clase="text-neg" />
+        <Kpi etiqueta="Volatilidad (%)" valor={porcentaje(num('volatilidad'))} />
+        <Kpi etiqueta="Costes (USD)" valor={dinero(data.costes_detalle.total, 0)} ayuda={`Comisiones ${dinero(data.costes_detalle.comisiones, 0)} + slippage ${dinero(data.costes_detalle.slippage, 0)}`} />
+        <Kpi etiqueta="Sesiones de mercado" valor={entero(data.dias)} ayuda="Días de trading procesados" />
       </dl>
 
       <section aria-labelledby="h-espejo" className="space-y-2">

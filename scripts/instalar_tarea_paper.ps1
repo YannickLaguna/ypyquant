@@ -1,6 +1,9 @@
 <#
 .SYNOPSIS
-    Registra (o quita) la tarea diaria del Programador de tareas de Windows que avanza el paper interno.
+    OPCIONAL: registra (o quita) la tarea diaria del Programador de tareas de Windows que avanza el paper interno.
+
+    No es necesaria: con la API en marcha, un temporizador interno (YPYQUANT_PAPER_INTERVALO_MIN, 30 min por defecto)
+    avanza las sesiones y al arrancar la API se hace catch-up. Solo sirve si quieres que el paper avance con la API apagada.
 
 .DESCRIPTION
     Responsabilidad: crear la tarea "Sistema_trading paper interno", que ejecuta `uv run python -m ypyquant.paper avanzar`

@@ -287,10 +287,10 @@ def test_vincular_congela_receta_es_idempotente_y_guarda_el_anterior(tmp_path):
     assert almacen.leer_estado_estrategia("A") is None  # la memoria era de la estrategia anterior
 
 
-def test_universo_dinamico_no_se_puede_operar_en_vivo():
+def test_universo_dinamico_se_resuelve_a_los_miembros_vigentes():  # el detalle vive en tests/test_bot_universo_vivo.py
     receta = ConfiguracionExperimento(**{**CONFIG, "universo": "sp500_pit"}).receta().normalizada()
-    with pytest.raises(UniversoNoSoportado):
-        resolver_tickers(receta)
+    tickers = resolver_tickers(receta, "2024-06-03")
+    assert 450 < len(tickers) < 560 and "AAPL" in tickers
 
 
 def test_receta_de_origen_experimento_inexistente(tmp_path):
@@ -369,8 +369,6 @@ def test_arrancar_bot_de_perfil_valida_origen_y_aplica_409(tmp_path):
         assert cliente.post(url, json={"experimento_id": "x", "configuracion_id": "y"}).status_code == 422
         assert cliente.post(url, json={"experimento_id": "no-existe"}).status_code == 404
         assert cliente.post("/api/paper/alpaca/bots/C/arrancar", json={"experimento_id": "x"}).status_code == 503  # sin claves
-        pit = _registrar(ctx, universo="sp500_pit")
-        assert cliente.post(url, json={"experimento_id": pit}).status_code == 422  # universo dinámico
         bueno = _registrar(ctx)
         respuesta = cliente.post(url, json={"experimento_id": bueno, "modo": "diario", "intervalo_s": 30})
         assert respuesta.status_code == 200 and respuesta.json()["en_marcha"] and respuesta.json()["modo"] == "diario"

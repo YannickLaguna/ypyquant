@@ -11,6 +11,9 @@ Responsabilidad:
   (sesgo de supervivencia residual). El criterio de ELEGIBILIDAD por fecha (historia mínima, máscara) vive en
   `estrategias/universo_dinamico.py`, que consume estas membresías. Una fuente con membresías propias (Norgate:
   `index_constituent_timeseries`) las serviría con este mismo formato `{símbolo: [{index, date_added, date_removed}]}`.
+- Universo en vivo: `miembros_vigentes_en(membresias, fecha)` son los miembros de una fecha (con la de hoy, la membresía
+  vigente) y `avisos_membresias` avisa si las membresías tienen más de 30 días de antigüedad respecto a la fecha o si el
+  número de vigentes se aleja de ~500 (bajas sin registrar). Lo usan el paper interno y el bot de Alpaca.
 - Traducción de símbolos: el símbolo CANÓNICO del proyecto es el de yfinance (`BRK-B`, con guion). Aquí se
   normaliza todo lo que entra desde fuera (`a_simbolo_canonico`: `BRK.B` -> `BRK-B`); las fuentes de precios
   reciben símbolos canónicos y traducen al de su proveedor si hace falta. Ningún otro módulo conoce el formato.
@@ -44,6 +47,9 @@ CARPETA_UNIVERSOS = RAIZ_REPO / "universos"
 RUTA_MEMBRESIAS = CARPETA_UNIVERSOS / "sp500_membresias.json"
 NOMBRE_UNIVERSO_PIT = "sp500_pit"
 INDICE = "SP500"
+DIAS_MAXIMOS_ANTIGUEDAD = 30  # a partir de aquí se avisa de que las membresías están desactualizadas
+MIEMBROS_ESPERADOS = 500  # el índice real ronda los 503 símbolos (500 empresas, algunas con dos clases de acciones)
+TOLERANCIA_MIEMBROS = 15
 
 Membresias = Mapping[str, Sequence[Mapping[str, Any]]]
 # (nombre_indice, fecha_inicio, fecha_fin, solo_supervivientes) -> lista de símbolos
@@ -126,6 +132,48 @@ def miembros_en_ventana(membresias: Membresias, inicio: str | pd.Timestamp, fin:
         if any(i <= fin and f >= inicio for i, f in map(_intervalo, intervalos)):
             elegidos.append(simbolo)
     return sorted(elegidos)
+
+
+def miembros_vigentes_en(membresias: Membresias, fecha: str | pd.Timestamp) -> list[str]:
+    """
+    Símbolos (ordenados) que son miembros del índice EN `fecha` (point-in-time con esa fecha; con la de hoy es la
+    membresía vigente). Intervalos inclusivos, igual que la máscara del backtest (`construir_mascara_membresia`).
+    """
+    return miembros_en_ventana(membresias, fecha, fecha)
+
+
+def ultima_fecha_membresias(membresias: Membresias) -> pd.Timestamp | None:
+    """La fecha más reciente que registran las membresías (altas o bajas); None si no hay ninguna."""
+    fechas = [pd.Timestamp(m[campo]) for intervalos in membresias.values() for m in intervalos
+              for campo in ("date_added", "date_removed") if m.get(campo)]
+    return max(fechas) if fechas else None
+
+
+def avisos_membresias(membresias: Membresias, fecha: str | pd.Timestamp,
+                      esperados: int | None = MIEMBROS_ESPERADOS) -> list[str]:
+    """
+    Avisos de calidad de las membresías para operar/simular en `fecha` (lista vacía si todo cuadra):
+    - antigüedad: la última fecha registrada es más de `DIAS_MAXIMOS_ANTIGUEDAD` días anterior a `fecha`, así que
+      las altas y bajas recientes del índice pueden faltar; indica cómo refrescarlas;
+    - número de miembros: los vigentes en `fecha` se alejan de `esperados` (+/- `TOLERANCIA_MIEMBROS`), señal de
+      bajas sin registrar o de datos incompletos. `esperados=None` desactiva este aviso.
+    """
+    fecha = pd.Timestamp(fecha)
+    avisos = []
+    ultima = ultima_fecha_membresias(membresias)
+    if ultima is not None and (fecha - ultima).days > DIAS_MAXIMOS_ANTIGUEDAD:
+        avisos.append(
+            f"Membresías del S&P 500 con antigüedad de {(fecha - ultima).days} días (último dato {ultima:%Y-%m-%d}, "
+            f"fecha {fecha:%Y-%m-%d}): pueden faltar altas y bajas recientes. Refréscalas actualizando TFM.db y "
+            "ejecutando `uv run python scripts/exportar_membresias_sp500.py`.")
+    if esperados is not None:
+        n = len(miembros_vigentes_en(membresias, fecha))
+        if abs(n - esperados) > TOLERANCIA_MIEMBROS:
+            avisos.append(
+                f"El S&P 500 tiene {n} miembros vigentes el {fecha:%Y-%m-%d} en las membresías (se esperan ~{esperados}, "
+                "503 con las clases de acciones duplicadas): probablemente hay bajas sin registrar y el universo en vivo "
+                "incluye valores que ya no están en el índice. Revisa/refresca las membresías.")
+    return avisos
 
 
 def cobertura_membresias(membresias: Membresias, simbolos_con_precio: set[str] | Sequence[str],

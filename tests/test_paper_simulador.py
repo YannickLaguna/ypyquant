@@ -283,10 +283,8 @@ def test_las_metricas_forward_son_las_del_backtest_en_modo_cierre(tmp_path):
     assert np.isfinite(fila["costes"]) and fila["al_dia"] is True
 
 
-def test_alta_rechaza_universo_dinamico_y_modo_invalido(tmp_path):
+def test_alta_rechaza_modo_invalido(tmp_path):  # el universo dinámico se admite: tests/test_paper_universo_vivo.py
     servicio = _servicio(tmp_path, _fuente())
-    with pytest.raises(ValueError, match="point-in-time"):
-        servicio.crear_sesion(Receta(estrategia="pesos_iguales", universo="sp500_pit"))
     with pytest.raises(ValueError, match="Modo"):
         servicio.crear_sesion(_receta(), modo_ejecucion="intradia")
 

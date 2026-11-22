@@ -82,6 +82,8 @@ class ConfiguracionEstrategia:
     # entra en la firma del estado y el origen etiqueta los fills
     huella_receta: str | None = None
     origen: dict | None = None
+    # Universo `sp500_pit`: `tickers` es solo una foto; el bucle resuelve los miembros vigentes en cada rebalanceo
+    universo_dinamico: bool = False
 
     @classmethod
     def desde_vinculo(cls, vinculo: dict[str, Any]) -> "ConfiguracionEstrategia":
@@ -90,7 +92,8 @@ class ConfiguracionEstrategia:
         return cls(nombre=vinculo["estrategia"], tickers=list(vinculo["tickers"]), estrategia_registro=vinculo["estrategia"],
                    parametros_registro=dict(receta["parametros"]),
                    frecuencia_rebalanceo_registro=vinculo.get("frecuencia_rebalanceo") or receta.get("frecuencia_rebalanceo"),
-                   huella_receta=vinculo["huella_receta"], origen=dict(vinculo["origen"]))
+                   huella_receta=vinculo["huella_receta"], origen=dict(vinculo["origen"]),
+                   universo_dinamico=bool(vinculo.get("universo_dinamico")))
 
     @classmethod
     def desde_json(cls, ruta: Path) -> "ConfiguracionEstrategia":

@@ -31,12 +31,19 @@ Responsabilidad:
       `permitir_cerrado` se envían igualmente (orden de mercado DAY, que Alpaca deja en cola hasta la apertura;
       hipótesis a comprobar a mano, ver la checklist de docs/ui.md); los fills se registran al sincronizar.
 
+    Universo dinámico `sp500_pit` (`estrategia.universo_dinamico`): el universo es la membresía VIGENTE en cada día. En
+    cada rebalanceo se descargan los miembros de hoy más lo que hay en cartera (para poder venderlo) y la estrategia
+    solo ve a los miembros vigentes con historia suficiente (el mismo filtro que el backtest). Lo que sale del índice no
+    se vende ese día: se liquida en el siguiente rebalanceo, y se avisa en el log (una vez por proceso y valor). También
+    se avisa de membresías con más de 30 días de antigüedad o con un número de miembros lejos de ~500.
+
 Se relaciona con:
     - config.py: claves y parámetros.
     - precios.py: datos de entrada y cuánta historia pedir; estado_bot.py: último rebalanceo y órdenes pendientes.
     - ypyquant.execution: calendario, ejecutor, broker, broker_alpaca; nautilus.constructor_senales
       (modo señales), nautilus.ordenes (`decidir_orden`) y nautilus.registro_fills.
     - ypyquant.estrategias: modo registro (`estrategia_registro`): pesos de una Estrategia -> rebalanceo.
+    - ypyquant.data.universos (membresías vigentes y avisos) y ypyquant.estrategias.universo_dinamico (filtro).
     - alpaca-py (extra `trading`): solo a través de BrokerAlpaca y de `crear_clientes`.
 """
 
@@ -54,6 +61,8 @@ from pipelines.paper_trading.precios import (
     dias_naturales_para_sesiones,
     resolver_dias_historico,
 )
+from ypyquant.data.universos import Membresias, avisos_membresias, cargar_membresias_sp500, miembros_vigentes_en
+from ypyquant.estrategias.universo_dinamico import UniversoPuntoEnElTiempo
 from ypyquant.execution.broker import Broker
 from ypyquant.execution.broker_alpaca import BrokerAlpaca
 from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS, toca_rebalancear
@@ -67,6 +76,8 @@ logger = logging.getLogger(__name__)
 # Al cerrar una iteración se espera a que las órdenes de mercado recién enviadas se ejecuten para registrar su fill
 REINTENTOS_FILLS = 3
 ESPERA_FILLS_S = 2.0
+# El filtro point-in-time exige 12 retornos mensuales completos: con el mínimo habitual (252 días) no alcanza
+DIAS_HISTORIA_UNIVERSO_DINAMICO = 450
 
 
 class ControlParada:
@@ -200,8 +211,32 @@ def precios_a_ohlcv(precios) -> dict:
     return {t: pd.DataFrame({"Close": precios[t], "adjusted_close": precios[t]}).dropna() for t in precios.columns}
 
 
+def tickers_del_dia(membresias: Membresias, hoy: date, en_cartera) -> list[str]:
+    """Universo dinámico de hoy: los miembros vigentes más lo que hay en cartera (hay que poder venderlo aunque haya salido)."""
+    return sorted(set(miembros_vigentes_en(membresias, hoy)) | set(en_cartera))
+
+
+def avisar_universo_dinamico(membresias: Membresias, hoy: date, en_cartera, ya_avisados: set[str]) -> list[str]:
+    """
+    Avisos (WARNING en el log) del universo dinámico de hoy; devuelve los valores en cartera fuera del índice.
+
+    Calidad de las membresías (antigüedad y número de miembros) y cada valor en cartera que ya no es miembro: se
+    liquidará en el próximo rebalanceo. `ya_avisados` evita repetir el aviso de un valor en cada iteración.
+    """
+    for aviso in avisos_membresias(membresias, hoy):
+        logger.warning(aviso)
+    vigentes = set(miembros_vigentes_en(membresias, hoy))
+    fuera = sorted(t for t in en_cartera if t not in vigentes)
+    for ticker in fuera:
+        if ticker not in ya_avisados:
+            logger.warning("%s salió del S&P 500: sigue en cartera y se liquidará en el próximo rebalanceo", ticker)
+            ya_avisados.add(ticker)
+    return fuera
+
+
 def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, precios, abierto, estado: EstadoBot,
-                                        frecuencia: str, hoy: date | None = None, permitir_cerrado: bool = False):
+                                        frecuencia: str, hoy: date | None = None, permitir_cerrado: bool = False,
+                                        membresias: Membresias | None = None):
     """
     Una iteración en modo registro: si toca, pide pesos a la estrategia y envía las órdenes de rebalanceo.
 
@@ -216,6 +251,9 @@ def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, p
     - Marca el rebalanceo como hecho solo si ningún envío falló (si falla uno, se reintenta en la siguiente
       iteración; las ya enviadas quedan protegidas por el bloqueo de órdenes abiertas).
 
+    Con `membresias` (universo dinámico) la estrategia solo ve a los miembros del índice en la fecha del último
+    precio, con historia suficiente (`UniversoPuntoEnElTiempo`, el filtro del backtest).
+
     Devuelve los pesos calculados, o None si hoy no tocaba.
     """
     hoy = hoy or datetime.now(UTC).date()
@@ -224,7 +262,8 @@ def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, p
         return None
 
     datos = precios_a_ohlcv(precios)
-    pesos = estrategia_registrada.como_funcion()(precios.index[-1].to_pydatetime(), datos)
+    filtro = UniversoPuntoEnElTiempo(membresias).crear_filtro(datos) if membresias is not None else None
+    pesos = estrategia_registrada.como_funcion(filtro_universo=filtro)(precios.index[-1].to_pydatetime(), datos)
     logger.info("Pesos objetivo de %s: %s", estrategia_registrada.nombre, {t: round(w, 4) for t, w in pesos.items()})
     if not abierto and not permitir_cerrado:
         logger.info("Mercado cerrado: no se enviarán órdenes")
@@ -273,7 +312,8 @@ def _firma_estrategia(estrategia: ConfiguracionEstrategia) -> str:
     """Identifica estrategia + parámetros + tickers: el último rebalanceo guardado solo vale para esta misma firma."""
     modo = estrategia.estrategia_registro or "senales"
     parametros = json.dumps(estrategia.parametros_registro, sort_keys=True, ensure_ascii=False)
-    firma = f"{modo}|{parametros}|{','.join(sorted(estrategia.tickers))}"
+    universo = "sp500_pit" if estrategia.universo_dinamico else ",".join(sorted(estrategia.tickers))  # los miembros cambian cada día
+    firma = f"{modo}|{parametros}|{universo}"
     return f"{firma}|{estrategia.huella_receta}" if estrategia.huella_receta else firma
 
 
@@ -289,11 +329,13 @@ def _completar_equity_inicial(servicio: ConfiguracionServicio, equity: float) ->
 
 def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstrategia,
                   control: ControlParada, max_iteraciones: int | None = None,
-                  ahora: Callable[[], datetime] | None = None, permitir_cerrado: bool = False):
+                  ahora: Callable[[], datetime] | None = None, permitir_cerrado: bool = False,
+                  membresias: Membresias | None = None):
     """
     Bucle principal de paper trading. `max_iteraciones=1` es el modo diario (una pasada y sale).
 
     `ahora` (reloj inyectable, UTC) y `permitir_cerrado` (enviar con el mercado cerrado) ver la cabecera del módulo.
+    `membresias` (solo con universo dinámico; por defecto `universos/sp500_membresias.json`) es inyectable para los tests.
     """
     ahora = ahora or (lambda: datetime.now(UTC))
     cliente, cliente_datos = crear_clientes(servicio)
@@ -326,6 +368,9 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
             restaurar_estado_estrategia(servicio.ruta_estado_estrategia, firma, estrategia_registrada)
         sesiones_necesarias = estrategia_registrada.sesiones_necesarias()
         dias_historico = resolver_dias_historico(sesiones_necesarias, servicio.dias_historico)
+        if estrategia.universo_dinamico:
+            dias_historico = max(dias_historico, DIAS_HISTORIA_UNIVERSO_DINAMICO)
+            membresias = membresias if membresias is not None else cargar_membresias_sp500()
         logger.info("Modo registro: estrategia %s con parámetros %s, rebalanceo %s",
                     estrategia.estrategia_registro, estrategia.parametros_registro, frecuencia)
         logger.info("Historia: la estrategia necesita %d sesiones (≈%d días naturales); mínimo configurado %d días -> se descargan %d días",
@@ -337,6 +382,7 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
     logger.info("Estrategia %s | tickers %s | umbral %.2f | cada %ds",
                 estrategia.nombre, estrategia.tickers, estrategia.umbral_senal, servicio.segundos_entre_iteraciones)
 
+    salidas_avisadas: set[str] = set()
     iteracion = 0
     while control.en_marcha and (max_iteraciones is None or iteracion < max_iteraciones):
         iteracion += 1
@@ -349,7 +395,13 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
                     logger.info("Hoy no toca rebalancear (frecuencia %s, último rebalanceo %s)", frecuencia,
                                 estado.ultimo_rebalanceo)
                 else:
-                    precios = descargar_precios(estrategia.tickers, dias_historico)
+                    if estrategia.universo_dinamico:
+                        en_cartera = set(broker.estado_cuenta().posiciones)
+                        avisar_universo_dinamico(membresias, hoy, en_cartera, salidas_avisadas)
+                        tickers = tickers_del_dia(membresias, hoy, en_cartera)
+                    else:
+                        tickers = estrategia.tickers
+                    precios = descargar_precios(tickers, dias_historico)
                     if precios.empty:
                         logger.warning("Sin precios; se reintenta en la siguiente iteración")
                     else:
@@ -357,7 +409,8 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
                         try:
                             rebalancear_con_estrategia_registro(
                                 broker, estrategia_registrada, precios, broker.mercado_abierto(), estado, frecuencia,
-                                hoy=hoy, permitir_cerrado=permitir_cerrado)
+                                hoy=hoy, permitir_cerrado=permitir_cerrado,
+                                membresias=membresias if estrategia.universo_dinamico else None)
                         finally:  # la estrategia avanzó su memoria aunque algún envío fallara: se guarda siempre
                             if servicio.ruta_estado_estrategia is not None:
                                 guardar_estado_estrategia(servicio.ruta_estado_estrategia, firma, estrategia_registrada)

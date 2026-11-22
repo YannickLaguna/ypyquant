@@ -21,10 +21,17 @@ Responsabilidad:
     intermedio con aviso). Un ticker que lleva `SESIONES_PARA_LIQUIDAR` sesiones sin barra se liquida a su último
     precio con aviso (deslistado o cambio de ticker).
     Métricas forward: `evaluar(simulacion_desde_tablas(...))`, la misma función que el backtest (ver `servicio`).
+    Universo `sp500_pit` en vivo: la sesión conserva el nombre y el simulador lo resuelve en CADA fecha procesada con
+    los miembros vigentes ese día (point-in-time con la fecha de la barra; con la de hoy es la membresía vigente), con
+    el mismo filtro que el backtest (`UniversoPuntoEnElTiempo`: miembros con historia suficiente hasta t-1). Un ticker
+    que sale del índice no se vende ese día: se liquida en el siguiente rebalanceo (la estrategia ya no lo ve) y se
+    anota un aviso. Se avisa una vez por sesión si las membresías tienen más de 30 días de antigüedad respecto a la
+    fecha procesada o si el número de miembros vigentes se aleja de ~500 (`ypyquant.data.universos.avisos_membresias`).
 
 Se relaciona con:
     - ypyquant.execution (ejecutor, broker_simulado, calendario): decisión de órdenes, ejecución y rebalanceo.
-    - ypyquant.estrategias (registro, base: `como_funcion`) y ypyquant.data.fuente_precios (precios).
+    - ypyquant.estrategias (registro, base: `como_funcion`, universo_dinamico) y ypyquant.data.fuente_precios (precios).
+    - ypyquant.data.universos (membresías vigentes y avisos de calidad del universo `sp500_pit`).
     - ypyquant.paper.almacen (estado y tablas), .sesion (modelos) y .calendario (sesiones cerradas).
     - tests/test_paper_paridad.py: el avance día a día equivale al backtest del mismo rango (modo `cierre`).
 """
@@ -43,6 +50,14 @@ import pandas as pd
 
 from ypyquant.almacen_documentos import limpiar_para_json
 from ypyquant.data.fuente_precios import FuentePrecios, como_fuente
+from ypyquant.data.universos import (
+    Membresias,
+    avisos_membresias,
+    cargar_membresias_sp500,
+    miembros_en_ventana,
+    miembros_vigentes_en,
+)
+from ypyquant.estrategias.universo_dinamico import FiltroUniverso, UniversoPuntoEnElTiempo
 from ypyquant.estrategias.registro import obtener_estrategia
 from ypyquant.execution.broker_simulado import BrokerSimulado
 from ypyquant.execution.calendario import toca_rebalancear
@@ -122,7 +137,7 @@ def _anadir(tabla: pd.DataFrame, filas: list[dict], columnas: list[str]) -> pd.D
 class _Decisor:
     """La estrategia de una sesión durante un avance: restaura su memoria y su generador y los vuelca al terminar."""
 
-    def __init__(self, sesion: SesionPaper, estado: EstadoCartera):
+    def __init__(self, sesion: SesionPaper, estado: EstadoCartera, filtro_universo: FiltroUniverso | None = None):
         receta = sesion.receta
         self.estrategia = obtener_estrategia(receta.estrategia)(receta.parametros)
         self.estrategia.semilla = receta.semilla
@@ -131,7 +146,7 @@ class _Decisor:
         if estado.estado_rng is not None:
             generador.bit_generator.state = estado.estado_rng
         self.estrategia.rng = generador
-        self.funcion = self.estrategia.como_funcion()
+        self.funcion = self.estrategia.como_funcion(filtro_universo=filtro_universo)
 
     def pesos(self, fecha: pd.Timestamp, datos: dict[str, pd.DataFrame]) -> dict[str, float]:
         return self.funcion(fecha, datos)
@@ -148,12 +163,46 @@ class SimuladorPaper:
     Args:
         almacen: sesiones en disco. fuente: de dónde salen los precios (`FuentePrecios` o cargador suelto).
         ahora: reloj inyectable (devuelve un `datetime`); por defecto la hora de Nueva York.
+        membresias: membresías del S&P 500 para `sp500_pit` (por defecto `universos/sp500_membresias.json`, leído al
+            primer uso). meses_historia_pit: historia mensual que exige el filtro point-in-time (12, como el backtest).
     """
 
-    def __init__(self, almacen: AlmacenPaper, fuente: FuentePrecios | Callable, ahora: Callable[[], datetime] = ahora_nueva_york):
+    def __init__(self, almacen: AlmacenPaper, fuente: FuentePrecios | Callable, ahora: Callable[[], datetime] = ahora_nueva_york,
+                 membresias: Membresias | None = None, meses_historia_pit: int = 12):
         self.almacen = almacen
         self.fuente = como_fuente(fuente)
         self.ahora = ahora
+        self._membresias = membresias
+        self.meses_historia_pit = meses_historia_pit
+        self._vigentes: dict[pd.Timestamp, frozenset[str]] = {}
+
+    # ---- universo dinámico ---------------------------------------------------------------------
+
+    def membresias(self) -> Membresias:
+        """Las membresías del S&P 500 (se cargan una vez, la primera vez que hacen falta)."""
+        if self._membresias is None:
+            self._membresias = cargar_membresias_sp500()
+        return self._membresias
+
+    def _vigentes_en(self, dia: pd.Timestamp) -> frozenset[str]:
+        """Miembros vigentes de `dia` (con caché: se consulta varias veces por día y sesión)."""
+        dia = pd.Timestamp(dia).normalize()
+        if dia not in self._vigentes:
+            self._vigentes[dia] = frozenset(miembros_vigentes_en(self.membresias(), dia))
+        return self._vigentes[dia]
+
+    def _tickers_a_cargar(self, sesion: SesionPaper, tope: date) -> list[str]:
+        """Símbolos cuyos precios hacen falta: la lista fija o, con `sp500_pit`, todo miembro entre el alta y `tope`."""
+        if not sesion.universo_dinamico:
+            return sesion.tickers
+        return miembros_en_ventana(self.membresias(), sesion.fecha_alta, tope.isoformat())
+
+    def _universo_del_dia(self, sesion: SesionPaper, dia: pd.Timestamp, universo: dict[str, pd.DataFrame]) -> list[str]:
+        """Tickers cuya barra se espera en `dia`: todo el universo o, con `sp500_pit`, los miembros vigentes ese día."""
+        if not sesion.universo_dinamico:
+            return list(universo)
+        vigentes = self._vigentes_en(dia)
+        return [t for t in universo if t in vigentes]
 
     # ---- API pública ---------------------------------------------------------------------------
 
@@ -197,7 +246,7 @@ class SimuladorPaper:
         inicio: dict[str, pd.Timestamp] = {}
         for sesion in sesiones:
             desde = pd.Timestamp(sesion.fecha_alta) - pd.Timedelta(days=sesion.receta.dias_historia_previa)
-            for simbolo in [*sesion.tickers, sesion.receta.benchmark]:
+            for simbolo in [*self._tickers_a_cargar(sesion, tope), sesion.receta.benchmark]:
                 inicio[simbolo] = min(inicio.get(simbolo, desde), desde)
         fin = tope.isoformat()
         try:
@@ -229,13 +278,15 @@ class SimuladorPaper:
             tablas = self.almacen.leer_tablas(id_sesion)
             if tablas.recortar(pd.Timestamp(estado.ultima_fecha_procesada)):  # restos de un día no confirmado
                 self.almacen.guardar_tablas(id_sesion, tablas)
-            universo = {t: datos[t] for t in sesion.tickers if t in datos}
+            universo = {t: datos[t] for t in self._tickers_a_cargar(sesion, tope) if t in datos}
             if not universo:
                 raise RuntimeError("No hay precios de ningún ticker del universo (¿sin red y sin caché?)")
             dias = self._dias_a_procesar(sesion, estado, universo, datos.get(sesion.receta.benchmark), tope, ahora, tablas)
             if not dias:
                 return resultado
-            decisor = _Decisor(sesion, estado)
+            filtro = UniversoPuntoEnElTiempo(self.membresias(), self.meses_historia_pit).crear_filtro(universo) \
+                if sesion.universo_dinamico else None
+            decisor = _Decisor(sesion, estado, filtro)
             self._rebasar(estado, universo, tablas)
             resultado.desde = f"{dias[0]:%Y-%m-%d}"
             for dia in dias:
@@ -258,15 +309,17 @@ class SimuladorPaper:
                       if d <= pd.Timestamp(tope)]
         dias = []
         for posicion, dia in enumerate(candidatos):
-            con_barra = sum(dia in df.index for df in universo.values())
-            completo = con_barra / len(universo) >= COBERTURA_MINIMA and (benchmark is None or dia in benchmark.index)
+            esperados = self._universo_del_dia(sesion, dia, universo)
+            con_barra = sum(dia in universo[t].index for t in esperados)
+            completo = bool(esperados) and con_barra / len(esperados) >= COBERTURA_MINIMA \
+                and (benchmark is None or dia in benchmark.index)
             if completo:
                 dias.append(dia)
             elif posicion == len(candidatos) - 1:
                 break  # barra parcial del último día: se pospone hasta que el proveedor la complete
             else:
                 tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "dia_omitido",
-                                       "mensaje": f"{dia:%Y-%m-%d}: barra incompleta ({con_barra}/{len(universo)} tickers); se omite"})
+                                       "mensaje": f"{dia:%Y-%m-%d}: barra incompleta ({con_barra}/{len(esperados)} tickers); se omite"})
         return dias
 
     def _rebasar(self, estado: EstadoCartera, universo: dict[str, pd.DataFrame], tablas: TablasSesion) -> None:
@@ -307,6 +360,8 @@ class SimuladorPaper:
     def _procesar_dia(self, sesion: SesionPaper, estado: EstadoCartera, tablas: TablasSesion, decisor: _Decisor,
                       dia: pd.Timestamp, universo: dict[str, pd.DataFrame], benchmark: pd.DataFrame | None) -> None:
         cierres, aperturas = self._precios_de(universo, dia)
+        if sesion.universo_dinamico:
+            self._avisos_universo_dinamico(estado, tablas, dia, sesion.receta.frecuencia_rebalanceo)
         self._liquidar_desaparecidos(sesion, estado, tablas, dia, universo, cierres)
         modo_cierre = sesion.modo_ejecucion == "cierre"
         frecuencia = sesion.receta.frecuencia_rebalanceo
@@ -337,6 +392,25 @@ class SimuladorPaper:
             "fecha": dia, "equity": fila_equity, "efectivo": estado.efectivo, "n_posiciones": len(estado.posiciones),
             "benchmark": valor_benchmark if valor_benchmark is not None else float("nan")}], COLUMNAS_EQUITY)
         estado.ultimos_cierres = {t: cierres[t] for t in estado.posiciones if t in cierres}
+
+    def _avisos_universo_dinamico(self, estado: EstadoCartera, tablas: TablasSesion, dia: pd.Timestamp, frecuencia: str) -> None:
+        """
+        Avisos del universo `sp500_pit` al procesar `dia`: (1) cada posición que sale del índice desde el último día
+        procesado (no se vende hoy: la estrategia deja de verla y se cierra en el próximo rebalanceo); (2) una vez por
+        sesión, membresías antiguas o con un número de miembros anómalo.
+        """
+        anterior = pd.Timestamp(estado.ultima_fecha_procesada)
+        vigentes_antes, vigentes_hoy = self._vigentes_en(anterior), self._vigentes_en(dia)
+        for ticker in sorted(estado.posiciones):
+            if ticker in vigentes_antes and ticker not in vigentes_hoy:
+                tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "salida_indice", "mensaje": (
+                    f"{ticker}: sale del S&P 500 el {dia:%Y-%m-%d}; se mantiene hasta el próximo rebalanceo "
+                    f"({frecuencia}) y entonces se liquida")})
+        ya_avisados = {e.get("tipo") for e in tablas.eventos}
+        for mensaje in avisos_membresias(self.membresias(), dia):
+            tipo = "membresia_antigua" if "antigüedad" in mensaje else "membresia_numero"
+            if tipo not in ya_avisados:
+                tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": tipo, "mensaje": mensaje})
 
     def _decidir(self, sesion, estado, tablas, decisor, dia, universo) -> dict[str, float] | None:
         """Pesos objetivo de la estrategia en `dia` (None si falla: se anota el error y se reintenta el siguiente día)."""

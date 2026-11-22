@@ -124,10 +124,11 @@ La estrategia (tickers, generadores de señales, umbral, riesgo) se define en un
 uv run python -m ypyquant.paper crear --experimento <id> --modo apertura_siguiente
 uv run python -m ypyquant.paper avanzar        # procesa los días cerrados pendientes (idempotente; catch-up si el PC estuvo apagado)
 uv run python -m ypyquant.paper estado
-.\scripts\instalar_tarea_paper.ps1 -SoloMostrar # tarea diaria de Windows (no registra nada con -SoloMostrar); log: data\paper_interno\avance.log
+.\scripts\instalar_tarea_paper.ps1 -SoloMostrar # OPCIONAL: tarea diaria de Windows (no registra nada con -SoloMostrar); log: data\paper_interno\avance.log
 ```
 
-Detalle: `docs/ypyquant.md` («Paper interno») y `docs/ui.md`.
+Con la API en marcha no hace falta la tarea programada: un temporizador interno (`YPYQUANT_PAPER_INTERVALO_MIN`, 30 min por defecto)
+pone al día las sesiones. Detalle: `docs/ypyquant.md` («Paper interno») y `docs/ui.md`.
 
 ---
 
