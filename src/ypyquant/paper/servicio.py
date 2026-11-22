@@ -119,9 +119,6 @@ class ServicioPaper:
             raise ValueError("El capital inicial debe ser positivo")
         hoy = self.ahora().date().isoformat()
         alta = pd.Timestamp(fecha_alta).strftime("%Y-%m-%d") if fecha_alta else hoy
-        if (receta.parametros.get("apalancamiento_maximo") or 1) > 1:
-            raise ValueError("El paper interno aún no modela margen: la receta usa apalancamiento_maximo > 1 "
-                             "(CASH negativo con intereses en el motor)")
         receta = receta.receta().normalizada()
         if isinstance(receta.universo, str):
             if es_universo_pit(receta.universo):

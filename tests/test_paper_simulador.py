@@ -291,8 +291,11 @@ def test_alta_rechaza_universo_dinamico_y_modo_invalido(tmp_path):
         servicio.crear_sesion(_receta(), modo_ejecucion="intradia")
 
 
-def test_alta_rechaza_apalancamiento_mayor_que_uno(tmp_path):
+def test_alta_acepta_recetas_apalancadas_y_largo_corto(tmp_path):
+    """Desde el margen del paper interno el alta ya no rechaza `apalancamiento_maximo` > 1 ni los cortos."""
     servicio = _servicio(tmp_path, _fuente())
-    receta = Receta.model_construct(**{**_receta().model_dump(), "parametros": {"apalancamiento_maximo": 1.5}})
-    with pytest.raises(ValueError, match="margen"):
-        servicio.crear_sesion(receta)
+    apalancada = _receta(estrategia="bayes_stein", parametros={"volatilidad_objetivo": 0.3, "apalancamiento_maximo": 1.5})
+    assert servicio.crear_sesion(apalancada, fecha_alta=INICIO).id
+    largo_corto = _receta(("AAA", "BBB", "CCC", "DDD"), estrategia="momentum",
+                          parametros={"top_k": 1, "exposicion_larga": 1.3, "exposicion_corta": 0.3})
+    assert servicio.crear_sesion(largo_corto, fecha_alta=INICIO).id

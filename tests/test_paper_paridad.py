@@ -5,7 +5,9 @@ Responsabilidad:
     Avanzar una sesión en modo `cierre` día a día (o partida en dos procesos, guardando y recargando
     `estado.json` en medio) da la MISMA curva de equity, las mismas operaciones, los mismos pesos y las mismas
     rotaciones (tolerancia 1e-9) que `simular` del mismo rango. Se prueba con `pesos_iguales`, `momentum` y
-    `cruce_medias`. Si alguien cambia el motor (GrowSave lo usa), este test lo detecta.
+    `cruce_medias`, y con margen: una receta apalancada (`bayes_stein` con volatilidad objetivo y L = 2), largo-corto
+    (130/30 y dólar-neutral 100/100, con comisión, slippage y préstamo de títulos) y un caso con LLAMADA DE MARGEN
+    (el corto se dispara: liquidación forzosa idéntica en el motor y en el paper, con su evento). Si alguien cambia el motor (GrowSave lo usa), este test lo detecta.
 
 Se relaciona con:
     src/ypyquant/paper/{simulador,almacen,sesion}.py y src/ypyquant/estrategias/simulacion.py (`simular`).
@@ -105,3 +107,65 @@ def test_catchup_en_bloque_y_partido_en_dos_procesos_dan_lo_mismo(tmp_path, estr
     ref = _backtest(receta, FIN)
     _comparar(en_bloque.almacen.leer_tablas(sesion_a.id), ref)
     _comparar(segundo.almacen.leer_tablas(sesion_b.id), ref)
+
+
+# ---- margen y cortos: la misma implementación en el motor y en el paper -----------------------------
+
+ESTRATEGIAS_MARGEN = [
+    ("momentum", {"top_k": 2, "meses_retorno": 3, "exposicion_larga": 1.3, "exposicion_corta": 0.3}, "monthly"),
+    ("momentum", {"top_k": 2, "meses_retorno": 2, "exposicion_larga": 1.0, "exposicion_corta": 1.0,
+                  "coste_prestamo_titulos": 0.02}, "weekly"),
+    ("bayes_stein", {"ventana_dias": 250, "volatilidad_objetivo": 0.6, "apalancamiento_maximo": 2.0,
+                     "diferencial_financiacion": 0.02, "tasa_libre_riesgo": 0.03}, "monthly"),
+]
+
+
+@pytest.mark.parametrize("estrategia,parametros,frecuencia", ESTRATEGIAS_MARGEN)
+def test_paridad_con_margen_y_cortos(tmp_path, estrategia, parametros, frecuencia):
+    receta = _receta(estrategia, parametros, frecuencia)
+    servicio = _servicio(tmp_path, FIN)
+    sesion = servicio.crear_sesion(receta, nombre="paridad margen", fecha_alta=INICIO, modo_ejecucion="cierre")
+    for dia in pd.bdate_range(INICIO, FIN):
+        servicio.simulador.avanzar(sesion.id, hasta=dia.date())
+    referencia = _backtest(receta, FIN)
+    tablas = servicio.almacen.leer_tablas(sesion.id)
+    _comparar(tablas, referencia)
+    if estrategia == "momentum":
+        assert (tablas.pesos["peso"] < 0).any() and (tablas.operaciones["lado"] == "venta").any()
+    else:
+        assert any("Apalancamiento" in a for a in referencia.avisos)  # el préstamo existe y el paper lo cobró igual
+
+
+def _fuente_con_corto_que_se_dispara():
+    """AAA sube, CCC cae (se vende en corto) y a partir de febrero CCC se multiplica: el corto revienta el margen."""
+    from tests._paper_utiles import FuenteManual, barras
+
+    series = {t: barras("2019-01-01", FIN, base, deriva) for t, base, deriva in
+              (("AAA", 50.0, 0.002), ("BBB", 60.0, 0.0), ("CCC", 70.0, -0.002), ("SPY", 100.0, 0.001))}
+    ccc = series["CCC"]
+    posicion = ccc.index.searchsorted(pd.Timestamp("2021-02-01"))
+    factor = np.ones(len(ccc))
+    factor[posicion:] = 1.10 ** np.arange(1, len(ccc) - posicion + 1)
+    for columna in ("Open", "High", "Low", "Close", "adjusted_close"):
+        ccc[columna] = ccc[columna].to_numpy() * factor
+    return FuenteManual(series)
+
+
+def test_llamada_de_margen_identica_en_motor_y_paper(tmp_path):
+    fuente = _fuente_con_corto_que_se_dispara()
+    receta = Receta(estrategia="momentum", parametros={"top_k": 1, "meses_retorno": 2, "exposicion_larga": 1.0,
+                                                       "exposicion_corta": 1.0},
+                    universo=["AAA", "BBB", "CCC"], frecuencia_rebalanceo="monthly", comision=0.001, slippage=0.0005,
+                    dias_historia_previa=400).normalizada()
+    servicio = ServicioPaper(AlmacenPaper(tmp_path / "paper"), fuente, ahora=_reloj(FIN))
+    sesion = servicio.crear_sesion(receta, nombre="llamada", fecha_alta=INICIO, modo_ejecucion="cierre")
+    for dia in pd.bdate_range(INICIO, FIN):
+        servicio.simulador.avanzar(sesion.id, hasta=dia.date())
+    config = ConfiguracionExperimento.desde_receta(receta, INICIO, FIN, 100_000.0)
+    referencia = simular(config, cargar_datos_experimento(config, fuente), completo=False)
+    tablas = servicio.almacen.leer_tablas(sesion.id)
+    llamadas_bt = [a for a in referencia.avisos if a.startswith("Llamada de margen")]
+    llamadas_paper = [e["mensaje"] for e in tablas.eventos if e["tipo"] == "llamada_margen"]
+    assert llamadas_bt, "el corto se multiplica: debe haber al menos una llamada de margen"
+    assert llamadas_paper == llamadas_bt
+    _comparar(tablas, referencia)
