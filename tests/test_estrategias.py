@@ -283,7 +283,7 @@ def test_almacen_ciclo_completo_y_comparacion(tmp_path):
     for id_exp in ids:
         assert {p.name for p in (tmp_path / id_exp).iterdir()} == {
             "config.json", "estado.json", "metricas.json", "procedencia.json", "equity.parquet", "pesos.parquet",
-            "operaciones.parquet"}
+            "operaciones.parquet", "rotaciones.parquet"}
     listado = almacen.listar()
     assert {r["estado"] for r in listado} == {"hecho"} and listado[0]["metricas"]["sharpe"] is not None
     assert [r["id"] for r in almacen.listar(estrategia="momentum")] == [ids[1]]

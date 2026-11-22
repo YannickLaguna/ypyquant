@@ -1,0 +1,132 @@
+{
+ "michaud": {
+  "alfa": 0.01221212100820716,
+  "benchmark_cagr": 0.17715717838509604,
+  "benchmark_retorno_total": 0.40193705415748227,
+  "benchmark_sharpe": 0.853486086441337,
+  "beta": 0.008775161903713783,
+  "cagr": 0.013766703930941482,
+  "calmar": 0.10673948308641962,
+  "capital_final": 102667.27519520148,
+  "comisiones_totales": 651.3940502413019,
+  "costes_sobre_ganancia_bruta": 0.19628170271436368,
+  "cvar_95": -0.013714878153071321,
+  "dias": 523,
+  "information_ratio": -0.7742474042350949,
+  "martin": 0.18497636979836438,
+  "max_drawdown": -0.12897480419495305,
+  "n_operaciones": 144,
+  "n_rebalanceos": 24,
+  "retorno_total": 0.0287271241286704,
+  "sharpe": 0.12994762860528175,
+  "sortino": 0.21267692505472008,
+  "tasa_acierto": 0.4411764705882353,
+  "tracking_error": 0.2110313493599291,
+  "turnover_anual": 1.391384219961856,
+  "turnover_medio": 0.12090711907533909,
+  "ulcer": 7.442412209704442,
+  "validacion": {
+   "psr": {
+    "n_observaciones": 522,
+    "psr": 0.6031677492898467
+   }
+  },
+  "var_95": -0.011314107630560188,
+  "volatilidad": 0.10594040136552313
+ },
+ "michaud_n": [
+  523,
+  144,
+  144,
+  52138149.520419315,
+  []
+ ],
+ "momentum": {
+  "alfa": -0.09623811262989208,
+  "benchmark_cagr": 0.17715717838509604,
+  "benchmark_retorno_total": 0.40193705415748227,
+  "benchmark_sharpe": 0.853486086441337,
+  "beta": 0.04095359443458812,
+  "cagr": -0.08898288939513288,
+  "calmar": -0.30629468837744356,
+  "capital_final": 82279.9370964935,
+  "comisiones_totales": 1488.3328032048519,
+  "costes_sobre_ganancia_bruta": null,
+  "cvar_95": -0.01876768139279014,
+  "dias": 523,
+  "information_ratio": -1.1707349515798935,
+  "martin": -0.547713553122168,
+  "max_drawdown": -0.29051398137691564,
+  "n_operaciones": 91,
+  "n_rebalanceos": 24,
+  "retorno_total": -0.17555420749376416,
+  "sharpe": -0.6207429644000468,
+  "sortino": -1.0151398194912236,
+  "tasa_acierto": 0.42857142857142855,
+  "tracking_error": 0.22732734460611764,
+  "turnover_anual": 3.538563237033938,
+  "turnover_medio": 0.3074905410867809,
+  "ulcer": 16.24624566763002,
+  "validacion": {
+   "psr": {
+    "n_observaciones": 522,
+    "psr": 0.20372603324183647
+   },
+   "rachas": {
+    "mu": 260.6168582375479,
+    "n_negativos": 280,
+    "n_positivos": 242,
+    "p_valor": 0.10536956360629657,
+    "rachas": 279,
+    "sigma": 11.352094535012338,
+    "z": 1.6193612293973143
+   }
+  },
+  "var_95": -0.013984771919507338,
+  "volatilidad": 0.14334900997409705
+ },
+ "momentum_n": [
+  523,
+  72,
+  91,
+  51130085.434890494,
+  []
+ ],
+ "pesos_iguales": {
+  "alfa": 0.0238389915333615,
+  "benchmark_cagr": 0.17715717838509604,
+  "benchmark_retorno_total": 0.40193705415748227,
+  "benchmark_sharpe": 0.853486086441337,
+  "beta": 0.014095008981182593,
+  "cagr": 0.026336023553780397,
+  "calmar": 0.2127915373983449,
+  "capital_final": 105321.58547093053,
+  "comisiones_totales": 374.80870434357286,
+  "costes_sobre_ganancia_bruta": 0.06579753661895031,
+  "cvar_95": -0.012921783919480359,
+  "dias": 523,
+  "information_ratio": -0.7281841031036089,
+  "martin": 0.4088636012672994,
+  "max_drawdown": -0.12376443102847405,
+  "n_operaciones": 618,
+  "n_rebalanceos": 105,
+  "retorno_total": 0.055323339634578916,
+  "sharpe": 0.26404248143579956,
+  "sortino": 0.443574547366816,
+  "tasa_acierto": 0.5757575757575758,
+  "tracking_error": 0.2071195377494477,
+  "turnover_anual": 0.6654425854079764,
+  "turnover_medio": 0.012788213745796419,
+  "ulcer": 6.4412736844635035,
+  "validacion": {},
+  "var_95": -0.009936017640571965,
+  "volatilidad": 0.09974161510137092
+ },
+ "pesos_iguales_n": [
+  523,
+  630,
+  618,
+  54102898.00408569,
+  []
+ ]
+}

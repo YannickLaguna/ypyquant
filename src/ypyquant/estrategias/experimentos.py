@@ -8,13 +8,16 @@ Responsabilidad:
 - `cargar_datos_experimento(config, cargador)` -> `DatosExperimento` (precios con historia previa,
   benchmark, avisos) y `ejecutar_con_datos(config, datos)` -> `ResultadoExperimento`: carga y
   simulación separadas, para correr muchos backtests con una sola carga (barridos, permutación).
-  `ejecutar_experimento` es su composición. La simulación usa `BacktestEngine` y calcula métricas
-  con `PerformanceAnalyzer` (Sharpe, Sortino, Calmar, máx. drawdown, volatilidad, turnover, alfa/beta
-  vs benchmark, Ulcer, Martin, `costes_sobre_ganancia_bruta`...). No persiste nada (lo hace
-  `AlmacenExperimentos`).
-- Procedencia (`ResultadoExperimento.procedencia`, ver `procedencia.py`): commit, versiones, hash de
+  `ejecutar_experimento` es su composición. `ejecutar_con_datos` es a su vez la composición de
+  `simulacion.simular` (hechos: equity, pesos, operaciones, rotaciones; motor `BacktestEngine`) y
+  `evaluacion.evaluar` (métricas con `PerformanceAnalyzer`: Sharpe, Sortino, Calmar, máx. drawdown,
+  volatilidad, turnover, alfa/beta vs benchmark, Ulcer, Martin, `costes_sobre_ganancia_bruta`...).
+  No persiste nada (lo hace `AlmacenExperimentos`). Este módulo conserva la configuración, los tipos
+  (`DatosExperimento`, `ResultadoExperimento`), el registro de validadores y la carga; `simulacion` y
+  `evaluacion` dependen de él (por eso `ejecutar_con_datos` los importa de forma diferida).
+- Procedencia (`ResultadoExperimento.procedencia`, ver `procedencia.py`; la calcula `simular`): commit, versiones, hash de
   los precios y fecha; no entra en la huella.
-- Universo `sp500_pit` (point-in-time): ver `universo_dinamico.py`. `ejecutar_con_datos` entrega a la estrategia
+- Universo `sp500_pit` (point-in-time): ver `universo_dinamico.py`. `simular` entrega a la estrategia
   solo los elegibles de cada fecha, el motor vende lo que sale del universo y avisa de los deslistados
   liquidados a precio caducado y de los miembros históricos sin precios (sesgo residual).
 - `expandir_rejilla(config, {param: [valores]})`: N configuraciones de un barrido de parámetros (estricta);
@@ -27,6 +30,7 @@ Responsabilidad:
 
 Se relaciona con:
 - ypyquant.estrategias.registro (obtiene la clase de estrategia) y .base (adaptador al motor).
+- ypyquant.estrategias.simulacion (`simular`) y .evaluacion (`evaluar`, `reevaluar`): el núcleo de la ejecución.
 - ypyquant.estrategias.precios (cargadores), .almacen (persistencia Parquet + DuckDB),
   .procedencia (huella de reproducibilidad), .barridos y .validacion_barridos (usan
   `cargar_datos_experimento` y `ejecutar_con_datos`).
@@ -43,7 +47,6 @@ import itertools
 import json
 import logging
 import math
-import random
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -54,22 +57,17 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from ypyquant.data.matriz_precios import CargadorPrecios, extraer_serie_precios
-from ypyquant.estrategias.base import recortar_hasta
-from ypyquant.estrategias.procedencia import obtener_procedencia
+from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.estrategias.registro import obtener_estrategia
 from ypyquant.estrategias.universo_dinamico import (
     NOMBRE_UNIVERSO_PIT,
     RUTA_MEMBRESIAS,
-    UniversoPuntoEnElTiempo,
     cargar_membresias_sp500,
     cobertura_membresias,
     es_universo_pit,
     miembros_en_ventana,
 )
-from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
-from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
-from ypyquant.validacion import indice_ulcer, prueba_rachas, ratio_martin, sharpe_probabilistico
+from ypyquant.validacion import prueba_rachas, sharpe_probabilistico
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +189,8 @@ class ResultadoExperimento:
     pesos: formato largo `fecha, ticker, peso` (pesos objetivo en cada rebalanceo).
     operaciones: `fecha, ticker, lado, cantidad, precio, comision, pnl`.
     procedencia: commit, versiones, hash de precios y fecha de ejecución (vacío con `completo=False`).
+    rotaciones: `fecha, rotacion` de cada rebalanceo (para recalcular el turnover sin repetir el backtest); None
+        en los importados del TFM.
     """
 
     config: ConfiguracionExperimento
@@ -200,6 +200,7 @@ class ResultadoExperimento:
     operaciones: pd.DataFrame
     avisos: list[str] = field(default_factory=list)
     procedencia: dict[str, Any] = field(default_factory=dict)
+    rotaciones: pd.DataFrame | None = None
 
 
 # ----------------------------------------------------------------------------
@@ -328,28 +329,8 @@ def _aviso_cobertura_pit(config: ConfiguracionExperimento, tickers_con_precio: s
             f"Miembros con precio / miembros del índice: {detalle}.")
 
 
-def _avisos_liquidaciones_caducadas(trades: list[Any], precios: dict[str, pd.DataFrame]) -> list[str]:
-    """
-    Avisos de posiciones vendidas con un precio caducado (el ticker dejó de cotizar antes de la venta).
-
-    El motor valora una posición deslistada a su último precio conocido y la liquida a ese precio en el
-    siguiente rebalanceo; si el deslistamiento fue una quiebra el resultado real habría sido peor.
-    """
-    avisos = []
-    vistos: set[str] = set()
-    for trade in trades:
-        if trade.side != "sell" or trade.ticker in vistos or trade.ticker not in precios:
-            continue
-        ultimo = precios[trade.ticker].index[-1]
-        if pd.Timestamp(trade.entry_date) - ultimo > pd.Timedelta(days=DIAS_PRECIO_CADUCADO):
-            vistos.add(trade.ticker)
-            avisos.append(f"{trade.ticker} se liquidó a su último precio conocido ({ultimo:%Y-%m-%d}) el "
-                          f"{pd.Timestamp(trade.entry_date):%Y-%m-%d}: dejó de cotizar (deslistado) con la posición abierta.")
-    return avisos
-
-
 # ----------------------------------------------------------------------------
-# Métricas
+# Utilidades de serialización
 # ----------------------------------------------------------------------------
 
 
@@ -366,71 +347,6 @@ def _limpiar(valor: Any) -> Any:
     if isinstance(valor, np.bool_):
         return bool(valor)
     return valor
-
-
-def _turnover(rotaciones: list[tuple[Any, float]], anios: float) -> tuple[float, float]:
-    """
-    (turnover medio por rebalanceo, turnover anual) con la rotación real del motor: lo operado
-    desde los pesos a la deriva hasta el objetivo (`BacktestResult.rotaciones`). La 1.ª
-    (compra inicial) se excluye. Antes se comparaban pesos objetivo consecutivos, y una
-    estrategia de pesos fijos (p. ej. pesos iguales) salía con turnover 0 aunque operase.
-    """
-    cambios = [rotacion for _, rotacion in rotaciones[1:]]
-    if not cambios:
-        return 0.0, 0.0
-    return float(np.mean(cambios)), float(np.sum(cambios) / anios) if anios > 0 else 0.0
-
-
-def _calcular_metricas(config, resultado_bt, equity: pd.DataFrame, historial, benchmark_ret) -> dict[str, Any]:
-    """
-    Métricas del experimento: retorno/riesgo (PerformanceAnalyzer), Ulcer y Martin, costes, turnover y alfa/beta.
-
-    `costes_sobre_ganancia_bruta` = comisiones_totales / (capital_final - capital_inicial + comisiones_totales);
-    None si la ganancia bruta es <= 0. Un valor > 0,5 indica que los costes se comen la mitad del edge.
-    """
-    retornos = equity.set_index("fecha")["retorno"].dropna()
-    base = PerformanceAnalyzer.calculate_metrics(retornos, risk_free_rate=0.0, periods_per_year=DIAS_ANIO)
-    anios = max((pd.Timestamp(config.fecha_fin) - pd.Timestamp(config.fecha_inicio)).days / 365.25, 1e-9)
-    turnover_medio, turnover_anual = _turnover(resultado_bt.rotaciones, anios)
-    metricas: dict[str, Any] = {
-        "retorno_total": base.total_return,
-        "cagr": base.annualized_return,
-        "volatilidad": base.volatility,
-        "sharpe": base.sharpe_ratio,
-        "sortino": base.sortino_ratio,
-        "calmar": base.calmar_ratio,
-        "max_drawdown": float(equity["drawdown"].min()),
-        "var_95": base.var_95,
-        "cvar_95": base.cvar_95,
-        "capital_final": float(equity["equity"].iloc[-1]),
-        "turnover_medio": turnover_medio,
-        "turnover_anual": turnover_anual,
-        "n_rebalanceos": len(historial),
-        "n_operaciones": int(resultado_bt.total_trades),
-        "comisiones_totales": float(resultado_bt.total_fees),
-        "tasa_acierto": float(resultado_bt.win_rate),
-        "dias": len(equity),
-        "ulcer": indice_ulcer(equity["equity"].to_numpy(dtype=float)),
-        "martin": ratio_martin(retornos.to_numpy(dtype=float), periodos_anio=DIAS_ANIO),
-    }
-    # Costes sobre ganancia bruta = comisiones / (ganancia neta + comisiones). Por encima de 0,5 los costes
-    # se comen la mitad del edge; sin ganancia bruta positiva no está definido (None).
-    ganancia_bruta = metricas["capital_final"] - config.capital_inicial + metricas["comisiones_totales"]
-    metricas["costes_sobre_ganancia_bruta"] = (
-        metricas["comisiones_totales"] / ganancia_bruta if ganancia_bruta > 0 else float("nan"))
-    if benchmark_ret is not None and len(benchmark_ret) > 1:
-        comparacion = PerformanceAnalyzer.compare_to_benchmark(retornos, benchmark_ret, risk_free_rate=0.0)
-        if "error" not in comparacion:
-            metricas.update({
-                "alfa": comparacion["alpha"], "beta": comparacion["beta"],
-                "tracking_error": comparacion["tracking_error"],
-                "information_ratio": comparacion["information_ratio"],
-                "benchmark_retorno_total": comparacion["benchmark"].total_return,
-                "benchmark_cagr": comparacion["benchmark"].annualized_return,
-                "benchmark_sharpe": comparacion["benchmark"].sharpe_ratio,
-            })
-    metricas["validacion"] = {}  # los validadores registrados (CPCV/DSR/PBO...) escriben aquí
-    return _limpiar(metricas)
 
 
 # ----------------------------------------------------------------------------
@@ -480,111 +396,30 @@ def cargar_datos_experimento(config: ConfiguracionExperimento, cargador_precios:
     return DatosExperimento(precios, benchmark, config.benchmark, avisos)
 
 
-def _motivos_de_operaciones(operaciones: pd.DataFrame, eventos: list[dict[str, Any]]) -> list[str]:
-    """
-    Motivo de cada operación de un backtest de una `EstrategiaSenales`, cruzando `(fecha, ticker, lado)` con sus eventos
-    (`senal`, `stop_perdida`, `stop_trailing`, `take_profit`, `tiempo`, `fuera_universo`, `regla_propia`). Una operación
-    sin evento (compra o venta parcial que solo recoloca los pesos por la deriva o los costes) es `ajuste`.
-    """
-    por_clave = {(e["fecha"], e["ticker"], "compra" if e["tipo"] == "entrada" else "venta"): e["motivo"] for e in eventos}
-    return [por_clave.get((f"{fecha:%Y-%m-%d}", ticker, lado), "ajuste")
-            for fecha, ticker, lado in zip(operaciones["fecha"], operaciones["ticker"], operaciones["lado"], strict=True)]
-
-
 def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento,
                        completo: bool = True) -> ResultadoExperimento:
     """
     Corre el backtest de `config` sobre precios ya cargados y devuelve el resultado (sin persistir).
 
-    Pasos: normaliza la configuración, fija las semillas, selecciona de `datos.precios` los
-    tickers del universo y recorta todo a `<= fecha_fin` (así un barrido cargado hasta una fecha
-    posterior no deja ver el futuro a `Estrategia.preparar`), simula con `BacktestEngine` y
-    calcula métricas. Lanza `RuntimeError` si la estrategia no produjo ningún rebalanceo válido.
+    Es la composición `simular` -> `evaluar`: `simular` ejecuta la estrategia con el motor y devuelve los
+    hechos (equity, pesos, operaciones, rotaciones); `evaluar` calcula métricas, benchmark y validaciones.
+    Cada ejecución usa su propio generador aleatorio (semilla de la configuración), sin estado global.
+    Lanza `RuntimeError` si no hay precios o la estrategia no produjo ningún rebalanceo válido.
 
     Args:
         completo: si False (tests de permutación: miles de backtests) se omiten la procedencia
             (hash de precios, git) y los validadores de `config.validaciones`.
     """
+    # Import diferido: `simulacion` y `evaluacion` dependen de los tipos de este módulo (ciclo de importación).
+    from ypyquant.estrategias.evaluacion import evaluar
+    from ypyquant.estrategias.simulacion import simular
+
     config = config.normalizada()
-    clase = obtener_estrategia(config.estrategia)
-    estrategia = clase(config.parametros)
-    estrategia.semilla = config.semilla
-    random.seed(config.semilla)
-    np.random.seed(config.semilla)
-
-    tickers = resolver_universo(config.universo, inicio=config.fecha_inicio, fin=config.fecha_fin)
-    fin = pd.Timestamp(config.fecha_fin)
-    datos_universo = {t: datos.precios[t] for t in tickers if t in datos.precios}
-    if not datos_universo:
-        raise RuntimeError("No hay precios para ningún ticker del universo (¿sin red y sin caché?)")
-    precios = recortar_hasta(datos_universo, fin)
-    pit = es_universo_pit(config.universo)
-    if pit:
-        avisos = [_aviso_cobertura_pit(config, set(precios))]
-        # La estrategia solo ve, en cada fecha, los miembros del índice en esa fecha con historia hasta t-1
-        filtro_universo = UniversoPuntoEnElTiempo(cargar_membresias_sp500()).crear_filtro(precios)
-    else:
-        avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
-        filtro_universo = None
-
-    motor = BacktestEngine(BacktestConfig(
-        start_date=config.fecha_inicio, end_date=config.fecha_fin, initial_capital=config.capital_inicial,
-        rebalance_frequency=config.frecuencia_rebalanceo, commission_rate=config.comision,
-        slippage_pct=config.slippage, max_positions=max(len(precios), 1), benchmark_ticker=config.benchmark,
-    ))
-    resultado_bt = motor.run_backtest(estrategia.como_funcion(filtro_universo=filtro_universo), precios)
-    if not estrategia.historial_pesos:
-        detalle = estrategia.errores[0] if estrategia.errores else "sin pesos"
-        raise RuntimeError(f"La estrategia no generó ningún rebalanceo válido ({detalle})")
-    avisos.extend(estrategia.avisos)
-    if estrategia.errores:
-        avisos.append(f"{len(estrategia.errores)} rebalanceos fallaron; primero: {estrategia.errores[0]}")
-    if pit:
-        avisos.extend(_avisos_liquidaciones_caducadas(motor.trades, precios))
-
-    # Curva de equity + benchmark reescalado al capital inicial
-    curva = resultado_bt.equity_curve
-    equity = pd.DataFrame({"fecha": curva.index, "equity": curva["equity"].values,
-                           "drawdown": curva["drawdown_pct"].values, "retorno": curva["returns"].values})
-    benchmark_ret = None
-    benchmark_usado = None
-    if datos.ticker_benchmark != config.benchmark:
-        avisos.append(f"Sin datos del benchmark {config.benchmark} (los cargados son de {datos.ticker_benchmark})")
-    elif datos.benchmark is None:
-        avisos.append(f"Sin datos del benchmark {config.benchmark}")
-    else:
-        benchmark_usado = recortar_hasta({config.benchmark: datos.benchmark}, fin).get(config.benchmark)
-    serie_bench = extraer_serie_precios(benchmark_usado, config.benchmark, avisar=False)
-    if serie_bench is not None:
-        alineada = serie_bench.reindex(curva.index).ffill()
-        if alineada.notna().any():
-            alineada = alineada.bfill()
-            equity["benchmark"] = (alineada / alineada.iloc[0] * config.capital_inicial).values
-            benchmark_ret = alineada.pct_change().dropna()
-    if "benchmark" not in equity:
-        equity["benchmark"] = np.nan
-
-    pesos = pd.DataFrame(
-        [(pd.Timestamp(f), t, w) for f, pesos_f in estrategia.historial_pesos for t, w in pesos_f.items()],
-        columns=["fecha", "ticker", "peso"],
-    )
-    operaciones = pd.DataFrame([{
-        "fecha": pd.Timestamp(t.entry_date), "ticker": t.ticker, "lado": "compra" if t.side == "buy" else "venta",
-        "cantidad": t.quantity, "precio": t.entry_price if t.side == "buy" else t.exit_price,
-        "comision": t.commission, "pnl": t.pnl,
-    } for t in motor.trades], columns=["fecha", "ticker", "lado", "cantidad", "precio", "comision", "pnl"])
-    if getattr(estrategia, "eventos", None):  # estrategias de señales: cada operación lleva su motivo
-        operaciones["motivo"] = _motivos_de_operaciones(operaciones, estrategia.eventos)
-
-    metricas = _calcular_metricas(config, resultado_bt, equity, estrategia.historial_pesos, benchmark_ret)
-    resultado = ResultadoExperimento(config, metricas, equity, pesos, operaciones, avisos)
-    if completo:
-        resultado.procedencia = obtener_procedencia(precios, benchmark_usado)
-        for nombre in config.validaciones:
-            if nombre not in VALIDADORES:
-                raise ValueError(f"Validador '{nombre}' no registrado. Disponibles: {sorted(VALIDADORES)}")
-            resultado.metricas["validacion"][nombre] = _limpiar(VALIDADORES[nombre](resultado))
-    return resultado
+    simulacion = simular(config, datos, completo=completo)
+    evaluacion = evaluar(simulacion, validar=completo)
+    return ResultadoExperimento(config, evaluacion.metricas, evaluacion.equity, simulacion.pesos,
+                                simulacion.operaciones, simulacion.avisos, evaluacion.procedencia,
+                                simulacion.rotaciones)
 
 
 def ejecutar_experimento(config: ConfiguracionExperimento, cargador_precios: CargadorPrecios) -> ResultadoExperimento:

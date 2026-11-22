@@ -16,6 +16,7 @@ Responsabilidad:
 - Utilidades puras para escribir estrategias: `matriz_cierres`, `matriz_volumen`, `recortar_hasta`.
 
 Se relaciona con:
+- ypyquant.estrategias.simulacion (inyecta `semilla` y `rng` en cada ejecución).
 - ypyquant.estrategias.registro (registro y descubrimiento), .incluidas (estrategias de serie),
   .experimentos (ejecuta una estrategia con el motor).
 - ypyquant.portfolio.backtest_engine (FuncionEstrategia, BacktestEngine).
@@ -32,6 +33,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, ClassVar
 
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
@@ -135,7 +137,10 @@ class Estrategia(ABC):
         estado: dict mutable que persiste entre rebalanceos de una misma simulación; el
             adaptador guarda en `estado['pesos_previos']` los últimos pesos objetivo.
         historial_pesos: lista `(fecha, pesos)` de todos los rebalanceos pedidos al motor.
-        semilla: semilla del experimento (la fija `ejecutar_experimento`); úsala para todo azar.
+        semilla: semilla del experimento (la fija `simular`).
+        rng: generador de números aleatorios PROPIO de esta ejecución (`np.random.Generator`); `simular` se lo
+            pasa explícitamente. Úsalo (vía `generador_azar()`) para todo azar: ya no se siembra el estado global
+            de numpy/random, así dos experimentos en hilos distintos no interfieren.
         avisos: mensajes no fatales (sin duplicados) que el experimento añade a los suyos.
         errores: mensajes de las excepciones de `generar_pesos` (el motor las traga y sigue;
             el experimento falla si no hubo ningún rebalanceo válido).
@@ -161,8 +166,19 @@ class Estrategia(ABC):
         self.estado: dict[str, Any] = {}
         self.historial_pesos: list[tuple[datetime, dict[str, float]]] = []
         self.semilla = 0
+        self.rng: np.random.Generator | None = None
         self.errores: list[str] = []
         self.avisos: list[str] = []  # avisos no fatales (p. ej. pocas observaciones); el experimento los recoge
+
+    def generador_azar(self) -> np.random.Generator:
+        """
+        Generador aleatorio de esta ejecución: el que inyectó `simular` o, si no hay, `default_rng(semilla)`.
+
+        Se crea una sola vez y se comparte entre rebalanceos (el flujo avanza como un único estado).
+        """
+        if self.rng is None:
+            self.rng = np.random.default_rng(self.semilla)
+        return self.rng
 
     def preparar(self, datos: dict[str, pd.DataFrame]) -> None:
         """

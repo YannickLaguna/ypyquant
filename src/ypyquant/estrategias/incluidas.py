@@ -271,7 +271,7 @@ class Michaud(_EstimadorRobusto):
     def estimar_pesos(self, retornos, datos, fecha, pesos_previos):
         p = self.parametros
         # La penalización de turnover no aplica: el promedio de réplicas ya es una cartera estable
-        rng = self.estado.setdefault("rng", np.random.default_rng(self.semilla))
+        rng = self.generador_azar()  # generador propio de la ejecución (misma secuencia que default_rng(semilla))
         return estimar_mu_michaud(
             retornos, n_replicas=p.n_replicas, rf=p.tasa_libre_riesgo / self.periodos_anio,
             peso_maximo=p.peso_maximo, rng=rng, frecuencia=self.periodos_anio,
