@@ -403,3 +403,15 @@ def test_instantaneas_por_ruta(tmp_path):
     ctx.almacen_perfiles.guardar_instantanea("A", "2026-11-22", 1000.0, 10.0, {})
     filas = cliente.get("/api/paper/alpaca/A/instantaneas").json()["instantaneas"]
     assert filas[0]["fecha"] == "2026-11-22" and filas[0]["equity"] == 1000.0
+
+
+def test_receta_con_apalancamiento_se_rechaza_en_vinculo_y_en_la_ruta(tmp_path):
+    from ypyquant.perfiles_alpaca.vinculo import RecetaNoOperable
+
+    receta = ConfiguracionExperimento(**{**CONFIG, "parametros": {"top_k": 2}}).receta()
+    apalancada = receta.model_copy(update={"parametros": {**receta.parametros, "apalancamiento_maximo": 1.5}})
+    with pytest.raises(RecetaNoOperable, match="cuenta de margen"):
+        vincular(AlmacenPerfiles(tmp_path), "A", apalancada, "experimento", "x", None)
+    assert AlmacenPerfiles(tmp_path).leer_vinculo("A") is None
+    vincular(AlmacenPerfiles(tmp_path), "A", receta.model_copy(update={"parametros": {**receta.parametros, "apalancamiento_maximo": 1}}),
+             "experimento", "x", None)

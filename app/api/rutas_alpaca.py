@@ -25,7 +25,7 @@ from app.api.contexto import Contexto, obtener_contexto
 from app.api.gestor_bots import LimiteBotsActivos, PerfilOcupado
 from app.api.rutas_paper import servicio_de_perfil
 from ypyquant.perfiles_alpaca.perfiles import LIMITE_PERFILES_ACTIVOS, NOMBRE_DEFECTO, descubrir_perfiles
-from ypyquant.perfiles_alpaca.vinculo import UniversoNoSoportado, receta_de_origen
+from ypyquant.perfiles_alpaca.vinculo import RecetaNoOperable, receta_de_origen, validar_operable
 
 router = APIRouter(prefix="/api/paper/alpaca", tags=["paper trading: Alpaca multi-perfil"])
 
@@ -98,12 +98,10 @@ def arrancar_bot_perfil(perfil: str, peticion: PeticionBotPerfil, ctx: Contexto 
                        else ("configuracion", peticion.configuracion_id))
     try:
         receta = receta_de_origen(tipo, id_origen, ctx.almacen, ctx.almacen_configuraciones)
-        from ypyquant.perfiles_alpaca.vinculo import resolver_tickers
-
-        resolver_tickers(receta)  # falla pronto (422) si el universo no se puede operar en vivo
+        validar_operable(receta)  # falla pronto (422): universo dinámico o apalancamiento > 1
     except KeyError as error:
         raise HTTPException(404, str(error.args[0])) from error
-    except UniversoNoSoportado as error:
+    except RecetaNoOperable as error:
         raise HTTPException(422, str(error)) from error
     except ValidationError as error:
         raise HTTPException(422, error.errors(include_url=False, include_context=False)) from error

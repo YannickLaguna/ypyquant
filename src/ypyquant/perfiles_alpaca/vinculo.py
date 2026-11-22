@@ -33,8 +33,23 @@ from ypyquant.perfiles_alpaca.almacen import AlmacenPerfiles
 TIPOS_ORIGEN = ("experimento", "configuracion")
 
 
-class UniversoNoSoportado(ValueError):
+class RecetaNoOperable(ValueError):
+    """La receta no se puede operar en una cuenta de Alpaca (universo dinámico o apalancamiento)."""
+
+
+class UniversoNoSoportado(RecetaNoOperable):
     """El universo de la receta no se puede operar en vivo (p. ej. `sp500_pit`)."""
+
+
+def validar_operable(receta: Receta) -> list[str]:
+    """
+    Comprueba que la receta se puede operar y devuelve sus tickers. `RecetaNoOperable` si no.
+
+    Rechaza `apalancamiento_maximo` > 1 (CASH negativo = préstamo): requiere cuenta de margen, no soportado aún.
+    """
+    if (receta.parametros.get("apalancamiento_maximo", 1) or 1) > 1:
+        raise RecetaNoOperable("La receta usa apalancamiento_maximo > 1: requiere cuenta de margen; no soportado aún")
+    return resolver_tickers(receta)
 
 
 def resolver_tickers(receta: Receta) -> list[str]:
@@ -77,6 +92,7 @@ def vincular(almacen: AlmacenPerfiles, perfil: str, receta: Receta, tipo: str, i
     La receta debe venir normalizada (ver `receta_de_origen`). El vínculo anterior, si lo había, pasa a
     `vinculos_anteriores` y se borra el estado persistido de la estrategia.
     """
+    validar_operable(receta)
     huella = receta.huella()
     actual = almacen.leer_vinculo(perfil)
     if actual and actual.get("huella_receta") == huella and actual.get("origen") == {"tipo": tipo, "id": id_origen}:
