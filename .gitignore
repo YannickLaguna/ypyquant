@@ -74,6 +74,7 @@ app/web/coverage/
 # Membresías S&P 500: estado, pendientes, copia anterior y caché de fuentes (el JSON y el historial sí se versionan)
 universos/sp500_membresias_estado.json
 universos/sp500_membresias_pendientes.json
+universos/sp500_membresias_observaciones_spy.json
 universos/sp500_membresias.json.anterior
 universos/.cache_fuentes/
 data/paper_interno/

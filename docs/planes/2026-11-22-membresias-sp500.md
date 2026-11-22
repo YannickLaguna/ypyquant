@@ -46,8 +46,53 @@ caché de 6 h); SPDR publica el archivo para descarga pública (una descarga al 
   `fecha_baja_aproximada`); `universos.cargar_membresias_sp500` los ignora, la lectura no cambia.
 - Convención de los cambios de ticker (la del fichero, ya usada con FB -> META): el símbolo antiguo se cierra en la fecha del cambio y
   el nuevo conserva el intervalo original.
-- No se tocó la historia anterior a 2026 aunque se detectó una posible discrepancia: BWA y TFX figuran con baja 2025-04-24 y la tabla
-  de Wikipedia dice 2025-03-24. Pendiente de decidir (cambiaría resultados de backtests de ese periodo).
+- Revisión de fechas históricas (2026-11-22, rama `datos/membresias-fechas`): ver la sección «Fechas históricas contrastadas».
+
+## Fechas históricas contrastadas
+
+Se recorrió la tabla de cambios completa de Wikipedia (414 filas) con `AdaptadorWikipediaCambios` y se comparó con el fichero. El
+fichero usa como fecha el primer día de pertenencia (comunicados de S&P DJI: «effective prior to the open of trading on D»,
+cambio al cierre anterior); Wikipedia a veces pone la fecha del anuncio u otra. Las diferencias de 1-6 días (unas 150 filas) son esa
+convención y no se tocan. Discrepancias de 7 o más días entre el mismo intervalo del fichero y la tabla:
+
+| Símbolo | Fichero | Wikipedia | Resultado | Fuente |
+|---|---|---|---|---|
+| BWA (baja) | 2025-04-24 | 2025-03-24 | **corregido a 2025-03-24** | [S&P DJI 2025-03-07](https://press.spglobal.com/2025-03-07-DoorDash,-TKO-Group-Holdings,-Williams-Sonoma-and-Expand-Energy-Set-to-Join-S-P-500-Others-to-Join-S-P-100,-S-P-MidCap-400-and-S-P-SmallCap-600): «effective prior to the open of trading on Monday, March 24» |
+| TFX (baja) | 2025-04-24 | 2025-03-24 | **corregido a 2025-03-24** | ídem |
+| ALK (baja) | 2023-10-18 | 2023-12-18 | **corregido a 2023-12-18** | [S&P DJI 2023-12-01](https://press.spglobal.com/2023-12-01-Uber-Technologies,-Jabil-and-Builders-FirstSource-Set-to-Join-S-P-500-Others-to-Join-S-P-MidCap-400-and-S-P-SmallCap-600): «effective prior to the open of trading on Monday, December 18» |
+| SEDG (baja) | 2023-10-18 | 2023-12-18 | **corregido a 2023-12-18** | ídem |
+| SEE (baja) | 2023-10-18 | 2023-12-18 | **corregido a 2023-12-18** | ídem |
+| SVU (baja) / PSX (alta) | 2012-05-01 | 2012-04-23 | fichero correcto (Wikipedia = anuncio) | [S&P DJI 2012-04-23](https://press.spglobal.com/2012-04-23-S-P-Indices-Announces-Changes-to-U-S-Indices): efectivo tras el cierre del 2012-04-30 |
+| EP (baja) / KMI (alta) | 2012-05-25 | 2012-05-17 | fichero correcto (Wikipedia = anuncio) | [S&P DJI 2012-05-17](https://press.spglobal.com/2012-05-17-S-P-Indices-Announces-Change-to-U-S-Index): tras el cierre del 2012-05-24 |
+| LRCX (alta) | 2012-06-29 | 2012-06-05 | **pendiente de verificar** | el comunicado del 2012-05-10 dice «TBA» |
+| NWSA (alta) | 2013-08-01 | 2013-07-01 | **pendiente de verificar** | sin fuente localizada (escisión 2013-06-28) |
+| GRN (baja) / CCL (alta) | 1998-12-22 | 1998-12-11 | pendiente de verificar | no se buscó (fuera de la cobertura fiable, anterior a 1999) |
+| AN (baja) / CPWR (alta) | 1999-01-04 | 1998-12-11 | pendiente de verificar | ídem |
+| CBE (baja) / ARG (alta) | 2009-09-09 | 2009-09-28 | pendiente de verificar | no se buscó |
+| IQV (alta) | 2017-08-29 | 2017-11-15 | pendiente de verificar | la fila de Wikipedia es un cambio de nombre/ticker (QuintilesIMS), probablemente no un alta nueva |
+
+Además hay ~45 filas de la tabla cuyo símbolo no existe en el fichero o cuyo intervalo es otro (reutilización de tickers, cambios de
+nombre: p. ej. SATS/ECHO, MBC, TFCF, JCP, WYN, DPS): no son discrepancias de fecha y no se tocan. KVUE y OKTA (2026-10-30 en
+Wikipedia, 2026-11-04 en el fichero) ya estaban corregidas con el comunicado de S&P DJI. Cada corrección lleva `fuente_baja` y
+`fecha_baja_corregida_desde` en el intervalo y una línea `correccion_fecha_baja` en `sp500_membresias_cambios.jsonl`.
+
+## Contraste con la fecha del dato de SPY
+
+La cabecera del xlsx de SPY da la fecha de sus holdings. En cada comprobación con SPY disponible se guarda la observación
+(fecha de holdings + símbolos) en `universos/sp500_membresias_observaciones_spy.json` (últimas 40, ignorado por git).
+Para cada alta o baja propuesta por Wikipedia con fecha de tabla `fw` y dato de SPY de fecha `fs`:
+
+1. SPY aún no lo refleja: **pendiente** (ya lo era); si `fw <= fs` el motivo indica que `fw` puede ser la fecha del anuncio. Se reintenta
+   en cada comprobación.
+2. SPY lo refleja y hay una observación anterior que no: fecha efectiva = **primera fecha de holdings de SPY que lo refleja**; si
+   difiere de `fw`, aviso y `fecha_wikipedia` en el historial.
+3. SPY lo refleja y no hay observación anterior (primera ejecución): si `fw <= fs` se acepta `fw` con aviso de que no se pudo
+   contrastar; si `fw > fs` (SPY ya lo refleja antes de la fecha de Wikipedia) queda pendiente hasta que el dato de SPY alcance `fw`.
+
+Caso Okta reproducido en tests: tabla 2026-10-30; SPY 11-02 y 11-03 sin Okta (pendiente por posible anuncio); SPY 11-04 con Okta
+(se aplica con 2026-11-04, aviso por diferir de Wikipedia). Límite: si el índice rebalancea al cierre del día anterior y SPY
+publica ya los holdings posteriores a ese cierre, la primera fecha de SPY puede ser un día hábil anterior a la efectiva; no se
+dispone de series de SPY para calibrarlo, así que conviene mirar los avisos de las primeras semanas.
 
 ## Cómo funciona la actualización
 
@@ -78,7 +123,7 @@ Los ficheros de estado, pendientes, copia anterior y caché están en `.gitignor
 Un pendiente significa que Wikipedia y SPY no coinciden (normalmente por 1 día de desfase: se resuelve solo en la siguiente
 comprobación). Si persiste varios días: comprobar el comunicado de S&P DJI, y si Wikipedia es la equivocada esperar a que se
 corrija; si lo es SPY, no hay acción. No existe un comando para forzar un cambio: edita el JSON a mano (con su procedencia) y
-añade la línea al `.jsonl`. Una fecha de tabla que sea la del anuncio y no la efectiva (caso Okta) se corrige a mano.
+añade la línea al `.jsonl`. Una fecha de tabla que sea la del anuncio y no la efectiva (caso Okta) la contrasta la regla de SPY (sección anterior).
 
 ## Devolver los cambios a TFM.db (opcional)
 
@@ -91,3 +136,7 @@ de `{index: "SP500", date_added, date_removed}` por símbolo) a partir del JSON;
 Las huellas de los experimentos guardados no cambian (dependen de la configuración, no del contenido del fichero; comprobado con
 `tests/test_membresias_sp500.py` y `tests/test_huellas_guardadas.py` contra `data/` real). Los resultados al relanzar solo pueden
 variar en periodos posteriores a 2024-06-24 y, sobre todo, en 2026 (bajas y altas corregidas, ILMN fuera 2024-2026).
+Correcciones de fechas (rama `datos/membresias-fechas`): ALK, SEDG y SEE pasan a ser miembros hasta 2023-12-18 (antes 2023-10-18) y BWA y TFX
+hasta 2025-03-24 (antes 2025-04-24). Los 8 experimentos guardados con `sp500_pit` (bayes_stein, bl_prior x2, canal_rsi_volatilidad,
+cruce_medias, momentum, pesos_iguales, robusta_elipsoide) cubren 2015/2018-2024-12-31: ninguno toca 2025-03/04, pero todos incluyen
+2023-10/12, así que sus resultados al relanzar podrían cambiar (las huellas no).
