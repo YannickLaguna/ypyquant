@@ -8,7 +8,8 @@ Responsabilidad:
         resuelve su universo a una lista de tickers, aplica los costes opcionales de la sesión y deja la cartera en
         efectivo con el día anterior a `fecha_alta` como último procesado. El universo `sp500_pit` (dinámico) se
         admite: se conserva como nombre y el simulador lo resuelve en cada fecha con la membresía vigente.
-      * Consultas: `listar()` (una fila por sesión con métricas forward, costes, estado y «n días pendientes»),
+      * Consultas: `listar()` (una fila por sesión con métricas forward, costes, estado, «n días pendientes», frecuencia
+        y fechas del último y próximo rebalanceo, para explicar cuánto tiempo lleva y cuándo se rebalancea),
         `detalle(id)` (receta, métricas, posiciones actuales, pesos objetivo, avisos), `equity`, `operaciones`,
         `pesos` y `config_espejo(id)` (la configuración del backtest espejo).
       * `pausar`, `reanudar`, `detener` (una sesión detenida no se reanuda) y `avanzar(id | todas)`.
@@ -44,7 +45,7 @@ from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.receta import Receta
 from ypyquant.estrategias.simulacion import simulacion_desde_tablas
 from ypyquant.paper.almacen import AlmacenPaper, SesionInexistente, TablasSesion
-from ypyquant.paper.calendario import ahora_nueva_york, dias_pendientes_estimados
+from ypyquant.paper.calendario import ahora_nueva_york, dias_pendientes_estimados, proximo_rebalanceo
 from ypyquant.paper.sesion import MODOS_EJECUCION, EstadoCartera, SesionPaper
 from ypyquant.paper.simulador import ResultadoAvance, SimuladorPaper
 
@@ -217,6 +218,11 @@ class ServicioPaper:
             "sharpe": metricas.get("sharpe"), "max_drawdown": metricas.get("max_drawdown"),
             "volatilidad": metricas.get("volatilidad"), "costes": self._costes(tablas)["total"],
             "dias_pendientes": pendientes, "al_dia": pendientes == 0,
+            "frecuencia_rebalanceo": sesion.receta.frecuencia_rebalanceo, "ultimo_rebalanceo": estado.ultimo_rebalanceo,
+            "proximo_rebalanceo": proximo_rebalanceo(
+                sesion.receta.frecuencia_rebalanceo,
+                date.fromisoformat(estado.ultimo_rebalanceo) if estado.ultimo_rebalanceo else None,
+                date.fromisoformat(estado.ultima_fecha_procesada)).isoformat(),
             "id_experimento": sesion.id_experimento, "id_configuracion": sesion.id_configuracion,
         })
 
