@@ -54,6 +54,7 @@ from ypyquant.optimization.estimacion_robusta import (
     optimizar_robusto_elipsoide,
     optimizar_volatilidad_objetivo,
     pesos_mercado,
+    porcentaje_es,
     z_confianza,
 )
 from ypyquant.optimization.presets import PRESETS_REGISTRADOS
@@ -215,6 +216,43 @@ class _EstimadorRobusto(Estrategia):
         if mensaje not in self.avisos:
             self.avisos.append(mensaje)
 
+    def _actualizar_aviso(self, clave: str, mensaje: str) -> None:
+        """Mantiene UN aviso por `clave` (se reescribe en cada rebalanceo: agregado, no uno por fecha)."""
+        indices = self.__dict__.setdefault("_indices_avisos", {})
+        if clave in indices:
+            self.avisos[indices[clave]] = mensaje
+        else:
+            indices[clave] = len(self.avisos)
+            self.avisos.append(mensaje)
+
+    def _anotar_vol_inalcanzable(self, vol_minima: float, fraccion_replicas: float | None = None) -> None:
+        """
+        Registra que en el rebalanceo actual la `volatilidad_objetivo` era inalcanzable y se usó la mínima varianza.
+
+        Acumula fechas y σ mínimas y reescribe un único aviso: «en N de M rebalanceos (primero, último): σ objetivo X %
+        < σ mínima alcanzable (entre a % y b %): se usa la cartera de mínima varianza». En Michaud `fraccion_replicas`
+        es la parte de réplicas bootstrap que cayó en la GMV (la media de pesos mezcla réplicas, no es toda la GMV).
+        """
+        registro = self.__dict__.setdefault("_vol_inalcanzable", {"fechas": [], "vols": [], "fracciones": []})
+        registro["fechas"].append(self._fecha_actual)
+        registro["vols"].append(vol_minima)
+        if fraccion_replicas is not None:
+            registro["fracciones"].append(fraccion_replicas)
+        n, total = len(registro["fechas"]), self._n_rebalanceos
+        minima, maxima = min(registro["vols"]), max(registro["vols"])
+        rango = porcentaje_es(minima) if abs(maxima - minima) < 5e-4 else f"entre {porcentaje_es(minima)} y {porcentaje_es(maxima)}"
+        cuando = f"primero {registro['fechas'][0]:%Y-%m-%d}, último {registro['fechas'][-1]:%Y-%m-%d}"
+        objetivo = porcentaje_es(self.parametros.volatilidad_objetivo)
+        if registro["fracciones"]:
+            sujeto = (f"En {n} de {total} rebalanceos hubo réplicas del bootstrap con la volatilidad objetivo inalcanzable "
+                      f"(de media el {np.mean(registro['fracciones']):.0%} de las réplicas; {cuando})")
+            cola = "esas réplicas usaron la cartera de mínima varianza"
+        else:
+            sujeto = f"Volatilidad objetivo inalcanzable en {n} de {total} rebalanceos ({cuando})"
+            cola = "en esos rebalanceos se usó la cartera de mínima varianza"
+        self._actualizar_aviso("vol_inalcanzable",
+                               f"{sujeto}: σ objetivo {objetivo} < σ mínima alcanzable {rango}; {cola}.")
+
     def sesiones_necesarias(self) -> int:
         """Ventana completa de estimación (`ventana_dias` retornos = `ventana_dias` + 1 cierres) más el margen."""
         return self.parametros.ventana_dias + 1 + MARGEN_SESIONES
@@ -223,7 +261,9 @@ class _EstimadorRobusto(Estrategia):
         """Max-Sharpe (con penalización de turnover) o, si hay `volatilidad_objetivo`, máx. µ'w con σ <= objetivo."""
         p = self.parametros
         if p.volatilidad_objetivo > 0:
-            pesos, _ = optimizar_volatilidad_objetivo(mu - rf, sigma, p.volatilidad_objetivo, peso_maximo=p.peso_maximo)
+            pesos, estado = optimizar_volatilidad_objetivo(mu - rf, sigma, p.volatilidad_objetivo, peso_maximo=p.peso_maximo)
+            if estado == "gmv_volatilidad_inalcanzable":
+                self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)))
             return pesos
         pesos, _, _ = optimizar_max_sharpe(
             mu, sigma, rf=rf, peso_maximo=p.peso_maximo,
@@ -240,6 +280,8 @@ class _EstimadorRobusto(Estrategia):
             return pesos_iguales_entre(matriz_cierres(datos).columns)
         previos = estado.get("pesos_previos") or {}
         pesos_previos = np.array([previos.get(t, 0.0) for t in retornos.columns])
+        self._fecha_actual = fecha  # para los avisos agregados (qué rebalanceos cayeron en un caso límite)
+        self._n_rebalanceos = getattr(self, "_n_rebalanceos", 0) + 1
         pesos = self.estimar_pesos(retornos, datos, fecha, pesos_previos if pesos_previos.sum() > 0 else None)
         return dict(zip(retornos.columns, pesos, strict=True))
 
@@ -272,11 +314,16 @@ class Michaud(_EstimadorRobusto):
         p = self.parametros
         # La penalización de turnover no aplica: el promedio de réplicas ya es una cartera estable
         rng = self.generador_azar()  # generador propio de la ejecución (misma secuencia que default_rng(semilla))
-        return estimar_mu_michaud(
+        pesos, fraccion_gmv = estimar_mu_michaud(
             retornos, n_replicas=p.n_replicas, rf=p.tasa_libre_riesgo / self.periodos_anio,
             peso_maximo=p.peso_maximo, rng=rng, frecuencia=self.periodos_anio,
             volatilidad_objetivo=p.volatilidad_objetivo or None, estimador_sigma=p.estimador_sigma,
+            devolver_diagnostico=True,
         )
+        if p.volatilidad_objetivo > 0 and fraccion_gmv > 0:  # NaN (ninguna réplica convergió) no entra
+            sigma = self.estimar_sigma(retornos).values
+            self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)), float(fraccion_gmv))
+        return pesos
 
 
 @registrar_estrategia
@@ -381,10 +428,12 @@ class RobustaElipsoide(_EstimadorIncertidumbre):
         p = self.parametros
         theta = matriz_incertidumbre(sigma, n_observaciones, p.tipo_theta, frecuencia=self.periodos_anio)
         kappa = p.kappa if p.kappa > 0 else kappa_confianza(p.confianza, len(mu))
-        pesos, _estado, _diagnostico = optimizar_robusto_elipsoide(
+        pesos, estado, _diagnostico = optimizar_robusto_elipsoide(
             mu, sigma, theta, kappa, aversion=p.aversion,
             volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),
         )
+        if estado == "gmv_volatilidad_inalcanzable":
+            self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)))
         return pesos
 
 
@@ -413,10 +462,12 @@ class RobustaCaja(_EstimadorIncertidumbre):
         p = self.parametros
         z = p.z if p.z > 0 else z_confianza(p.confianza)
         delta = delta_caja(sigma, n_observaciones, z, frecuencia=self.periodos_anio)
-        pesos, _estado, _diagnostico = optimizar_robusto_caja(
+        pesos, estado, _diagnostico = optimizar_robusto_caja(
             mu, sigma, delta, aversion=p.aversion,
             volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),
         )
+        if estado == "gmv_volatilidad_inalcanzable":
+            self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)))
         return pesos
 
 

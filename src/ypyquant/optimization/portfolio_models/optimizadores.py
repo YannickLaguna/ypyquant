@@ -21,6 +21,7 @@ import pandas as pd
 from cvxpy import error as cvxpy_error
 from pypfopt import exceptions as pypfopt_exceptions
 
+from ypyquant.optimization.estimacion_robusta.avisos import aviso_volatilidad_inalcanzable
 from ypyquant.optimization.estimacion_robusta.elipsoide import (
     delta_caja,
     kappa_confianza,
@@ -421,11 +422,7 @@ def _resultado_volatilidad_objetivo(
     metadatos = {'method': estado, 'success': estado != 'gmv_fallback', 'volatilidad_objetivo': volatilidad_objetivo,
                  'degenerate': estado.startswith('gmv')}
     if estado == 'gmv_volatilidad_inalcanzable':
-        metadatos['avisos'] = [(
-            f"La volatilidad objetivo ({volatilidad_objetivo:.1%}) está por debajo de la mínima posible con "
-            f"estos activos ({metricas['volatility']:.1%}): se devuelve la cartera de mínima varianza. "
-            "Para bajar más hay que añadir liquidez."
-        )]
+        metadatos['avisos'] = [aviso_volatilidad_inalcanzable(volatilidad_objetivo, metricas['volatility'])]
     return {
         'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
         **metricas,
@@ -558,11 +555,7 @@ def _resultado_robusto(
     metadatos = {'method': estado, 'success': estado != 'gmv_fallback', 'degenerate': estado.startswith('gmv'),
                  'volatilidad_objetivo': volatilidad_objetivo, 'diagnostico': diagnostico, **parametros}
     if estado == 'gmv_volatilidad_inalcanzable':
-        metadatos['avisos'] = [(
-            f"La volatilidad objetivo ({volatilidad_objetivo:.1%}) está por debajo de la mínima posible con "
-            f"estos activos ({metricas['volatility']:.1%}): se devuelve la cartera de mínima varianza. "
-            "Para bajar más hay que añadir liquidez."
-        )]
+        metadatos['avisos'] = [aviso_volatilidad_inalcanzable(volatilidad_objetivo, metricas['volatility'])]
     return {
         'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
         **metricas,

@@ -913,4 +913,4 @@ def test_avisos_del_modelo_y_del_optimizador_se_suman():
                                         optimizer_config={"target_volatility": 0.01})
     avisos = modelo.optimize(_retornos_diarios())["optimizer_metadata"]["avisos"]
     assert any("proxy" in a.lower() for a in avisos)
-    assert any("mínima posible" in a for a in avisos)
+    assert any("σ mínima alcanzable" in a for a in avisos)
