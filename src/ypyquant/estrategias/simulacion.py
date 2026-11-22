@@ -171,16 +171,24 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
         avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
         filtro_universo = None
 
+    # Apalancamiento (solo las estrategias con volatilidad objetivo lo declaran): préstamo a tasa libre + diferencial
+    apalancamiento = float(getattr(estrategia.parametros, "apalancamiento_maximo", 1.0))
+    tasa_financiacion = (float(getattr(estrategia.parametros, "tasa_libre_riesgo", 0.0))
+                         + float(getattr(estrategia.parametros, "diferencial_financiacion", 0.0))) if apalancamiento > 1.0 else 0.0
     motor = BacktestEngine(BacktestConfig(
         start_date=config.fecha_inicio, end_date=config.fecha_fin, initial_capital=config.capital_inicial,
         rebalance_frequency=config.frecuencia_rebalanceo, commission_rate=config.comision,
         slippage_pct=config.slippage, max_positions=max(len(precios), 1), benchmark_ticker=config.benchmark,
-    ))
+    ), apalancamiento_maximo=apalancamiento, tasa_financiacion=tasa_financiacion)
     resultado_bt = motor.run_backtest(estrategia.como_funcion(filtro_universo=filtro_universo), precios)
     if not estrategia.historial_pesos:
         detalle = estrategia.errores[0] if estrategia.errores else "sin pesos"
         raise RuntimeError(f"La estrategia no generó ningún rebalanceo válido ({detalle})")
     avisos.extend(estrategia.avisos)
+    if apalancamiento > 1.0:
+        avisos.append(f"Apalancamiento: intereses del préstamo de margen {motor.coste_financiacion:,.0f} "
+                      f"({motor.coste_financiacion / config.capital_inicial:.1%} del capital inicial) a "
+                      f"{tasa_financiacion:.2%} anual; exposición bruta máxima observada {motor.exposicion_maxima:.2f}x.")
     if estrategia.errores:
         avisos.append(f"{len(estrategia.errores)} rebalanceos fallaron; primero: {estrategia.errores[0]}")
     if pit:

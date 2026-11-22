@@ -35,11 +35,12 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ypyquant.estrategias import senales_tecnicas  # noqa: F401 - registra `senales_tecnicas` al importar este módulo
 from ypyquant.estrategias.base import MARGEN_SESIONES, Estrategia, ParametrosBase, matriz_cierres, matriz_volumen
 from ypyquant.estrategias.registro import registrar_estrategia
+from ypyquant.execution.ejecutor import TICKER_EFECTIVO
 from ypyquant.optimization.estimacion_robusta import (
     delta_caja,
     estimar_mu_bayes_stein,
@@ -147,6 +148,8 @@ class Momentum(Estrategia):
 
 
 ESTIMADORES_COMUNES = ("estimador_sigma", "frecuencia_estimacion")
+# Parámetros de apalancamiento, posteriores a los experimentos guardados: fuera de la huella mientras valgan su defecto
+PARAMETROS_APALANCAMIENTO = ("apalancamiento_maximo", "diferencial_financiacion")
 
 
 class _ParametrosEstimacion(ParametrosBase):
@@ -161,7 +164,35 @@ class _ParametrosEstimacion(ParametrosBase):
     )
 
 
-class _ParametrosEstimador(_ParametrosEstimacion):
+class _ParametrosApalancamiento(_ParametrosEstimacion):
+    """
+    Apalancamiento opcional de las estrategias con `volatilidad_objetivo` (las demás no lo declaran).
+
+    Con `apalancamiento_maximo` = 1 (defecto) no hay apalancamiento y nada cambia. Con L > 1, si la σ objetivo es
+    mayor que la que alcanza la cartera long-only totalmente invertida, la cartera se escala por
+    min(L, σ*/σ) y el resto es un préstamo de margen (peso negativo en `CASH`) que paga la tasa libre de riesgo
+    más `diferencial_financiacion`. Exige `volatilidad_objetivo` > 0 (sin objetivo no hay a qué escalar).
+    """
+
+    apalancamiento_maximo: float = Field(
+        1.0, ge=1.0, le=2.0,
+        description="Exposición bruta máxima sobre el patrimonio (1 = sin apalancamiento; 2 = límite Reg T overnight). "
+        "Solo actúa si la σ objetivo es inalcanzable sin apalancar; exige volatilidad_objetivo > 0",
+    )
+    diferencial_financiacion: float = Field(
+        0.01, ge=0.0, le=0.10,
+        description="Diferencial anual sobre la tasa libre que cuesta el préstamo de margen (0,01 = 1 %). "
+        "Solo se usa con apalancamiento_maximo > 1",
+    )
+
+    @model_validator(mode="after")
+    def _apalancamiento_exige_volatilidad_objetivo(self):
+        if self.apalancamiento_maximo > 1.0 and getattr(self, "volatilidad_objetivo", 0.0) <= 0:
+            raise ValueError("apalancamiento_maximo > 1 exige volatilidad_objetivo > 0 (sin objetivo no hay a qué escalar)")
+        return self
+
+
+class _ParametrosEstimador(_ParametrosApalancamiento):
     """Parámetros comunes de las estrategias de optimización robusta."""
 
     ventana_dias: int = Field(756, ge=60, le=2520, description="Días de historia para estimar µ y Σ (756 ≈ 3 años)")
@@ -183,7 +214,7 @@ class _EstimadorRobusto(Estrategia):
     """
 
     frecuencia_rebalanceo = "monthly"
-    parametros_fuera_de_huella_si_defecto = ESTIMADORES_COMUNES
+    parametros_fuera_de_huella_si_defecto = ESTIMADORES_COMUNES + PARAMETROS_APALANCAMIENTO
     Parametros = _ParametrosEstimador
 
     def estimar_pesos(self, retornos: pd.DataFrame, datos, fecha, pesos_previos: np.ndarray | None) -> np.ndarray:
@@ -283,7 +314,43 @@ class _EstimadorRobusto(Estrategia):
         self._fecha_actual = fecha  # para los avisos agregados (qué rebalanceos cayeron en un caso límite)
         self._n_rebalanceos = getattr(self, "_n_rebalanceos", 0) + 1
         pesos = self.estimar_pesos(retornos, datos, fecha, pesos_previos if pesos_previos.sum() > 0 else None)
-        return dict(zip(retornos.columns, pesos, strict=True))
+        resultado = dict(zip(retornos.columns, pesos, strict=True))
+        return self._apalancar(retornos, pesos, resultado)
+
+    def _apalancar(self, retornos: pd.DataFrame, pesos: np.ndarray, resultado: dict[str, float]) -> dict[str, float]:
+        """
+        Escala la cartera por min(L, σ*/σ) si `apalancamiento_maximo` > 1 y la σ de la cartera queda por debajo del
+        objetivo; el préstamo es un peso NEGATIVO en `CASH` (posiciones suman `factor`, CASH = 1 - factor). Sin
+        apalancamiento (o con σ >= σ*) devuelve `resultado` sin tocar. El tope de peso se aplica antes de apalancar.
+        """
+        p = self.parametros
+        maximo = getattr(p, "apalancamiento_maximo", 1.0)
+        if maximo <= 1.0 or p.volatilidad_objetivo <= 0:
+            return resultado
+        sigma = self.estimar_sigma(retornos).values
+        total = float(np.sum(pesos))
+        if total <= 0:
+            return resultado
+        normalizados = pesos / total
+        vol = float(np.sqrt(normalizados @ sigma @ normalizados))
+        if vol <= 0:
+            return resultado
+        factor = min(maximo, p.volatilidad_objetivo / vol)
+        if factor <= 1.0 + 1e-9:
+            return resultado
+        self._anotar_apalancamiento(factor)
+        return {**{t: w / total * factor for t, w in resultado.items()}, TICKER_EFECTIVO: 1.0 - factor}
+
+    def _anotar_apalancamiento(self, factor: float) -> None:
+        """Aviso único y agregado: en cuántos rebalanceos se tomó préstamo, exposición media y máxima, y su coste."""
+        factores = self.__dict__.setdefault("_factores_apalancamiento", [])
+        factores.append(factor)
+        p = self.parametros
+        self._actualizar_aviso(
+            "apalancamiento",
+            f"Apalancamiento (máximo {p.apalancamiento_maximo:.2f}x): en {len(factores)} de {self._n_rebalanceos} rebalanceos "
+            f"se tomó préstamo de margen (exposición bruta media {np.mean(factores):.2f}x, máxima {max(factores):.2f}x); "
+            f"coste de financiación = tasa libre + {porcentaje_es(p.diferencial_financiacion)}.")
 
 
 @registrar_estrategia
@@ -348,7 +415,7 @@ class BLPrior(_EstimadorRobusto):
         return self.optimizar(mu, sigma.values, 0.0, pesos_previos)
 
 
-class _ParametrosIncertidumbre(_ParametrosEstimacion):
+class _ParametrosIncertidumbre(_ParametrosApalancamiento):
     """Parámetros comunes de las estrategias con incertidumbre en µ (elipsoide y caja)."""
 
     estimador_mu: Literal["muestral", "bayes_stein", "bl_prior"] = Field(
