@@ -4,8 +4,8 @@ Modelos de riesgo Σ (Strategy `RiskModel`).
 Responsabilidad: estimar la matriz de covarianza (o semicovarianza) anualizada:
 `SampleCovarianceModel`, `LedoitWolfShrinkageModel`, `ExponentialCovarianceModel`, `SemiCovarianceModel`,
 `LedoitWolfSemiCovarianceModel` y `PCADenoisedRiskModel`. El shrinkage Ledoit-Wolf coincide numéricamente con
-`estimacion_robusta.sigma.estimar_sigma_ledoit_wolf` (misma llamada a pypfopt; lo comprueba
-tests/test_optimizacion_caracterizacion.py).
+`estimacion_robusta.sigma.estimar_sigma_ledoit_wolf`: el modelo delega en `ledoit_wolf_con_metodo`
+(misma estimación y misma reserva muestral ante fallo; lo comprueba tests/test_optimizacion_caracterizacion.py).
 
 Se relaciona con: base.py (interfaz), modelo.py (los usa), walk_forward.py (elige Σ por experimento) y presets/.
 """
@@ -15,6 +15,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from ypyquant.optimization.estimacion_robusta.sigma import ledoit_wolf_con_metodo
 from ypyquant.optimization.portfolio_models.base import RiskModel
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ class LedoitWolfShrinkageModel(RiskModel):
     Estimador Ledoit-Wolf con shrinkage óptimo analítico.
 
     I: DataFrame de retornos diarios.
-    T: pypfopt.CovarianceShrinkage.ledoit_wolf() (fallback: sklearn → muestral).
+    T: `ledoit_wolf_con_metodo` (pypfopt; reserva: covarianza muestral).
     O: Σ anualizada con menor error de estimación que la covarianza muestral.
     """
 
@@ -58,34 +59,10 @@ class LedoitWolfShrinkageModel(RiskModel):
             cols_inf = [c for c in returns_df.columns if np.isinf(returns_df[c]).any()]
             logger.warning(f"[LedoitWolf] Infinitos detectados: {cols_inf}")
 
-        try:
-            from pypfopt import risk_models
-            # IMPORTANTE: returns_data=True porque returns_df ya son retornos, no precios
-            cov_matrix = risk_models.CovarianceShrinkage(
-                returns_df,
-                returns_data=True,  # ¡CRÍTICO! Evita calcular "retornos de retornos"
-                frequency=self.frequency
-            ).ledoit_wolf()
-            self.metadata['method'] = 'pypfopt'
-            logger.debug("[LedoitWolf] Completado con pypfopt")
-            return cov_matrix
-        except ImportError:
-            try:
-                from sklearn.covariance import LedoitWolf
-                lw = LedoitWolf()
-                lw.fit(returns_df)
-                cov_matrix = pd.DataFrame(
-                    lw.covariance_ * self.frequency,
-                    index=returns_df.columns,
-                    columns=returns_df.columns
-                )
-                self.metadata['method'] = 'sklearn'
-                self.metadata['shrinkage'] = float(lw.shrinkage_)
-                return cov_matrix
-            except ImportError:
-                logger.warning("[LedoitWolf] Fallback a covarianza muestral")
-                self.metadata['method'] = 'fallback'
-                return returns_df.cov() * self.frequency
+        # Una sola implementación y una sola reserva (covarianza muestral) en estimacion_robusta.sigma.
+        cov_matrix, metodo = ledoit_wolf_con_metodo(returns_df, self.frequency)
+        self.metadata['method'] = metodo
+        return cov_matrix
 
 
 class ExponentialCovarianceModel(RiskModel):
