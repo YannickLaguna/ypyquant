@@ -20,8 +20,10 @@ pip install -e /ruta/local/ypyquant
 
 ```
 ypyquant/
-├── optimization/       # Modelos de portafolio, walk-forward, preprocessing,
-│   │                   # optimizador_portafolio (MPT/PMPT/frontera/objetivos; servicio)
+├── optimization/       # Núcleo canónico: estimacion_robusta/ (max-Sharpe QP, µ, Σ, riesgo.py);
+│   │                   # portfolio_models/ (subpaquete: base, modelos_retorno, modelos_riesgo,
+│   │                   #   optimizadores, modelo), walk-forward, preprocessing,
+│   │                   # optimizador_portafolio (fachada de compatibilidad con GrowSave: no ampliar)
 │   └── presets/        # Configuraciones predefinidas (Markowitz, BL, PMPT...)
 ├── factors/            # CAPM, Fama-French (4/5/6 factores), regresión robusta
 ├── ml/                 # Clustering, regímenes de mercado, PCA, LSTM, RL
@@ -39,6 +41,12 @@ divisa no es USD, un servicio de tipos de cambio. Migración de GrowSave:
 
 Desde v0.4.0 incluye `ypyquant.optimization.estimacion_robusta` (estimadores robustos de µ, max-Sharpe QP, universo
 point-in-time y motor de rejilla del TFM). Guía: `docs/migracion-v0.4.0.md`.
+
+Optimización canónica (2026-11-21): el código nuevo usa `estimacion_robusta` (implementación única de max-Sharpe QP,
+mínima varianza, volatilidad objetivo, estimadores, CVaR y paridad de riesgo en `riesgo.py`), los modelos de
+`portfolio_models` (ahora subpaquete; la ruta de importación no cambia) o las estrategias. `optimizador_portafolio`
+y `PortfolioOptimizationService` quedan congelados como fachada para GrowSave. Mapa de duplicados y decisiones
+pendientes: `docs/planes/2026-11-21-optimizacion-canonica.md`.
 
 > `ypyquant.quantlib` está deprecated y existe solo como shim de retrocompatibilidad.
 > Importar directamente desde `ypyquant.optimization`, `ypyquant.portfolio` o `ypyquant.data`.
