@@ -4,16 +4,14 @@ Contexto compartido de la API: almacén, cargador de precios, ejecutor de experi
 Responsabilidad:
 - `Contexto`: agrupa las dependencias que las rutas necesitan (se guarda en `app.state.ctx`).
   Así los tests inyectan precios sintéticos, un almacén temporal y un cliente Alpaca falso.
-- `lanzar_experimento`: registra el experimento como `pendiente` y lo ejecuta en un hilo
-  (`ThreadPoolExecutor`), dejando el estado y la traza de error en el almacén. La API no tiene
-  lógica de negocio: delega todo en `ypyquant.estrategias`.
-- Barridos: `lanzar_barrido` (crea el barrido y encola todas sus combinaciones como experimentos) y
-  `lanzar_permutacion` (prueba de permutación en un hilo aparte, con estado/progreso en
+- `servicio` (`ServicioExperimentos`, de dominio): lanza experimentos, barridos y comparativas. Las rutas lo llaman y
+  solo traducen sus excepciones a HTTP; la API no tiene lógica de negocio: delega todo en `ypyquant.estrategias`.
+- `lanzar_permutacion` (prueba de permutación en un hilo aparte, con estado/progreso en
   `barrido.json` -> `tareas` y cancelación cooperativa con un `threading.Event` por tarea).
 
 Se relaciona con:
 - app/api/main.py (crea el contexto), app/api/rutas_*.py (lo consumen vía `obtener_contexto`).
-- ypyquant.estrategias (ejecutar_experimento, AlmacenExperimentos, AlmacenBarridos,
+- ypyquant.estrategias (ServicioExperimentos, AlmacenExperimentos, AlmacenBarridos,
   prueba_permutacion_barrido, cargadores de precios).
 - app/api/paper.py (servicios de paper trading que cuelgan del contexto).
 """
@@ -31,10 +29,10 @@ from fastapi import Request
 from app.api.paper import BotControl, ServicioAlpaca
 from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.estrategias.almacen import AlmacenExperimentos
-from ypyquant.estrategias.barridos import AlmacenBarridos, ConfiguracionBarrido
+from ypyquant.estrategias.barridos import AlmacenBarridos
 from ypyquant.estrategias.configuraciones import AlmacenConfiguraciones
-from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ejecutar_experimento
 from ypyquant.estrategias.marcos import AlmacenMarcos
+from ypyquant.estrategias.servicio_experimentos import ServicioExperimentos
 from ypyquant.estrategias.validacion_barridos import PruebaCancelada, prueba_permutacion_barrido
 
 logger = logging.getLogger(__name__)
@@ -48,7 +46,8 @@ class Contexto:
     `almacen_barridos` (por defecto `<carpeta del almacén>/../barridos`) guarda los barridos y
     `cancelaciones` los eventos de cancelación de las tareas en curso, por `(id_barrido, tarea)`.
     `almacen_configuraciones` (`<carpeta del almacén>/../configuraciones`) y `almacen_marcos` (`../marcos`)
-    guardan las configuraciones versionadas y los marcos de comparación con sus comparativas.
+    guardan las configuraciones versionadas y los marcos de comparación con sus comparativas. `servicio` comparte
+    `ejecutor` (reemplazar `ctx.ejecutor.submit` en un test también afecta al servicio).
     """
 
     almacen: AlmacenExperimentos
@@ -62,6 +61,7 @@ class Contexto:
     cancelaciones: dict[tuple[str, str], threading.Event] = field(default_factory=dict)
     almacen_configuraciones: AlmacenConfiguraciones | None = None
     almacen_marcos: AlmacenMarcos | None = None
+    servicio: ServicioExperimentos | None = None  # se construye con los almacenes y el `ejecutor` de este contexto
 
     def __post_init__(self) -> None:
         if self.almacen_barridos is None:
@@ -70,52 +70,14 @@ class Contexto:
             self.almacen_configuraciones = AlmacenConfiguraciones(self.almacen.raiz.parent / "configuraciones")
         if self.almacen_marcos is None:
             self.almacen_marcos = AlmacenMarcos(self.almacen.raiz.parent / "marcos")
+        if self.servicio is None:
+            self.servicio = ServicioExperimentos(self.almacen, self.cargador_precios, self.ejecutor,
+                                                 self.almacen_barridos, self.almacen_marcos)
 
 
 def obtener_contexto(request: Request) -> Contexto:
     """Dependencia de FastAPI: devuelve el contexto de la aplicación."""
     return request.app.state.ctx
-
-
-def _ejecutar_en_segundo_plano(ctx: Contexto, id_experimento: str, config: ConfiguracionExperimento) -> None:
-    """Cuerpo del hilo: en_curso -> hecho | error (con traza). Nunca lanza."""
-    try:
-        ctx.almacen.marcar_estado(id_experimento, "en_curso")
-        resultado = ejecutar_experimento(config, ctx.cargador_precios)
-        ctx.almacen.guardar(id_experimento, resultado)
-    except BaseException as error:
-        logger.exception("Experimento %s falló", id_experimento)
-        ctx.almacen.marcar_estado(id_experimento, "error", error)
-
-
-def lanzar_experimento(ctx: Contexto, config: ConfiguracionExperimento, forzar: bool = False) -> tuple[str, bool]:
-    """
-    Registra y encola un experimento. Devuelve `(id, reutilizado)`.
-
-    Si ya existe uno con la misma huella terminado correctamente (o en curso) y no se fuerza,
-    se reutiliza en vez de recalcularlo (misma configuración = mismo resultado).
-    """
-    config = config.normalizada()
-    id_experimento = config.identificador()
-    if not forzar and ctx.almacen.existe(id_experimento):
-        estado = ctx.almacen.leer(id_experimento)["estado"]
-        if estado in ("hecho", "pendiente", "en_curso"):
-            return id_experimento, True
-    ctx.almacen.registrar(config)
-    ctx.ejecutor.submit(_ejecutar_en_segundo_plano, ctx, id_experimento, config)
-    return id_experimento, False
-
-
-def lanzar_barrido(ctx: Contexto, config: ConfiguracionBarrido, forzar: bool = False) -> tuple[str, list[str], bool]:
-    """
-    Crea el barrido y encola todas sus combinaciones como experimentos. Devuelve `(id, ids, reutilizado)`.
-
-    Si el barrido ya existía (misma configuración) se conserva con sus resultados y los experimentos
-    se reutilizan; con `forzar` todo se recalcula.
-    """
-    id_barrido, creado = ctx.almacen_barridos.crear(config, forzar)
-    ids = [lanzar_experimento(ctx, combinacion, forzar)[0] for combinacion, _, _ in config.combinaciones()]
-    return id_barrido, ids, not creado
 
 
 def nombre_tarea_permutacion(modo: str) -> str:

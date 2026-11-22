@@ -15,7 +15,7 @@ Responsabilidad:
 Códigos: 404 barrido o estrategia inexistente, 409 experimentos sin terminar o tarea ya en curso,
 422 parámetros inválidos (mensaje en `detail`).
 
-Se relaciona con: app/api/contexto.py (almacén, ejecutores y `lanzar_*`), ypyquant.estrategias.barridos,
+Se relaciona con: app/api/contexto.py (almacén, ejecutores, `ctx.servicio` y `lanzar_permutacion`), ypyquant.estrategias.barridos,
 .validacion_barridos y .reservado (toda la lógica; esta capa solo traduce a HTTP).
 """
 
@@ -27,7 +27,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from app.api.contexto import Contexto, lanzar_barrido, lanzar_permutacion, nombre_tarea_permutacion, obtener_contexto
+from app.api.contexto import Contexto, lanzar_permutacion, nombre_tarea_permutacion, obtener_contexto
 from ypyquant.estrategias.barridos import Barrido, ConfiguracionBarrido, superficie_registros
 from ypyquant.estrategias.reservado import RegistroReservado, clave_reservado, evaluar_reservado
 from ypyquant.estrategias.validacion_barridos import (
@@ -122,7 +122,7 @@ def crear_barrido(config: ConfiguracionBarrido, forzar: bool = False, ctx: Conte
     if not combinaciones:
         motivos = "; ".join(dict.fromkeys(o["motivo"] for o in omitidas))
         raise HTTPException(422, f"Ninguna combinación de la rejilla es válida ({motivos})")
-    id_barrido, ids, reutilizado = lanzar_barrido(ctx, config, forzar)
+    id_barrido, ids, reutilizado = ctx.servicio.lanzar_barrido(config, forzar)
     return {"id": id_barrido, "ids": ids, "total": len(combinaciones), "reutilizado": reutilizado,
             "omitidas": omitidas}
 

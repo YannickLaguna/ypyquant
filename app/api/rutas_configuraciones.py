@@ -24,20 +24,19 @@ Códigos: 404 configuración, experimento, barrido o estrategia inexistente; 409
 terminar; 422 parámetros inválidos o fuentes incoherentes. Las rutas de paper interno y Alpaca (fases 3-5) se añadirán
 aquí cuando existan.
 
-Se relaciona con: app/api/contexto.py (almacenes y `lanzar_experimento`), ypyquant.estrategias.configuraciones y
+Se relaciona con: app/api/contexto.py (almacenes y `ctx.servicio`), ypyquant.estrategias.configuraciones y
 .barridos (`superficie_registros`), app/web (páginas Configuraciones).
 """
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from app.api.contexto import Contexto, lanzar_experimento, obtener_contexto
-from app.api.rutas_marcos import PeticionComparativa, con_estado, lanzar_sobre_marco
+from app.api.contexto import Contexto, obtener_contexto
+from app.api.rutas_marcos import PeticionComparativa, con_estado
 from ypyquant.estrategias.barridos import superficie_registros
 from ypyquant.estrategias.configuraciones import (
     ConfiguracionExistente,
@@ -45,13 +44,12 @@ from ypyquant.estrategias.configuraciones import (
     OrigenConfiguracion,
 )
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, Frecuencia
-from ypyquant.estrategias.marcos import MarcoExistente, fechas_por_defecto, marco_desde_configuracion
+from ypyquant.estrategias.marcos import fechas_por_defecto
 
 router = APIRouter(prefix="/api/configuraciones", tags=["configuraciones"])
 
 AVISO_BARRIDO = ("Elegida entre varias combinaciones de un barrido: puede estar sobreajustada (winner's curse). "
                  "Revisa DSR/PBO y la meseta.")
-ANIOS_BACKTEST_POR_DEFECTO = 5
 
 
 class RecetaManual(BaseModel):
@@ -215,33 +213,16 @@ def crear_configuracion(peticion: PeticionConfiguracion, ctx: Contexto = Depends
         raise HTTPException(422, str(error)) from error
 
 
-def _backtests_de_la_receta(ctx: Contexto, configuracion: ConfiguracionGuardada) -> list[dict[str, Any]]:
-    """Experimentos de la misma estrategia cuya receta (sin fechas ni capital) coincide con la de la configuración."""
-    asociados = []
-    for resumen in ctx.almacen.listar(estrategia=configuracion.estrategia):
-        try:
-            if ConfiguracionExperimento(**ctx.almacen.leer_config(resumen["id"])).huella_receta() == configuracion.huella_estrategia:
-                asociados.append(resumen)
-        except (ValidationError, TypeError, KeyError, ValueError):  # experimento con config ajena o dañada: se ignora
-            continue
-    return asociados
-
-
 @router.get("/{id_configuracion}")
 def detalle_configuracion(id_configuracion: str, version: int | None = None, ctx: Contexto = Depends(obtener_contexto)):
     configuracion = _configuracion(ctx, id_configuracion, version)
     versiones = [{"version": v.version, "creada": v.creada, "deriva_de": v.deriva_de, "notas": v.notas}
                  for v in ctx.almacen_configuraciones.versiones(id_configuracion)]
-    marco = None
-    if configuracion.id_marco:
-        try:
-            marco = ctx.almacen_marcos.leer(configuracion.id_marco)
-        except (KeyError, ValueError):
-            marco = None  # el marco se borró: la configuración sigue siendo válida
+    marco = ctx.servicio.marco_enlazado(configuracion)  # None si no tiene o se borró: la configuración sigue siendo válida
     comparativas = [con_estado(ctx, c) for c in ctx.almacen_marcos.listar_comparativas()
                     if c["marco"].get("id_configuracion") == id_configuracion]
     return {"configuracion": configuracion, "versiones": versiones, "marco": marco,
-            "backtests": _backtests_de_la_receta(ctx, configuracion),
+            "backtests": ctx.servicio.backtests_de_receta(configuracion),
             "fechas_sugeridas": list(fechas_por_defecto(configuracion, marco)), "comparativas": comparativas}
 
 
@@ -261,24 +242,14 @@ def crear_version(id_configuracion: str, peticion: PeticionVersion, ctx: Context
 @router.post("/{id_configuracion}/backtest", status_code=202)
 def lanzar_backtest(id_configuracion: str, peticion: PeticionBacktest, ctx: Contexto = Depends(obtener_contexto)):
     configuracion = _configuracion(ctx, id_configuracion, peticion.version)
-    inicio, fin = peticion.fecha_inicio, peticion.fecha_fin
-    if (inicio is None or fin is None) and configuracion.id_marco:
-        try:
-            marco = ctx.almacen_marcos.leer(configuracion.id_marco)
-            inicio, fin = inicio or marco.fecha_inicio, fin or marco.fecha_fin
-        except (KeyError, ValueError):
-            pass
-    hoy = date.today()
-    fin = fin or (hoy - timedelta(days=1)).isoformat()
-    inicio = inicio or (date.fromisoformat(fin) - timedelta(days=365 * ANIOS_BACKTEST_POR_DEFECTO)).isoformat()
     try:
-        config = configuracion.a_experimento(inicio, fin, peticion.capital_inicial)
+        id_experimento, reutilizado = ctx.servicio.lanzar_backtest_de_configuracion(
+            configuracion, peticion.fecha_inicio, peticion.fecha_fin, peticion.capital_inicial, peticion.forzar)
     except KeyError as error:
         raise HTTPException(404, str(error.args[0])) from error
     except (ValidationError, ValueError) as error:
         detalle = error.errors(include_url=False, include_context=False) if isinstance(error, ValidationError) else str(error)
         raise HTTPException(422, detalle) from error
-    id_experimento, reutilizado = lanzar_experimento(ctx, config, peticion.forzar)
     return {"id_experimento": id_experimento, "reutilizado": reutilizado}
 
 
@@ -286,24 +257,14 @@ def lanzar_backtest(id_configuracion: str, peticion: PeticionBacktest, ctx: Cont
 def lanzar_comparativa_de_configuracion(id_configuracion: str, peticion: PeticionComparativaConfiguracion,
                                         ctx: Contexto = Depends(obtener_contexto)):
     configuracion = _configuracion(ctx, id_configuracion, peticion.version)
-    marco_enlazado = None
-    if configuracion.id_marco:
-        try:
-            marco_enlazado = ctx.almacen_marcos.leer(configuracion.id_marco)
-        except (KeyError, ValueError):
-            pass  # el marco se borró: se usan las fechas del origen
-    inicio_defecto, fin_defecto = fechas_por_defecto(configuracion, marco_enlazado)
     try:
-        marco = marco_desde_configuracion(configuracion, peticion.fecha_inicio or inicio_defecto, peticion.fecha_fin or fin_defecto)
+        return ctx.servicio.lanzar_comparativa_de_configuracion(
+            configuracion, [e.model_dump() for e in peticion.estrategias], peticion.fecha_inicio, peticion.fecha_fin,
+            peticion.forzar)
     except ValidationError as error:
         raise HTTPException(422, error.errors(include_url=False, include_context=False, include_input=False)) from error
-    except ValueError as error:
+    except ValueError as error:  # marco incoherente o estrategias que no validan (todas se validan antes de lanzar)
         raise HTTPException(422, str(error)) from error
-    try:
-        ctx.almacen_marcos.guardar(marco)
-    except MarcoExistente:
-        marco = ctx.almacen_marcos.leer(marco.id)  # mismo id = mismo entorno: se reutiliza
-    return lanzar_sobre_marco(ctx, marco, peticion)
 
 
 @router.delete("/{id_configuracion}", status_code=204)

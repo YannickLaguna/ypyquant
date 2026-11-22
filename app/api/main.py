@@ -94,6 +94,8 @@ def crear_app(
         bot=bot or BotControl(),
     )
 
+    almacen.indexar()  # índice receta -> experimentos (backtests de una configuración sin recorrer el disco)
+
     @api.get("/api/salud", tags=["sistema"])
     def salud():
         return {"estado": "ok", "frontend": CARPETA_WEB.is_dir()}

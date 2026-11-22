@@ -12,7 +12,7 @@ Responsabilidad:
 - `GET /api/comparativas` (filtro `id_marco`) y `GET /api/comparativas/{id}`: el registro con el estado actual de
   cada experimento (para abrir la página Comparar con todos de golpe).
 
-Se relaciona con: app/api/contexto.py (almacenes y `lanzar_experimento`), ypyquant.estrategias.marcos (toda la lógica),
+Se relaciona con: app/api/contexto.py (almacenes y `ctx.servicio`), ypyquant.estrategias.marcos (toda la lógica),
 app/api/rutas_experimentos.py (`GET /api/comparar` avisa si no es ceteris paribus) y app/web (páginas Marcos y Comparar).
 """
 
@@ -23,8 +23,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from app.api.contexto import Contexto, lanzar_experimento, obtener_contexto
-from ypyquant.estrategias.marcos import MarcoComparacion, MarcoExistente, preparar_comparativa
+from app.api.contexto import Contexto, obtener_contexto
+from ypyquant.estrategias.marcos import MarcoComparacion, MarcoExistente
 
 router = APIRouter(prefix="/api", tags=["marcos"])
 
@@ -94,20 +94,13 @@ def borrar_marco(id_marco: str, ctx: Contexto = Depends(obtener_contexto)):
 
 def lanzar_sobre_marco(ctx: Contexto, marco: MarcoComparacion, peticion: PeticionComparativa) -> dict[str, Any]:
     """
-    Aplica `marco` a cada estrategia de la petición validándolas TODAS antes de lanzar nada (422 con los fallos),
-    crea los experimentos normales (los ya calculados se reutilizan) y registra la comparativa. Lo comparten
-    `POST /api/marcos/{id}/comparativa` y `POST /api/configuraciones/{id}/comparativa`.
+    Traduce a HTTP `ServicioExperimentos.lanzar_comparativa` (valida TODAS las estrategias antes de lanzar nada: 422 con
+    los fallos). Lo comparten `POST /api/marcos/{id}/comparativa` y `POST /api/configuraciones/{id}/comparativa`.
     """
     try:
-        preparadas = preparar_comparativa(marco, [e.model_dump() for e in peticion.estrategias])
+        return ctx.servicio.lanzar_comparativa(marco, [e.model_dump() for e in peticion.estrategias], peticion.forzar)
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
-    entradas = []
-    for entrada, (config, informe) in zip(peticion.estrategias, preparadas, strict=True):
-        id_experimento, reutilizado = lanzar_experimento(ctx, config, peticion.forzar)
-        entradas.append({"id_experimento": id_experimento, "estrategia": entrada.estrategia,
-                         "parametros": entrada.parametros, "informe": informe.model_dump(), "reutilizado": reutilizado})
-    return ctx.almacen_marcos.registrar_comparativa(marco, entradas)
 
 
 @router.post("/marcos/{id_marco}/comparativa", status_code=202)

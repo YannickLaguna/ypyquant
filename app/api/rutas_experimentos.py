@@ -21,8 +21,8 @@ Responsabilidad:
   periodicidad (mensual del TFM frente a diaria) decide la ventana de 12 meses y las funciones viven en
   `ypyquant.estrategias.series_comparacion`. 422 si el indicador no existe.
 
-Se relaciona con: app/api/contexto.py (almacén y ejecutor) y ypyquant.estrategias.experimentos
-(ConfiguracionExperimento, expandir_rejilla). Los errores de validación de la estrategia (nombre o
+Se relaciona con: app/api/contexto.py (almacén y `ctx.servicio`) y ypyquant.estrategias (`ServicioExperimentos`,
+ConfiguracionExperimento, expandir_rejilla). Los errores de validación de la estrategia (nombre o
 parámetros inválidos) se devuelven como 422/404 antes de encolar nada.
 """
 
@@ -31,7 +31,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError
 
-from app.api.contexto import Contexto, lanzar_barrido, lanzar_experimento, obtener_contexto
+from app.api.contexto import Contexto, obtener_contexto
 from ypyquant.estrategias.barridos import ConfiguracionBarrido
 from ypyquant.estrategias.experimentos import VALIDADORES, ConfiguracionExperimento, expandir_rejilla_con_omitidas
 from ypyquant.estrategias.marcos import diferencias_ceteris_paribus
@@ -66,7 +66,7 @@ def _validar(config: ConfiguracionExperimento) -> ConfiguracionExperimento:
 
 @router.post("/experimentos", status_code=202)
 def crear_experimento(config: ConfiguracionExperimento, forzar: bool = False, ctx: Contexto = Depends(obtener_contexto)):
-    id_experimento, reutilizado = lanzar_experimento(ctx, _validar(config), forzar)
+    id_experimento, reutilizado = ctx.servicio.lanzar(_validar(config), forzar)
     return {"id": id_experimento, "reutilizado": reutilizado}
 
 
@@ -85,9 +85,9 @@ def crear_barrido(peticion: PeticionBarrido, forzar: bool = False, ctx: Contexto
             barrido = ConfiguracionBarrido(base=base, rejilla=peticion.rejilla)
         except ValueError as error:  # p. ej. un eje con lista vacía
             raise HTTPException(422, str(error)) from error
-        id_barrido, ids, _ = lanzar_barrido(ctx, barrido, forzar)
+        id_barrido, ids, _ = ctx.servicio.lanzar_barrido(barrido, forzar)
         return {"ids": ids, "total": len(ids), "barrido_id": id_barrido, "omitidas": omitidas}
-    ids = [lanzar_experimento(ctx, c, forzar)[0] for c in configuraciones]
+    ids = ctx.servicio.lanzar_varios(configuraciones, forzar)
     return {"ids": ids, "total": len(ids), "barrido_id": None, "omitidas": omitidas}
 
 
@@ -132,21 +132,7 @@ def borrar_varios_experimentos(peticion: PeticionBorrarVarios, ctx: Contexto = D
     Borra varios experimentos y devuelve qué pasó con cada id: `borrados`, `en_marcha` (pendientes o en
     curso: no se tocan porque el ejecutor seguiría escribiendo en su carpeta) y `no_encontrados`.
     """
-    borrados, en_marcha, no_encontrados = [], [], []
-    for id_experimento in dict.fromkeys(peticion.ids):  # sin duplicados, conservando el orden
-        try:
-            estado = ctx.almacen.estado_de(id_experimento)
-        except ValueError:  # id con formato inválido
-            estado = None
-        if estado is None:
-            no_encontrados.append(id_experimento)
-        elif estado in ("pendiente", "en_curso"):
-            en_marcha.append(id_experimento)
-        elif ctx.almacen.borrar(id_experimento):
-            borrados.append(id_experimento)
-        else:
-            no_encontrados.append(id_experimento)
-    return {"borrados": borrados, "en_marcha": en_marcha, "no_encontrados": no_encontrados}
+    return ctx.servicio.borrar_varios(peticion.ids)
 
 
 @router.get("/comparar")
