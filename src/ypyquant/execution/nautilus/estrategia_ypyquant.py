@@ -9,6 +9,7 @@ Responsabilidad:
 
 Se relaciona con:
     - constructor_senales.py: construye el SignalCombiner desde `signal_config`.
+    - ordenes.py: `decidir_orden`, la decisión señal -> orden compartida con el bot de Alpaca (sin duplicar reglas).
     - ypyquant.signals: lógica real de las señales (esta clase es solo el envoltorio).
     - pipelines/paper_trading: el modo vivo usa Alpaca directamente; esta clase queda para
       un TradingNode/BacktestEngine de Nautilus.
@@ -26,6 +27,7 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
 from ypyquant.execution.nautilus.constructor_senales import construir_combinador
+from ypyquant.execution.nautilus.ordenes import decidir_orden
 from ypyquant.signals import SignalCombiner
 
 logger = logging.getLogger(__name__)
@@ -123,22 +125,23 @@ class EstrategiaYpyquant(Strategy):
                 return
 
             equity = float(cuenta.balance_total().as_double())
-            cantidad_actual = float(self.portfolio.net_position(id_instrumento))
+            cantidad_actual = int(float(self.portfolio.net_position(id_instrumento)))
 
             barra = self.cache.bar(self._tipo_barra(ticker))
             if barra is None or float(barra.close) <= 0:
                 return
-            porcentaje_max = self.config_riesgo.get("max_position_pct", 0.10)
-            cantidad_objetivo = equity * porcentaje_max * abs(senal) / float(barra.close)
-
-            if senal > self.umbral and cantidad_actual < cantidad_objetivo * 0.9:
-                a_comprar = int(cantidad_objetivo - max(cantidad_actual, 0))
-                if a_comprar >= 1:
-                    self._enviar(id_instrumento, OrderSide.BUY, a_comprar)
-                    logger.info("COMPRA %d %s (señal=%.2f)", a_comprar, ticker, senal)
-            elif senal < -self.umbral and cantidad_actual > 0:
-                self._enviar(id_instrumento, OrderSide.SELL, int(cantidad_actual))
-                logger.info("VENTA %d %s (señal=%.2f)", int(cantidad_actual), ticker, senal)
+            # Misma decisión que el bot de Alpaca en modo señales (antes aquí se repetía con un 0.9 mágico)
+            decision = decidir_orden(
+                senal=senal, umbral=self.umbral, equity=equity,
+                max_pos_pct=self.config_riesgo.get("max_position_pct", 0.10),
+                precio=float(barra.close), cantidad_actual=cantidad_actual,
+            )
+            if decision.lado == "compra":
+                self._enviar(id_instrumento, OrderSide.BUY, decision.cantidad)
+                logger.info("COMPRA %d %s (señal=%.2f)", decision.cantidad, ticker, senal)
+            elif decision.lado == "venta":
+                self._enviar(id_instrumento, OrderSide.SELL, decision.cantidad)
+                logger.info("VENTA %d %s (señal=%.2f)", decision.cantidad, ticker, senal)
         except Exception as e:
             logger.error("Error actuando sobre la señal de %s: %s", ticker, e)
 

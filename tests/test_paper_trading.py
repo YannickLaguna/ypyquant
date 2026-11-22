@@ -169,30 +169,33 @@ class TestRegistroFills:
         assert not (tmp_path / "fills.jsonl").exists()
 
 
+def _ordenes_bot(pesos, equity, precios, cantidades_actuales):
+    """Órdenes del Ejecutor con la política del bot (acciones enteras, umbral 1 %)."""
+    from ypyquant.execution.ejecutor import POLITICA_BOT, EstadoCuenta, planificar_rebalanceo
+
+    return planificar_rebalanceo(pesos, precios, EstadoCuenta(equity, 0.0, cantidades_actuales), POLITICA_BOT).ordenes
+
+
 class TestRebalanceoPorPesos:
     """Modo registro: de pesos objetivo a órdenes (ventas primero, sin órdenes diminutas)."""
 
     def test_ventas_antes_que_compras(self):
-        from ypyquant.execution.nautilus.ordenes import decidir_ordenes_rebalanceo
-
-        ordenes = decidir_ordenes_rebalanceo(
+        ordenes = _ordenes_bot(
             pesos={"AAA": 0.5, "BBB": 0.5}, equity=10_000, precios={"AAA": 100.0, "BBB": 50.0, "CCC": 10.0},
             cantidades_actuales={"CCC": 100, "BBB": 10},
         )
-        assert [(t, d.lado, d.cantidad) for t, d in ordenes] == [
-            ("CCC", "venta", 100), ("AAA", "compra", 50), ("BBB", "compra", 90)]
+        # Ventas primero; entre las compras, la de menor diferencia de valor (BBB: 4500 < AAA: 5000)
+        assert [(o.ticker, o.lado, o.cantidad) for o in ordenes] == [
+            ("CCC", "venta", 100), ("BBB", "compra", 90), ("AAA", "compra", 50)]
 
     def test_ignora_diferencias_pequenas_pero_cierra_posiciones(self):
-        from ypyquant.execution.nautilus.ordenes import decidir_ordenes_rebalanceo
-
-        ordenes = decidir_ordenes_rebalanceo(
+        ordenes = _ordenes_bot(
             pesos={"AAA": 0.5}, equity=10_000, precios={"AAA": 100.0, "BBB": 1.0},
             cantidades_actuales={"AAA": 49, "BBB": 3},
         )
         # AAA: dif 1 acción = 1 % del equity (no menor al umbral); BBB: cerrar aunque valga 0,03 %
-        assert [(t, d.lado) for t, d in ordenes] == [("BBB", "venta"), ("AAA", "compra")]
-        sin_cambios = decidir_ordenes_rebalanceo({"AAA": 0.5}, 10_000, {"AAA": 100.0}, {"AAA": 50})
-        assert sin_cambios == []
+        assert [(o.ticker, o.lado) for o in ordenes] == [("BBB", "venta"), ("AAA", "compra")]
+        assert _ordenes_bot({"AAA": 0.5}, 10_000, {"AAA": 100.0}, {"AAA": 50}) == ()
 
     def test_estrategia_registro_desde_json(self, tmp_path):
         ruta = tmp_path / "e.json"

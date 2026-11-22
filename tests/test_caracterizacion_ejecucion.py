@@ -7,7 +7,7 @@ Responsabilidad:
     - motor de backtest (`BacktestEngine._execute_rebalance`): fracciones, umbral de 10 unidades de
       divisa, ventas antes que compras, normalización si la suma se desvía más de 0.01, pseudo-ticker
       CASH (se salta por no tener precio), posiciones sin precio, rotación;
-    - bot (`decidir_ordenes_rebalanceo`): acciones enteras (floor), umbral del 1 % del equity, cierre de
+    - bot (`decidir_ordenes_rebalanceo`, hoy Ejecutor con POLITICA_BOT): acciones enteras (floor), umbral del 1 % del equity, cierre de
       posiciones aunque estén bajo el umbral, tickers bloqueados, CASH/sin precio descartados, suma de
       pesos distinta de 1 (el bot NO normaliza).
     Los valores numéricos están fijados con el código previo; si alguno cambia, el refactor ha alterado
@@ -15,13 +15,17 @@ Responsabilidad:
 
 Se relaciona con:
     - src/ypyquant/portfolio/backtest_engine.py (motor) y src/ypyquant/ejecucion/ejecutor.py (Ejecutor).
-    - src/ypyquant/execution/nautilus/ordenes.py (conversión del bot, hasta su sustitución por el Ejecutor).
+    - Único cambio observable del bot al unificar: dentro de las compras (y de las ventas) se envía primero la de
+      menor diferencia de valor (regla del motor), no el orden alfabético; las cantidades no cambian.
     - tests/test_backtest_motor.py, tests/test_paper_vivo.py y tests/test_paper_trading.py (resto de casos).
 """
+
+from dataclasses import replace
 
 import pandas as pd
 import pytest
 
+from ypyquant.execution.ejecutor import POLITICA_BOT, EstadoCuenta, planificar_rebalanceo
 from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
 
 DIA = pd.Timestamp("2023-01-02")
@@ -136,19 +140,20 @@ PIN_CAJA_FINAL = 5180.9859163278015
 
 
 class TestBotPesosAOrdenes:
-    """`decidir_ordenes_rebalanceo` (bot de Alpaca y estrategia de Nautilus): enteros, umbral 1 %, bloqueos."""
+    """El Ejecutor con POLITICA_BOT (antes `decidir_ordenes_rebalanceo`: bot de Alpaca y Nautilus): enteros, umbral 1 %, bloqueos."""
 
     @staticmethod
-    def _decidir(pesos, equity, precios, actuales, **opciones):
-        from ypyquant.execution.nautilus.ordenes import decidir_ordenes_rebalanceo
-
-        return [(t, d.lado, d.cantidad, d.cantidad_objetivo)
-                for t, d in decidir_ordenes_rebalanceo(pesos, equity, precios, actuales, **opciones)]
+    def _decidir(pesos, equity, precios, actuales, umbral_peso=0.01, tickers_bloqueados=()):
+        """Misma conversión que antes de `decidir_ordenes_rebalanceo`, ahora por el Ejecutor con POLITICA_BOT."""
+        politica = replace(POLITICA_BOT, umbral_relativo=umbral_peso)
+        cuenta = EstadoCuenta(equity=equity, efectivo=0.0, posiciones=actuales)
+        plan = planificar_rebalanceo(pesos, precios, cuenta, politica, tickers_bloqueados)
+        return [(o.ticker, o.lado, int(o.cantidad), int(o.cantidad_objetivo)) for o in plan.ordenes]
 
     def test_acciones_enteras_con_floor_y_ventas_primero(self):
         ordenes = self._decidir({"AAA": 0.5, "BBB": 0.5}, 10_001.0, {"AAA": 33.0, "BBB": 50.0, "CCC": 10.0},
                                 {"CCC": 100, "BBB": 10})
-        assert ordenes == [("CCC", "venta", 100, 0), ("AAA", "compra", 151, 151), ("BBB", "compra", 90, 100)]
+        assert ordenes == [("CCC", "venta", 100, 0), ("BBB", "compra", 90, 100), ("AAA", "compra", 151, 151)]
 
     def test_umbral_del_1_por_ciento_del_equity(self):
         # Cada diferencia vale exactamente el 1 % del equity: se opera con el umbral por defecto

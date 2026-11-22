@@ -49,6 +49,7 @@ from ypyquant.execution.calendario import (
     fechas_programadas,
     validar_frecuencia,
 )
+from ypyquant.execution.ejecutor import POLITICA_MOTOR, VENTA, EstadoCuenta, planificar_rebalanceo
 from ypyquant.utils.divisas import ServicioCambio, convertir_equity_a_divisa, simbolo_divisa
 from ypyquant.utils.serializacion import convertir_numpy_a_nativo
 
@@ -580,53 +581,25 @@ class BacktestEngine:
 
     def _execute_rebalance(self, target_weights: dict[str, float], current_prices: dict[str, float], date: datetime):
         """
-        Rebalancea hacia los pesos objetivo: normaliza si no suman ~1, cierra las posiciones
-        con peso 0 o fuera del objetivo y ajusta el resto ejecutando primero las ventas, para
-        que las compras dispongan del efectivo liberado. No opera diferencias < 10 unidades.
+        Rebalancea hacia los pesos objetivo. QUÉ operar lo decide el Ejecutor (`planificar_rebalanceo` con
+        `POLITICA_MOTOR`: normaliza si no suman ~1, cierra las posiciones con peso 0 o fuera del objetivo,
+        ventas antes que compras, no opera diferencias < 10 unidades, CASH = efectivo sin orden); aquí solo
+        se APLICAN las órdenes con el modelo de costes del motor (`_buy`/`_sell`: comisión y slippage).
         """
-        total_weight = sum(target_weights.values())
-        if abs(total_weight - 1.0) > 0.01 and total_weight > 0:
-            logger.warning(f"Pesos no suman 1.0 (suma: {total_weight}), normalizando")
-            target_weights = {t: w / total_weight for t, w in target_weights.items()}
-
-        target_values = {t: self.portfolio_value * w for t, w in target_weights.items()}
-
-        # Rotación: valor que hay que operar (posiciones a la deriva → objetivo) / (2·valor)
-        valores_actuales = {
-            t: pos['quantity'] * current_prices.get(t, 0.0) for t, pos in self.positions.items()
-        }
-        operado = sum(
-            abs(target_values.get(t, 0.0) - valores_actuales.get(t, 0.0))
-            for t in set(target_values) | set(valores_actuales)
+        cuenta = EstadoCuenta(
+            equity=self.portfolio_value, efectivo=self.cash,
+            posiciones={t: pos['quantity'] for t, pos in self.positions.items()},
         )
-        # Lo que quede en efectivo también cuenta (al invertir desde liquidez se opera todo)
-        efectivo_objetivo = self.portfolio_value - sum(target_values.values())
-        operado += abs(efectivo_objetivo - self.cash)
+        plan = planificar_rebalanceo(target_weights, current_prices, cuenta, POLITICA_MOTOR)
         if self.portfolio_value > 0:
-            self.rotaciones.append((date, float(operado / (2 * self.portfolio_value))))
+            self.rotaciones.append((date, plan.rotacion))
 
-        for ticker in list(self.positions.keys()):
-            if ticker not in target_weights or target_weights[ticker] == 0:
-                self._close_position(ticker, current_prices.get(ticker), date)
-
-        def _orden(item):
-            ticker, objetivo = item
-            precio = current_prices.get(ticker, 0.0)
-            actual = self.positions[ticker]['quantity'] * precio if ticker in self.positions else 0.0
-            return objetivo - actual  # negativas (ventas) primero
-
-        for ticker, target_value in sorted(target_values.items(), key=_orden):
-            if ticker not in current_prices:
-                continue
-            current_price = current_prices[ticker]
-            current_value = self.positions[ticker]['quantity'] * current_price if ticker in self.positions else 0.0
-            value_diff = target_value - current_value
-            if abs(value_diff) < 10.0:
-                continue
-            if value_diff > 0:
-                self._buy(ticker, value_diff, current_price, date)
+        for orden in plan.ordenes:
+            precio = current_prices[orden.ticker]
+            if orden.lado == VENTA:
+                self._sell(orden.ticker, orden.importe, precio, date)
             else:
-                self._sell(ticker, abs(value_diff), current_price, date)
+                self._buy(orden.ticker, orden.importe, precio, date)
 
     def _add_to_position(self, ticker: str, quantity: float, price: float):
         """Suma `quantity` a la posición recalculando el precio medio."""
