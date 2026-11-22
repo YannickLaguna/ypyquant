@@ -76,3 +76,5 @@ universos/sp500_membresias_estado.json
 universos/sp500_membresias_pendientes.json
 universos/sp500_membresias.json.anterior
 universos/.cache_fuentes/
+data/paper_interno/
+data/paper_trading/
