@@ -8,16 +8,14 @@ empresas que acabaron entrando o permaneciendo. Aquí se reutiliza el criterio d
 `construir_mascara_membresia`.
 
 Responsabilidad:
-- Fuente de membresías: `universos/sp500_membresias.json` (ticker -> intervalos `date_added/date_removed`),
-  generado desde la columna `tickers.index_memberships` de `TFM.db` (la misma que lee la prueba de paridad
-  del TFM) con `scripts/exportar_membresias_sp500.py`. `extraer_membresias_desde_sqlite` hace la
-  extracción (solo índice SP500, tickers con el formato de yfinance: `BRK.B` -> `BRK-B`);
-  `cargar_membresias_sp500` lee el JSON; `miembros_en_ventana` lista los miembros en un rango de fechas.
 - `UniversoPuntoEnElTiempo.crear_filtro(datos)` -> `filtro(fecha, datos_recortados) -> datos_filtrados`:
   precalcula (una vez) el panel mensual de cierres y la máscara de membresía y devuelve la función que la
   estrategia usa por fecha (`Estrategia.como_funcion(filtro_universo=...)`). Solo se usan precios de los
   meses completos anteriores a la fecha (t-T-1 .. t-1), de modo que ningún dato con fecha >= t influye
   (se comprueba con `verificar_sin_lookahead`).
+- Las membresías (fuente `universos/sp500_membresias.json`, extracción, ventanas, cobertura y formato de
+  símbolos) NO viven aquí sino en `ypyquant.data.universos`, el único módulo que las conoce; este recibe
+  el diccionario de membresías y solo decide la elegibilidad por fecha.
 
 Cómo se trata cada caso:
 - Entra al índice en t+1: NO es elegible en t. Sale o deslista después de t: SÍ lo es en t.
@@ -31,119 +29,26 @@ Límites de la fuente: antes de 1999 las membresías son incompletas (~140 miemb
 rondan los ~480-520 por fecha. Una empresa que cambió de ticker figura con el ticker vigente; si
 yfinance tiene el histórico bajo ese ticker, el nombre antiguo no se resuelve.
 
-Se relaciona con: ypyquant.optimization.estimacion_robusta.universo (elegibilidad y máscara),
-ypyquant.estrategias.base (`como_funcion(filtro_universo=...)`), .experimentos (`resolver_universo`,
-`ejecutar_con_datos`), .causalidad (prueba de ausencia de look-ahead), universos/sp500_membresias.json
-y scripts/exportar_membresias_sp500.py.
+Se relaciona con: ypyquant.data.universos (membresías y símbolos), ypyquant.optimization.estimacion_robusta.universo
+(elegibilidad y máscara), ypyquant.estrategias.base (`como_funcion(filtro_universo=...)`), .simulacion (lo
+construye con las membresías), .causalidad (prueba de ausencia de look-ahead).
 """
 
 from __future__ import annotations
 
-import json
-import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
+from ypyquant.data.universos import INDICE, Membresias
 from ypyquant.estrategias.base import matriz_cierres
 from ypyquant.optimization.estimacion_robusta.universo import construir_mascara_membresia, elegibles_en_fecha
 
-RAIZ_REPO = Path(__file__).resolve().parents[3]
-RUTA_MEMBRESIAS = RAIZ_REPO / "universos" / "sp500_membresias.json"
-NOMBRE_UNIVERSO_PIT = "sp500_pit"
-INDICE = "SP500"
 MESES_HISTORIA_POR_DEFECTO = 12
 
 # `filtro(fecha, datos_recortados_a_fecha) -> {ticker: OHLCV}` solo con los elegibles en `fecha`
 FiltroUniverso = Callable[[datetime, dict[str, pd.DataFrame]], dict[str, pd.DataFrame]]
-Membresias = Mapping[str, Sequence[Mapping[str, Any]]]
-
-
-def es_universo_pit(universo: Any) -> bool:
-    """True si `universo` es el nombre del universo dinámico (`sp500_pit`)."""
-    return isinstance(universo, str) and universo.partition(":")[0] == NOMBRE_UNIVERSO_PIT
-
-
-# ----------------------------------------------------------------------------
-# Fuente de membresías
-# ----------------------------------------------------------------------------
-
-
-def _fecha_corta(valor: str | None) -> str | None:
-    """`'2010-02-16T00:00:00'` -> `'2010-02-16'` (None se conserva)."""
-    return str(valor)[:10] if valor else None
-
-
-def extraer_membresias_desde_sqlite(ruta_db: str | Path) -> dict[str, list[dict[str, str | None]]]:
-    """
-    Intervalos de pertenencia al S&P 500 de cada ticker leídos de `tickers.index_memberships` (SQLite, solo lectura).
-
-    Devuelve `{ticker: [{"date_added", "date_removed"}]}` ordenado por ticker; solo entradas del índice
-    SP500 y fechas `YYYY-MM-DD`. El ticker se normaliza al formato de yfinance (`.` -> `-`).
-    """
-    conn = sqlite3.connect(f"file:{Path(ruta_db).as_posix()}?mode=ro", uri=True)
-    try:
-        filas = conn.execute("SELECT symbol, index_memberships FROM tickers WHERE index_memberships IS NOT NULL").fetchall()
-    finally:
-        conn.close()
-    membresias: dict[str, list[dict[str, str | None]]] = {}
-    for simbolo, crudo in filas:
-        intervalos = [
-            {"date_added": _fecha_corta(m.get("date_added")), "date_removed": _fecha_corta(m.get("date_removed"))}
-            for m in (json.loads(crudo) if isinstance(crudo, str) else crudo or []) if m.get("index") == INDICE
-        ]
-        if intervalos:
-            membresias[simbolo.replace(".", "-")] = intervalos
-    return dict(sorted(membresias.items()))
-
-
-def cargar_membresias_sp500(ruta: str | Path | None = None) -> dict[str, list[dict[str, str | None]]]:
-    """
-    Membresías del S&P 500 desde `universos/sp500_membresias.json`, en el formato que espera
-    `construir_mascara_membresia` (cada intervalo lleva `index="SP500"`).
-    """
-    ruta = Path(ruta) if ruta else RUTA_MEMBRESIAS
-    if not ruta.is_file():
-        raise FileNotFoundError(
-            f"No existe {ruta}. Genéralo con `uv run python scripts/exportar_membresias_sp500.py` "
-            "(necesita TFM.db; ver la cabecera de ypyquant/estrategias/universo_dinamico.py).")
-    crudo = json.loads(ruta.read_text(encoding="utf-8"))["miembros"]
-    return {t: [{"index": INDICE, **m} for m in intervalos] for t, intervalos in crudo.items()}
-
-
-def _intervalo(m: Mapping[str, Any]) -> tuple[pd.Timestamp, pd.Timestamp]:
-    inicio = pd.Timestamp(m["date_added"]) if m.get("date_added") else pd.Timestamp.min
-    fin = pd.Timestamp(m["date_removed"]) if m.get("date_removed") else pd.Timestamp.max
-    return inicio, fin
-
-
-def miembros_en_ventana(membresias: Membresias, inicio: str | pd.Timestamp, fin: str | pd.Timestamp) -> list[str]:
-    """Tickers (ordenados) que fueron miembros en algún momento de `[inicio, fin]` (intervalos inclusivos)."""
-    inicio, fin = pd.Timestamp(inicio), pd.Timestamp(fin)
-    elegidos = []
-    for ticker, intervalos in membresias.items():
-        if any(i <= fin and f >= inicio for i, f in map(_intervalo, intervalos)):
-            elegidos.append(ticker)
-    return sorted(elegidos)
-
-
-def cobertura_membresias(membresias: Membresias, tickers_con_precio: set[str] | Sequence[str],
-                         fechas: Sequence[str | pd.Timestamp]) -> list[dict[str, Any]]:
-    """
-    Por fecha: cuántos miembros del índice había (`miembros`) y cuántos de ellos tienen precios en la fuente
-    (`con_precio`); `sin_precio` son los que el universo no puede elegir (sesgo de supervivencia residual).
-    """
-    con_precio = set(tickers_con_precio)
-    filas = []
-    for fecha in fechas:
-        miembros = miembros_en_ventana(membresias, fecha, fecha)
-        n_con = sum(1 for t in miembros if t in con_precio)
-        filas.append({"fecha": str(pd.Timestamp(fecha).date()), "miembros": len(miembros), "con_precio": n_con,
-                      "sin_precio": len(miembros) - n_con})
-    return filas
 
 
 # ----------------------------------------------------------------------------

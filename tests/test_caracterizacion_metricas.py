@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ejecutar_experimento
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 
 TICKERS = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
 CASOS = {
@@ -36,7 +36,7 @@ ESPERADO = json.loads((Path(__file__).parent / "datos" / "caracterizacion_metric
 def _ejecutar(nombre: str) -> dict:
     config = ConfiguracionExperimento(universo=TICKERS, fecha_inicio="2020-01-01", fecha_fin="2021-12-31",
                                       **CASOS[nombre])
-    r = ejecutar_experimento(config, CargadorSintetico())
+    r = ejecutar_experimento(config, FuenteSintetica())
     return {nombre: r.metricas,
             nombre + "_n": [len(r.equity), len(r.pesos), len(r.operaciones), float(r.equity.equity.sum()), r.avisos]}
 

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import crear_app
 from app.api.paper import BotControl, ServicioAlpaca
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 
 TICKERS = ["AAA", "BBB", "CCC", "DDD"]
 CONFIG = {"estrategia": "momentum", "parametros": {"top_k": 2}, "universo": TICKERS,
@@ -29,7 +29,7 @@ COMUNES = ("ventana_dias", "peso_maximo", "tasa_libre_riesgo", "estimador_sigma"
 
 
 def _cliente(tmp_path) -> TestClient:
-    app = crear_app(CargadorSintetico(), tmp_path / "exp", ServicioAlpaca(), BotControl(tmp_path / "paper"), cargar_env=False)
+    app = crear_app(FuenteSintetica(), tmp_path / "exp", ServicioAlpaca(), BotControl(tmp_path / "paper"), cargar_env=False)
     return TestClient(app)
 
 

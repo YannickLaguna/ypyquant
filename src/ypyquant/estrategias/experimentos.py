@@ -33,12 +33,14 @@ Responsabilidad:
 Se relaciona con:
 - ypyquant.estrategias.receta (`Receta`, `Entorno`, huella canónica), .registro (clase de estrategia) y .base (adaptador al motor).
 - ypyquant.estrategias.simulacion (`simular`) y .evaluacion (`evaluar`, `reevaluar`): el núcleo de la ejecución.
-- ypyquant.estrategias.precios (cargadores), .almacen (persistencia Parquet + DuckDB),
+- ypyquant.data.fuente_precios y ypyquant.data.fuentes (fuente de precios), .almacen (persistencia Parquet + DuckDB),
   .procedencia (huella de reproducibilidad), .barridos y .validacion_barridos (usan
   `cargar_datos_experimento` y `ejecutar_con_datos`).
 - ypyquant.validacion (Ulcer, Martin, rachas y PSR para métricas y validadores).
 - ypyquant.portfolio.backtest_engine (BacktestEngine, BacktestConfig) y .performance_metrics.
-- universos/*.txt (listas de tickers por nombre) y .universo_dinamico (`sp500_pit`, membresías históricas).
+- ypyquant.data.universos (resolución de universos y membresías; aquí se re-exportan `resolver_universo`, `listar_universos`
+  y `es_universo_pit`) y .universo_dinamico (elegibilidad point-in-time de `sp500_pit`).
+- ypyquant.data.fuente_precios (`FuentePrecios`: `cargar_datos_experimento` la acepta o envuelve un callable suelto).
 - app/api (lanza y consulta experimentos).
 """
 
@@ -50,31 +52,26 @@ import math
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from pydantic import Field, ValidationError, field_validator, model_validator
 
+from ypyquant.data.fuente_precios import Deslistado, FuentePrecios, como_fuente
 from ypyquant.data.matriz_precios import CargadorPrecios
-from ypyquant.estrategias.receta import Frecuencia, Receta, huella_de  # noqa: F401 - Frecuencia se reexporta
-from ypyquant.estrategias.universo_dinamico import (
-    NOMBRE_UNIVERSO_PIT,
-    RUTA_MEMBRESIAS,
-    cargar_membresias_sp500,
-    cobertura_membresias,
+from ypyquant.data.universos import (  # noqa: F401 - re-exportados: configuraciones, marcos, la API y los tests los importan de aquí
+    aviso_cobertura_pit,
     es_universo_pit,
-    miembros_en_ventana,
+    listar_universos,
+    resolver_universo,
 )
+from ypyquant.estrategias.receta import Frecuencia, Receta, huella_de  # noqa: F401 - Frecuencia se reexporta
 from ypyquant.validacion import prueba_rachas, sharpe_probabilistico
 
 logger = logging.getLogger(__name__)
 
-RAIZ_REPO = Path(__file__).resolve().parents[3]
-CARPETA_UNIVERSOS = RAIZ_REPO / "universos"
 DIAS_ANIO = 252
-DIAS_PRECIO_CADUCADO = 5  # días sin cotizar antes de la venta a partir de los cuales se avisa de la liquidación
 MAX_COMBINACIONES_REJILLA = 500
 
 
@@ -202,89 +199,33 @@ def _validador_psr(resultado: ResultadoExperimento) -> dict[str, Any]:
 # ----------------------------------------------------------------------------
 
 
-def resolver_universo(universo: list[str] | str, carpeta: Path | None = None,
-                      inicio: str | None = None, fin: str | None = None) -> list[str]:
+def _cargar_precios(simbolos: list[str], inicio: str, fin: str, fuente: FuentePrecios,
+                    ) -> tuple[dict[str, pd.DataFrame], dict[str, Deslistado]]:
     """
-    Lista de tickers desde una lista explícita o un nombre de `universos/` (`'sp500'`, `'sp500:30'`).
+    Carga los OHLCV ajustados en paralelo y los deslistados que declara la fuente.
 
-    Las líneas vacías y las que empiezan por `#` se ignoran. Lanza `ValueError` si el universo no existe.
-
-    `'sp500_pit'` es el universo DINÁMICO point-in-time: devuelve todos los tickers que fueron miembros
-    del S&P 500 en algún momento de `[inicio, fin]` (sin ventana, todos los históricos). Cuáles son
-    elegibles en cada fecha lo decide `UniversoPuntoEnElTiempo` durante la simulación. No admite `:N`.
+    Los símbolos sin datos se omiten (se avisa en el log). Los deslistados se consultan DESPUÉS de cargar la
+    serie, porque un adaptador que los infiere (yfinance) lo hace con lo que acaba de leer.
     """
-    if isinstance(universo, list):
-        return universo
-    if es_universo_pit(universo):
-        if ":" in universo:
-            raise ValueError(f"El universo '{NOMBRE_UNIVERSO_PIT}' no admite límite de tickers (':N')")
-        return miembros_en_ventana(cargar_membresias_sp500(), inicio or "1900-01-01", fin or "2999-12-31")
-    nombre, _, limite = universo.partition(":")
-    ruta = (carpeta or CARPETA_UNIVERSOS) / f"{nombre}.txt"
-    if not ruta.is_file():
-        raise ValueError(f"Universo '{nombre}' no encontrado en {ruta.parent}")
-    tickers = [
-        linea.strip().upper() for linea in ruta.read_text(encoding="utf-8").splitlines()
-        if linea.strip() and not linea.lstrip().startswith("#")
-    ]
-    return tickers[: int(limite)] if limite else tickers
 
-
-def listar_universos(carpeta: Path | None = None) -> list[dict[str, Any]]:
-    """
-    Universos disponibles: `[{nombre, n_tickers, dinamico}]`.
-
-    `dinamico=True` marca `sp500_pit` (membresía del índice en cada fecha; `n_tickers` = miembros históricos);
-    se añade al final si existe `universos/sp500_membresias.json`.
-    """
-    carpeta = carpeta or CARPETA_UNIVERSOS
-    universos = [{"nombre": ruta.stem, "n_tickers": len(resolver_universo(ruta.stem, carpeta)), "dinamico": False}
-                 for ruta in sorted(carpeta.glob("*.txt"))]
-    if RUTA_MEMBRESIAS.is_file():
-        universos.append({"nombre": NOMBRE_UNIVERSO_PIT, "n_tickers": len(resolver_universo(NOMBRE_UNIVERSO_PIT)),
-                          "dinamico": True})
-    return universos
-
-
-def _cargar_precios(tickers: list[str], inicio: str, fin: str, cargador: CargadorPrecios) -> dict[str, pd.DataFrame]:
-    """Carga los OHLCV en paralelo; los tickers sin datos se omiten (se avisa en el log)."""
-
-    def cargar(ticker: str):
+    def cargar(simbolo: str):
         try:
-            return ticker, cargador(ticker, inicio, fin)
+            return simbolo, fuente.ohlcv(simbolo, inicio, fin), fuente.deslistado(simbolo)
         except Exception as error:  # noqa: BLE001 - un ticker roto no aborta el experimento
-            logger.warning("No se pudo cargar %s: %s", ticker, error)
-            return ticker, None
+            logger.warning("No se pudo cargar %s: %s", simbolo, error)
+            return simbolo, None, None
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        resultados = list(pool.map(cargar, tickers))
-    datos = {}
-    for ticker, df in resultados:
+        resultados = list(pool.map(cargar, simbolos))
+    datos, deslistados = {}, {}
+    for simbolo, df, deslistado in resultados:
         if df is None or df.empty:
-            logger.warning("Sin datos para %s; se omite", ticker)
-        else:
-            datos[ticker] = df
-    return datos
-
-
-def _aviso_cobertura_pit(config: ConfiguracionExperimento, tickers_con_precio: set[str]) -> str:
-    """
-    Aviso de sesgo residual del universo `sp500_pit`: miembros históricos del periodo sin precios en la fuente.
-
-    Los deslistados que yfinance ya no sirve no pueden elegirse aunque fueran miembros; el sesgo de
-    supervivencia se reduce pero no desaparece. Se resume la cobertura al inicio, a mitad y al final.
-    """
-    membresias = cargar_membresias_sp500()
-    historicos = miembros_en_ventana(membresias, config.fecha_inicio, config.fecha_fin)
-    sin_precio = [t for t in historicos if t not in tickers_con_precio]
-    inicio, fin = pd.Timestamp(config.fecha_inicio), pd.Timestamp(config.fecha_fin)
-    fechas = [inicio, inicio + (fin - inicio) / 2, fin]
-    cobertura = cobertura_membresias(membresias, tickers_con_precio, fechas)
-    detalle = ", ".join(f"{c['fecha']}: {c['con_precio']}/{c['miembros']}" for c in cobertura)
-    return (f"Universo {NOMBRE_UNIVERSO_PIT}: {len(sin_precio)} de {len(historicos)} miembros históricos del S&P 500 "
-            f"entre {config.fecha_inicio} y {config.fecha_fin} no tienen precios en la fuente (típicamente deslistados) "
-            f"y no pueden elegirse: el sesgo de supervivencia se reduce pero no desaparece. "
-            f"Miembros con precio / miembros del índice: {detalle}.")
+            logger.warning("Sin datos para %s; se omite", simbolo)
+            continue
+        datos[simbolo] = df
+        if deslistado is not None:
+            deslistados[simbolo] = deslistado
+    return datos, deslistados
 
 
 # ----------------------------------------------------------------------------
@@ -322,17 +263,24 @@ class DatosExperimento:
     benchmark: OHLCV del `ticker_benchmark` (None si no hubo datos). Los tests de permutación
         permutan `precios` pero dejan el benchmark intacto.
     avisos: avisos de la carga (tickers sin datos...).
+    deslistados: `{ticker: Deslistado}` que declara la fuente de precios (explícitos si la fuente los
+        sabe, inferidos si no). None = datos construidos sin fuente: `simular` los infiere de los precios.
     """
 
     precios: dict[str, pd.DataFrame]
     benchmark: pd.DataFrame | None
     ticker_benchmark: str
     avisos: list[str] = field(default_factory=list)
+    deslistados: dict[str, Deslistado] | None = None
 
 
-def cargar_datos_experimento(config: ConfiguracionExperimento, cargador_precios: CargadorPrecios) -> DatosExperimento:
+def cargar_datos_experimento(config: ConfiguracionExperimento,
+                             cargador_precios: FuentePrecios | CargadorPrecios) -> DatosExperimento:
     """
     Carga los precios del universo (con `dias_historia_previa` antes de `fecha_inicio`) y el benchmark.
+
+    `cargador_precios` es una `FuentePrecios` o, por compatibilidad, un callable `(ticker, inicio, fin)`
+    (se envuelve con `como_fuente`). Recoge además los deslistados que declara la fuente.
 
     Lanza `RuntimeError` si no hay precios de ningún ticker. No simula nada: el resultado se pasa
     a `ejecutar_con_datos` (varias veces si se quiere, p. ej. un barrido o una permutación).
@@ -340,18 +288,19 @@ def cargar_datos_experimento(config: ConfiguracionExperimento, cargador_precios:
     config = config.normalizada()
     tickers = resolver_universo(config.universo, inicio=config.fecha_inicio, fin=config.fecha_fin)
     inicio_carga = (pd.Timestamp(config.fecha_inicio) - pd.Timedelta(days=config.dias_historia_previa)).strftime("%Y-%m-%d")
-    precios = _cargar_precios(tickers, inicio_carga, config.fecha_fin, cargador_precios)
+    fuente = como_fuente(cargador_precios)
+    precios, deslistados = _cargar_precios(tickers, inicio_carga, config.fecha_fin, fuente)
     if not precios:
         raise RuntimeError("No hay precios para ningún ticker del universo (¿sin red y sin caché?)")
     if es_universo_pit(config.universo):
-        avisos = [_aviso_cobertura_pit(config, set(precios))]  # cientos de deslistados: un resumen, no un aviso por ticker
+        avisos = [aviso_cobertura_pit(config.fecha_inicio, config.fecha_fin, set(precios))]  # cientos de deslistados: un resumen, no un aviso por ticker
     else:
         avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
-    datos_bench = _cargar_precios([config.benchmark], inicio_carga, config.fecha_fin, cargador_precios)
+    datos_bench, _ = _cargar_precios([config.benchmark], inicio_carga, config.fecha_fin, fuente)
     benchmark = datos_bench.get(config.benchmark)
     if benchmark is None:
         avisos.append(f"Sin datos del benchmark {config.benchmark}")
-    return DatosExperimento(precios, benchmark, config.benchmark, avisos)
+    return DatosExperimento(precios, benchmark, config.benchmark, avisos, deslistados)
 
 
 def ejecutar_con_datos(config: ConfiguracionExperimento, datos: DatosExperimento,

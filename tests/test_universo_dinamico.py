@@ -33,14 +33,14 @@ from ypyquant.estrategias.experimentos import (
     listar_universos,
     resolver_universo,
 )
-from ypyquant.estrategias.precios import CargadorSintetico
-from ypyquant.estrategias.universo_dinamico import (
+from ypyquant.data.fuentes import FuenteSintetica
+from ypyquant.data.universos import (
     NOMBRE_UNIVERSO_PIT,
-    UniversoPuntoEnElTiempo,
     cargar_membresias_sp500,
     extraer_membresias_desde_sqlite,
     miembros_en_ventana,
 )
+from ypyquant.estrategias.universo_dinamico import UniversoPuntoEnElTiempo
 
 FECHAS = pd.bdate_range("2017-01-02", "2021-12-31")
 T = pd.Timestamp("2020-06-30")  # fecha de rebalanceo de las pruebas
@@ -247,11 +247,11 @@ def test_la_huella_de_experimentos_con_universo_fijo_no_cambia_y_la_pit_es_disti
 @pytest.fixture
 def con_membresias_de_prueba(monkeypatch, membresias):
     """Sustituye la fuente de membresías por la de prueba (más un miembro sin precios, FFF)."""
-    from ypyquant.estrategias import experimentos
+    from ypyquant.data import universos
 
     completas = {t: [{"index": "SP500", **m} for m in intervalos]
                  for t, intervalos in {**membresias, "FFF": _intervalo("2015-01-01", None)}.items()}
-    monkeypatch.setattr(experimentos, "cargar_membresias_sp500", lambda: completas)
+    monkeypatch.setattr(universos, "cargar_membresias_sp500", lambda: completas)
     return completas
 
 
@@ -294,8 +294,8 @@ def test_ejecutar_experimento_completo_con_universo_pit(con_membresias_de_prueba
     """Camino completo (carga con el cargador sintético, métricas, procedencia) con universo `sp500_pit`."""
     config = ConfiguracionExperimento(estrategia="momentum", parametros={"top_k": 1, "meses_retorno": 6},
                                       universo=NOMBRE_UNIVERSO_PIT, fecha_inicio="2020-01-02", fecha_fin="2020-12-31")
-    datos_carga = cargar_datos_experimento(config, CargadorSintetico())
+    datos_carga = cargar_datos_experimento(config, FuenteSintetica())
     assert set(datos_carga.precios) == {"AAA", "BBB", "CCC", "DDD", "FFF"}  # el sintético sirve precios a todos
-    resultado = ejecutar_experimento(config, CargadorSintetico())
+    resultado = ejecutar_experimento(config, FuenteSintetica())
     assert resultado.metricas["n_rebalanceos"] >= 10
     assert sum(a.startswith("Universo sp500_pit") for a in resultado.avisos) == 1

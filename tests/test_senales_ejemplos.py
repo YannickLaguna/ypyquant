@@ -19,7 +19,7 @@ from ypyquant.estrategias import registro
 from ypyquant.estrategias.causalidad import verificar_sin_lookahead
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
 from ypyquant.estrategias.marcos import MarcoComparacion, aplicar_marco
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.senales import TICKER_EFECTIVO, EstrategiaSenales
 
 # ---- 2.4 integración con el motor y el registro -------------------------------------------------------
@@ -35,7 +35,7 @@ def _config(estrategia, **cambios) -> ConfiguracionExperimento:
 
 def test_cruce_medias_corre_con_el_motor_y_devuelve_metricas_y_pesos_con_efectivo():
     config = _config("cruce_medias", parametros={"rapida": 10, "lenta": 40, "stop_perdida": 0.1})
-    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, CargadorSintetico()))
+    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica()))
     assert resultado.metricas["costes_sobre_ganancia_bruta"] is not None
     assert resultado.metricas["n_rebalanceos"] > 100
     assert not resultado.equity.empty and resultado.equity["equity"].iloc[-1] > 0
@@ -47,7 +47,7 @@ def test_cruce_medias_corre_con_el_motor_y_devuelve_metricas_y_pesos_con_efectiv
 
 def test_las_estrategias_sin_senales_no_ganan_columna_motivo():
     config = _config("pesos_iguales")
-    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, CargadorSintetico()))
+    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica()))
     assert "motivo" not in resultado.operaciones.columns
 
 
@@ -57,7 +57,7 @@ def test_una_rejilla_rapida_por_lenta_corre_con_celdas_omitidas():
     configs, omitidas = expandir_rejilla_con_omitidas(
         _config("cruce_medias"), {"rapida": [10, 50], "lenta": [30, 60], "stop_perdida": [None, 0.1]})
     assert len(configs) == 6 and len(omitidas) == 2      # (50, 30) viola rapida < lenta, con y sin stop
-    datos = cargar_datos_experimento(configs[0], CargadorSintetico())
+    datos = cargar_datos_experimento(configs[0], FuenteSintetica())
     resultados = [ejecutar_con_datos(c, datos, completo=False) for c in configs]
     assert all(r.metricas["n_rebalanceos"] > 100 for r in resultados)
 
@@ -148,7 +148,7 @@ def test_una_estrategia_de_senales_se_lanza_en_un_marco_como_las_demas():
     config, informe = aplicar_marco(marco, "cruce_medias", {"rapida": 10, "lenta": 40})
     assert config.frecuencia_rebalanceo == "weekly"
     assert informe.no_aplicados == ["estimador_sigma"]          # no lo declara: se informa, no se rompe
-    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, CargadorSintetico()))
+    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica()))
     assert resultado.metricas["n_rebalanceos"] > 50
 
 
@@ -171,7 +171,7 @@ def test_el_almacen_mezcla_operaciones_con_motivo_y_sin_el_en_las_consultas_sql(
     for estrategia, parametros in (("cruce_medias", {"rapida": 10, "lenta": 40}), ("pesos_iguales", {})):
         config = _config(estrategia, parametros=parametros)
         id_experimento = almacen.registrar(config)
-        almacen.guardar(id_experimento, ejecutar_con_datos(config, cargar_datos_experimento(config, CargadorSintetico())))
+        almacen.guardar(id_experimento, ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica())))
         ids.append(id_experimento)
     tabla = almacen.ejecutar_sql("SELECT id, motivo, COUNT(*) AS n FROM operaciones GROUP BY id, motivo")
     assert set(tabla["id"]) == set(ids)                                      # ambos experimentos aparecen

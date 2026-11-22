@@ -36,7 +36,7 @@ from ypyquant.estrategias.experimentos import (
     ejecutar_con_datos,
     ejecutar_experimento,
 )
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.registro import registrar_estrategia
 from ypyquant.estrategias.simulacion import Simulacion, simular, simulacion_desde_tablas
 
@@ -55,7 +55,7 @@ def _config_michaud(semilla: int) -> ConfiguracionExperimento:
 
 @pytest.fixture(scope="module")
 def datos():
-    return cargar_datos_experimento(_config(), CargadorSintetico())
+    return cargar_datos_experimento(_config(), FuenteSintetica())
 
 
 # ---- interfaz ----------------------------------------------------------------
@@ -228,7 +228,7 @@ def test_estrategia_de_usuario_con_azar_usa_generador_propio_y_es_reproducible(d
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             assert list(pool.map(correr, configs)) == en_serie
-        assert ejecutar_experimento(configs[0], CargadorSintetico()).metricas == en_serie[0]
+        assert ejecutar_experimento(configs[0], FuenteSintetica()).metricas == en_serie[0]
         assert en_serie[0] != en_serie[1]
     finally:
         from ypyquant.estrategias import registro

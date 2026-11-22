@@ -1,9 +1,11 @@
 """
-precios.py — Descarga de precios históricos de cierre ajustado (yfinance).
+precios.py — Precios históricos de cierre ajustado para el bot, desde la MISMA fuente que el motor.
 
 Responsabilidad:
     Devolver un DataFrame fecha x ticker con los cierres, formato que esperan los
-    generadores de señales de ypyquant. Necesita red (extra `trading`).
+    generadores de señales de ypyquant. Los datos salen de `FuentePrecios` (por defecto
+    `fuente_por_defecto()`: yfinance con caché Parquet, la que usan los backtests de la API), así que el bot y
+    el backtest ven los mismos precios; ya no hay un `yf.download` propio. Sin caché ni red devuelve vacío.
 
     También decide CUÁNTA historia descargar: `dias_naturales_para_sesiones` convierte las sesiones que
     declara una estrategia (`Estrategia.sesiones_necesarias`) en días naturales, `resolver_dias_historico`
@@ -13,15 +15,20 @@ Responsabilidad:
 
 Se relaciona con:
     - alpaca_vivo.py y backtest.py: lo usan para alimentar el combinador de señales y el modo registro.
+    - ypyquant.data.fuente_precios y ypyquant.data.fuentes (la fuente de precios compartida con la API).
     - ypyquant.estrategias.base: `Estrategia.sesiones_necesarias` y `MARGEN_SESIONES`.
     - config.py: `ConfiguracionServicio.dias_historico` (mínimo configurado).
 """
 
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import pandas as pd
+
+from ypyquant.data.fuente_precios import FuentePrecios
+from ypyquant.data.fuentes import fuente_por_defecto
 
 logger = logging.getLogger(__name__)
 
@@ -82,29 +89,34 @@ def avisar_historia_insuficiente(precios: pd.DataFrame, sesiones_necesarias: int
     return True
 
 
-def descargar_precios(tickers: list[str], dias_historico: int = 252) -> pd.DataFrame:
-    """Descarga cierres ajustados de los últimos `dias_historico` días (más margen por festivos).
+def descargar_precios(tickers: list[str], dias_historico: int = 252, fuente: FuentePrecios | None = None) -> pd.DataFrame:
+    """Cierres ajustados de los últimos `dias_historico` días (más margen por festivos) hasta AYER, de la fuente de precios.
 
-    Devuelve un DataFrame vacío si falla la descarga.
+    `fuente` por defecto es `fuente_por_defecto()` (la misma que el motor de backtests). El día en curso queda
+    fuera: su barra está incompleta mientras el mercado está abierto. Devuelve un DataFrame vacío si no hay datos
+    de ningún ticker; los tickers sin datos se omiten con un aviso.
     """
-    import yfinance as yf
+    fuente = fuente or fuente_por_defecto()
+    hoy = datetime.now()
+    inicio = (hoy - timedelta(days=dias_historico + 10)).strftime("%Y-%m-%d")
+    fin = (hoy - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    fin = datetime.now()
-    inicio = fin - timedelta(days=dias_historico + 10)
-    try:
-        crudo = yf.download(
-            tickers, start=inicio.strftime("%Y-%m-%d"), end=fin.strftime("%Y-%m-%d"),
-            auto_adjust=True, progress=False,
-        )
-        if crudo.empty:
-            return pd.DataFrame()
-        if len(tickers) == 1:
-            precios = crudo[["Close"]].rename(columns={"Close": tickers[0]})
-        else:
-            precios = crudo["Close"] if "Close" in crudo.columns else crudo.xs("Close", axis=1, level=0)
-        precios = precios.dropna(how="all")
-        logger.info("Precios descargados: %d días x %d tickers", precios.shape[0], precios.shape[1])
-        return precios
-    except Exception as e:
-        logger.error("Error descargando precios: %s", e)
+    def cargar(ticker: str) -> pd.Series | None:
+        try:
+            df = fuente.ohlcv(ticker, inicio, fin, "ajustado")
+        except Exception as e:  # noqa: BLE001 - un ticker roto no debe tumbar la descarga de los demás
+            logger.error("Error obteniendo precios de %s: %s", ticker, e)
+            return None
+        return None if df is None or df.empty else df["adjusted_close"].rename(ticker)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        series = list(pool.map(cargar, tickers))
+    obtenidas = [serie for serie in series if serie is not None]
+    for ticker, serie in zip(tickers, series, strict=True):
+        if serie is None:
+            logger.warning("Sin precios de %s; se omite", ticker)
+    if not obtenidas:
         return pd.DataFrame()
+    precios = pd.concat(obtenidas, axis=1).dropna(how="all")
+    logger.info("Precios cargados: %d días x %d tickers", precios.shape[0], precios.shape[1])
+    return precios

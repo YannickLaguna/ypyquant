@@ -18,7 +18,7 @@ from ypyquant.estrategias.barridos import AlmacenBarridos, ConfiguracionBarrido
 from ypyquant.estrategias.configuraciones import ConfiguracionGuardada
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.marcos import AlmacenMarcos, MarcoComparacion
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.servicio_experimentos import Lanzamiento, ServicioExperimentos
 
 TICKERS = ["AAA", "BBB", "CCC", "DDD"]
@@ -51,7 +51,7 @@ class CargadorQueFalla:
 
 def _servicio(tmp_path, ejecutor=None, cargador=None) -> ServicioExperimentos:
     almacen = AlmacenExperimentos(tmp_path / "experimentos")
-    return ServicioExperimentos(almacen, cargador or CargadorSintetico(), ejecutor or EjecutorSincrono(),
+    return ServicioExperimentos(almacen, cargador or FuenteSintetica(), ejecutor or EjecutorSincrono(),
                                 AlmacenBarridos(tmp_path / "barridos", almacen), AlmacenMarcos(tmp_path / "marcos"))
 
 

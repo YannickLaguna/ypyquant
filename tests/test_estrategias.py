@@ -22,7 +22,7 @@ from ypyquant.estrategias.experimentos import (
     registrar_validador,
     resolver_universo,
 )
-from ypyquant.estrategias.precios import CargadorPreciosCache, CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica, FuenteYFinanceCache
 
 TICKERS = ["AAA", "BBB", "CCC", "DDD", "EEE"]
 
@@ -107,7 +107,7 @@ def test_estrategia_de_ejemplo_del_repo_se_descubre():
 
 
 def test_adaptador_recorta_datos_sin_lookahead_y_sanea_pesos():
-    datos = {t: CargadorSintetico()(t, "2020-01-01", "2020-12-31") for t in TICKERS[:2]}
+    datos = {t: FuenteSintetica()(t, "2020-01-01", "2020-12-31") for t in TICKERS[:2]}
     recibidos = []
 
     class Espia(Estrategia):
@@ -165,7 +165,7 @@ def test_resolver_universo_por_nombre(tmp_path):
 
 @pytest.mark.parametrize("estrategia", ["pesos_iguales", "momentum", "bayes_stein", "bl_prior", "inversa_volatilidad"])
 def test_ejecutar_experimento_produce_metricas_y_series(estrategia):
-    resultado = ejecutar_experimento(_config(estrategia=estrategia), CargadorSintetico())
+    resultado = ejecutar_experimento(_config(estrategia=estrategia), FuenteSintetica())
     m = resultado.metricas
     for clave in ("sharpe", "sortino", "calmar", "max_drawdown", "volatilidad", "turnover_anual", "alfa", "beta", "cagr"):
         assert clave in m and m[clave] is not None
@@ -177,8 +177,8 @@ def test_ejecutar_experimento_produce_metricas_y_series(estrategia):
 
 
 def test_ejecutar_experimento_es_reproducible():
-    a = ejecutar_experimento(_config(estrategia="michaud", parametros={"n_replicas": 8}, semilla=3), CargadorSintetico())
-    b = ejecutar_experimento(_config(estrategia="michaud", parametros={"n_replicas": 8}, semilla=3), CargadorSintetico())
+    a = ejecutar_experimento(_config(estrategia="michaud", parametros={"n_replicas": 8}, semilla=3), FuenteSintetica())
+    b = ejecutar_experimento(_config(estrategia="michaud", parametros={"n_replicas": 8}, semilla=3), FuenteSintetica())
     # Misma semilla → mismas réplicas; el solver (OSQP/BLAS multihilo) puede variar en el
     # último bit, así que se compara con tolerancia relativa 1e-9 y no bit a bit.
     assert a.metricas.keys() == b.metricas.keys()
@@ -191,14 +191,14 @@ def test_ejecutar_experimento_es_reproducible():
 
 def test_michaud_cambia_con_la_semilla():
     base = {"estrategia": "michaud", "parametros": {"n_replicas": 8}}
-    a = ejecutar_experimento(_config(**base, semilla=1), CargadorSintetico())
-    b = ejecutar_experimento(_config(**base, semilla=2), CargadorSintetico())
+    a = ejecutar_experimento(_config(**base, semilla=1), FuenteSintetica())
+    b = ejecutar_experimento(_config(**base, semilla=2), FuenteSintetica())
     assert a.metricas["sharpe"] != b.metricas["sharpe"]
 
 
 def test_preset_ypyquant_envuelve_un_preset():
     config = _config(estrategia="preset_ypyquant", parametros={"preset": "markowitz", "tasa_libre_riesgo": 0.0})
-    assert ejecutar_experimento(config, CargadorSintetico()).metricas["n_rebalanceos"] > 5
+    assert ejecutar_experimento(config, FuenteSintetica()).metricas["n_rebalanceos"] > 5
 
 
 def test_experimento_sin_precios_falla_con_mensaje_claro():
@@ -215,16 +215,16 @@ def test_estrategia_que_siempre_falla_aborta_con_su_error(registro_limpio):
 
     registro.registrar_estrategia(Rota)
     with pytest.raises(RuntimeError, match="kaput"):
-        ejecutar_experimento(_config(estrategia="rota_prueba"), CargadorSintetico())
+        ejecutar_experimento(_config(estrategia="rota_prueba"), FuenteSintetica())
 
 
 def test_validador_registrado_se_ejecuta_y_queda_en_metricas():
     registrar_validador("prueba")(lambda resultado: {"n_dias": len(resultado.equity)})
     try:
-        r = ejecutar_experimento(_config(validaciones=["prueba"]), CargadorSintetico())
+        r = ejecutar_experimento(_config(validaciones=["prueba"]), FuenteSintetica())
         assert r.metricas["validacion"]["prueba"]["n_dias"] == len(r.equity)
         with pytest.raises(ValueError, match="no registrado"):
-            ejecutar_experimento(_config(validaciones=["inexistente"]), CargadorSintetico())
+            ejecutar_experimento(_config(validaciones=["inexistente"]), FuenteSintetica())
     finally:
         VALIDADORES.pop("prueba", None)
 
@@ -277,7 +277,7 @@ def test_almacen_ciclo_completo_y_comparacion(tmp_path):
         id_exp = almacen.registrar(config)
         assert almacen.listar(estado="pendiente")[0]["id"] == id_exp
         almacen.marcar_estado(id_exp, "en_curso")
-        almacen.guardar(id_exp, ejecutar_experimento(config, CargadorSintetico()))
+        almacen.guardar(id_exp, ejecutar_experimento(config, FuenteSintetica()))
         ids.append(id_exp)
 
     for id_exp in ids:
@@ -328,10 +328,10 @@ def test_almacen_error_traza_e_interrumpidos(tmp_path):
 
 def test_cargador_cache_usa_parquet_y_no_vuelve_a_descargar(tmp_path, monkeypatch):
     llamadas = []
-    sintetico = CargadorSintetico()
-    cargador = CargadorPreciosCache(tmp_path)
+    sintetico = FuenteSintetica()
+    cargador = FuenteYFinanceCache(tmp_path)
 
-    def falso_descargar(ticker, inicio, fin):
+    def falso_descargar(ticker, inicio, fin, ajuste="ajustado"):
         llamadas.append((ticker, inicio, fin))
         return sintetico(ticker, inicio, fin)
 
@@ -342,7 +342,7 @@ def test_cargador_cache_usa_parquet_y_no_vuelve_a_descargar(tmp_path, monkeypatc
     cargador("AAA", "2019-01-01", "2020-12-31")  # rango ampliado: nueva descarga de la unión
     assert len(llamadas) == 2
 
-    sin_red = CargadorPreciosCache(tmp_path, descargar=False)
+    sin_red = FuenteYFinanceCache(tmp_path, descargar=False)
     assert sin_red("ZZZ", "2020-01-01", "2020-12-31") is None
     assert not sin_red("AAA", "2019-06-01", "2020-12-31").empty
 
@@ -351,9 +351,9 @@ def test_cargador_cache_usa_parquet_y_no_vuelve_a_descargar(tmp_path, monkeypatc
 def test_estrategias_tfm_con_volatilidad_objetivo(estrategia):
     # El toggle de la UI: con volatilidad_objetivo > 0 la cartera se optimiza a esa σ (no max-Sharpe)
     extra = {"n_replicas": 6} if estrategia == "michaud" else {}
-    base = ejecutar_experimento(_config(estrategia=estrategia, parametros=extra), CargadorSintetico())
+    base = ejecutar_experimento(_config(estrategia=estrategia, parametros=extra), FuenteSintetica())
     fija = ejecutar_experimento(
-        _config(estrategia=estrategia, parametros={**extra, "volatilidad_objetivo": 0.08}), CargadorSintetico()
+        _config(estrategia=estrategia, parametros={**extra, "volatilidad_objetivo": 0.08}), FuenteSintetica()
     )
     assert fija.metricas["n_rebalanceos"] == base.metricas["n_rebalanceos"] > 0
     assert not fija.pesos.empty
@@ -365,10 +365,10 @@ def test_estrategias_tfm_con_volatilidad_objetivo(estrategia):
 
 def test_cargar_y_ejecutar_con_datos_equivale_a_ejecutar_experimento():
     config = _config(estrategia="momentum")
-    datos = cargar_datos_experimento(config, CargadorSintetico())
+    datos = cargar_datos_experimento(config, FuenteSintetica())
     assert set(datos.precios) == set(TICKERS) and datos.benchmark is not None
     separado = ejecutar_con_datos(config, datos)
-    junto = ejecutar_experimento(config, CargadorSintetico())
+    junto = ejecutar_experimento(config, FuenteSintetica())
     assert separado.metricas == junto.metricas
     pd.testing.assert_frame_equal(separado.equity, junto.equity)
     # con completo=False no hay procedencia ni validadores
@@ -377,12 +377,12 @@ def test_cargar_y_ejecutar_con_datos_equivale_a_ejecutar_experimento():
 
 def test_procedencia_completa_y_hash_estable():
     config = _config()
-    a, b = ejecutar_experimento(config, CargadorSintetico()), ejecutar_experimento(config, CargadorSintetico())
+    a, b = ejecutar_experimento(config, FuenteSintetica()), ejecutar_experimento(config, FuenteSintetica())
     for clave in ("commit", "arbol_sucio", "version_ypyquant", "python", "numpy", "pandas", "cvxpy",
                   "hash_precios", "ejecutado"):
         assert clave in a.procedencia
     assert len(a.procedencia["hash_precios"]) == 64 and a.procedencia["hash_precios"] == b.procedencia["hash_precios"]
-    otro = ejecutar_experimento(_config(universo=TICKERS[:3]), CargadorSintetico())
+    otro = ejecutar_experimento(_config(universo=TICKERS[:3]), FuenteSintetica())
     assert otro.procedencia["hash_precios"] != a.procedencia["hash_precios"]
 
 
@@ -401,13 +401,13 @@ def test_almacen_guarda_y_devuelve_la_procedencia(tmp_path):
     almacen = AlmacenExperimentos(tmp_path)
     config = _config().normalizada()
     id_exp = almacen.registrar(config)
-    almacen.guardar(id_exp, ejecutar_experimento(config, CargadorSintetico()))
+    almacen.guardar(id_exp, ejecutar_experimento(config, FuenteSintetica()))
     assert (tmp_path / id_exp / "procedencia.json").exists()
     assert len(almacen.leer(id_exp)["procedencia"]["hash_precios"]) == 64
 
 
 def test_metricas_ulcer_martin_y_costes_sobre_ganancia_bruta():
-    m = ejecutar_experimento(_config(estrategia="momentum"), CargadorSintetico()).metricas
+    m = ejecutar_experimento(_config(estrategia="momentum"), FuenteSintetica()).metricas
     assert m["ulcer"] > 0 and "martin" in m
     bruta = m["capital_final"] - 100_000.0 + m["comisiones_totales"]
     if bruta > 0:
@@ -415,12 +415,12 @@ def test_metricas_ulcer_martin_y_costes_sobre_ganancia_bruta():
     else:
         assert m["costes_sobre_ganancia_bruta"] is None
     # sin ganancia bruta positiva (comisión enorme sobre una cartera que opera) queda indefinido
-    caro = ejecutar_experimento(_config(estrategia="momentum", comision=0.1, slippage=0.1), CargadorSintetico()).metricas
+    caro = ejecutar_experimento(_config(estrategia="momentum", comision=0.1, slippage=0.1), FuenteSintetica()).metricas
     assert caro["costes_sobre_ganancia_bruta"] is None or caro["costes_sobre_ganancia_bruta"] > 0.5
 
 
 def test_validadores_rachas_y_psr_vienen_registrados():
     assert {"rachas", "psr"} <= set(VALIDADORES)
-    r = ejecutar_experimento(_config(validaciones=["rachas", "psr"]), CargadorSintetico())
+    r = ejecutar_experimento(_config(validaciones=["rachas", "psr"]), FuenteSintetica())
     assert r.metricas["validacion"]["rachas"]["rachas"] > 10
     assert 0.0 <= r.metricas["validacion"]["psr"]["psr"] <= 1.0

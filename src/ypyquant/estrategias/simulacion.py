@@ -22,7 +22,9 @@ Se relaciona con:
   compone `simular` -> `evaluar`) y .evaluacion (consume la `Simulacion`).
 - ypyquant.estrategias.base (`Estrategia`, adaptador al motor) y .procedencia (hash de los datos).
 - ypyquant.portfolio.backtest_engine (motor) y ypyquant.execution.ejecutor (plan de órdenes).
-- ypyquant.estrategias.universo_dinamico (filtro point-in-time).
+- ypyquant.estrategias.universo_dinamico (filtro point-in-time) y ypyquant.data.universos (membresías, cobertura).
+- ypyquant.data.fuente_precios: los deslistados (fecha y motivo) los aporta la fuente vía `DatosExperimento.deslistados`;
+  sin ellos se infieren de los precios, como siempre.
 """
 
 from __future__ import annotations
@@ -33,22 +35,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ypyquant.data import universos
+from ypyquant.data.fuente_precios import DIAS_PRECIO_CADUCADO, Deslistado, inferir_deslistado
 from ypyquant.data.matriz_precios import extraer_serie_precios
-from ypyquant.estrategias import experimentos
+from ypyquant.data.universos import aviso_cobertura_pit, es_universo_pit, resolver_universo
 from ypyquant.estrategias.base import recortar_hasta
-from ypyquant.estrategias.experimentos import (
-    DIAS_PRECIO_CADUCADO,
-    ConfiguracionExperimento,
-    DatosExperimento,
-    _aviso_cobertura_pit,
-    resolver_universo,
-)
+from ypyquant.estrategias.experimentos import ConfiguracionExperimento, DatosExperimento
 from ypyquant.estrategias.procedencia import obtener_procedencia
 from ypyquant.estrategias.registro import obtener_estrategia
-from ypyquant.estrategias.universo_dinamico import (
-    UniversoPuntoEnElTiempo,
-    es_universo_pit,
-)
+from ypyquant.estrategias.universo_dinamico import UniversoPuntoEnElTiempo
 from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
 
 COLUMNAS_ROTACIONES = ["fecha", "rotacion"]
@@ -91,23 +86,42 @@ def _motivos_de_operaciones(operaciones: pd.DataFrame, eventos: list[dict[str, A
             for fecha, ticker, lado in zip(operaciones["fecha"], operaciones["ticker"], operaciones["lado"], strict=True)]
 
 
-def _avisos_liquidaciones_caducadas(trades: list[Any], precios: dict[str, pd.DataFrame]) -> list[str]:
+def _deslistados_de_la_simulacion(datos: DatosExperimento, precios: dict[str, pd.DataFrame],
+                                  fin: pd.Timestamp) -> dict[str, Deslistado]:
     """
-    Avisos de posiciones vendidas con un precio caducado (el ticker dejó de cotizar antes de la venta).
+    Deslistados a tener en cuenta: los que trae la carga (explícitos de la fuente o inferidos por su adaptador).
+
+    Si `datos` se construyó sin fuente (`deslistados is None`) se infieren de los precios: el último dato queda
+    más de `DIAS_PRECIO_CADUCADO` antes de `fin`.
+    """
+    if datos.deslistados is not None:
+        return datos.deslistados
+    inferidos = {t: inferir_deslistado(df.index[-1], fin) for t, df in precios.items()}
+    return {t: d for t, d in inferidos.items() if d is not None}
+
+
+def _avisos_liquidaciones_caducadas(trades: list[Any], precios: dict[str, pd.DataFrame],
+                                    deslistados: dict[str, Deslistado]) -> list[str]:
+    """
+    Avisos de posiciones vendidas con un precio caducado (el valor dejó de cotizar antes de la venta).
 
     El motor valora una posición deslistada a su último precio conocido y la liquida a ese precio en el
-    siguiente rebalanceo; si el deslistamiento fue una quiebra el resultado real habría sido peor.
+    siguiente rebalanceo; si el deslistamiento fue una quiebra el resultado real habría sido peor. La fecha y
+    el motivo los aporta la fuente de precios (`deslistados`).
     """
     avisos = []
     vistos: set[str] = set()
     for trade in trades:
         if trade.side != "sell" or trade.ticker in vistos or trade.ticker not in precios:
             continue
-        ultimo = precios[trade.ticker].index[-1]
-        if pd.Timestamp(trade.entry_date) - ultimo > pd.Timedelta(days=DIAS_PRECIO_CADUCADO):
+        deslistado = deslistados.get(trade.ticker)
+        if deslistado is None:
+            continue
+        if pd.Timestamp(trade.entry_date) - deslistado.fecha > pd.Timedelta(days=DIAS_PRECIO_CADUCADO):
             vistos.add(trade.ticker)
-            avisos.append(f"{trade.ticker} se liquidó a su último precio conocido ({ultimo:%Y-%m-%d}) el "
-                          f"{pd.Timestamp(trade.entry_date):%Y-%m-%d}: dejó de cotizar (deslistado) con la posición abierta.")
+            motivo = f" ({deslistado.motivo})" if deslistado.motivo else ""
+            avisos.append(f"{trade.ticker} se liquidó a su último precio conocido ({deslistado.fecha:%Y-%m-%d}) el "
+                          f"{pd.Timestamp(trade.entry_date):%Y-%m-%d}: dejó de cotizar (deslistado{motivo}) con la posición abierta.")
     return avisos
 
 
@@ -150,9 +164,9 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
     precios = recortar_hasta(datos_universo, fin)
     pit = es_universo_pit(config.universo)
     if pit:
-        avisos = [_aviso_cobertura_pit(config, set(precios))]
+        avisos = [aviso_cobertura_pit(config.fecha_inicio, config.fecha_fin, set(precios))]
         # La estrategia solo ve, en cada fecha, los miembros del índice en esa fecha con historia hasta t-1
-        filtro_universo = UniversoPuntoEnElTiempo(experimentos.cargar_membresias_sp500()).crear_filtro(precios)  # membresías vía experimentos (una costura)
+        filtro_universo = UniversoPuntoEnElTiempo(universos.cargar_membresias_sp500()).crear_filtro(precios)  # membresías: solo desde `universos` (una costura)
     else:
         avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
         filtro_universo = None
@@ -170,7 +184,7 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
     if estrategia.errores:
         avisos.append(f"{len(estrategia.errores)} rebalanceos fallaron; primero: {estrategia.errores[0]}")
     if pit:
-        avisos.extend(_avisos_liquidaciones_caducadas(motor.trades, precios))
+        avisos.extend(_avisos_liquidaciones_caducadas(motor.trades, precios, _deslistados_de_la_simulacion(datos, precios, fin)))
     benchmark_usado, avisos_benchmark = _benchmark_de_datos(config, datos, fin)
     avisos.extend(avisos_benchmark)
 

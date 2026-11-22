@@ -19,7 +19,7 @@ from scipy.stats import chi2
 
 from ypyquant.estrategias import registro
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ejecutar_experimento, expandir_rejilla
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.optimization import estimacion_robusta as er
 from ypyquant.optimization.optimizador_portafolio import crear_modelo_personalizado
 from ypyquant.optimization.portfolio_models import (
@@ -325,7 +325,7 @@ def test_estrategias_registradas_con_schema_para_la_ui():
 def test_estrategia_robusta_ejecuta_de_extremo_a_extremo(estrategia, estimador_mu):
     resultado = ejecutar_experimento(
         _config(estrategia=estrategia, parametros={"estimador_mu": estimador_mu, "peso_maximo": 0.4}),
-        CargadorSintetico(),
+        FuenteSintetica(),
     )
     assert resultado.metricas["n_rebalanceos"] > 5 and not resultado.pesos.empty
     assert resultado.pesos.groupby("fecha")["peso"].sum().round(6).eq(1.0).all()
@@ -336,7 +336,7 @@ def test_estrategia_elipsoide_con_volatilidad_objetivo_y_rejilla():
     base = _config(estrategia="robusta_elipsoide", parametros={"volatilidad_objetivo": 0.10})
     configs = expandir_rejilla(base, {"kappa": [0.0, 1.0], "tipo_theta": ["sigma", "diagonal"]})
     assert len(configs) == 4
-    resultados = [ejecutar_experimento(c, CargadorSintetico()) for c in configs]
+    resultados = [ejecutar_experimento(c, FuenteSintetica()) for c in configs]
     assert all(r.metricas["n_rebalanceos"] > 5 for r in resultados)
     # κ distinto → carteras distintas
     huellas = {tuple(r.pesos["peso"].round(5)) for r in resultados}
@@ -345,6 +345,6 @@ def test_estrategia_elipsoide_con_volatilidad_objetivo_y_rejilla():
 
 def test_kappa_directo_prevalece_sobre_confianza_en_la_estrategia():
     comun = {"estrategia": "robusta_elipsoide"}
-    a = ejecutar_experimento(_config(**comun, parametros={"kappa": 1.0, "confianza": 0.5}), CargadorSintetico())
-    b = ejecutar_experimento(_config(**comun, parametros={"kappa": 1.0, "confianza": 0.99}), CargadorSintetico())
+    a = ejecutar_experimento(_config(**comun, parametros={"kappa": 1.0, "confianza": 0.5}), FuenteSintetica())
+    b = ejecutar_experimento(_config(**comun, parametros={"kappa": 1.0, "confianza": 0.99}), FuenteSintetica())
     np.testing.assert_allclose(a.pesos["peso"].to_numpy(), b.pesos["peso"].to_numpy(), atol=1e-6)

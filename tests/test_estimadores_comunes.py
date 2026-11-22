@@ -14,7 +14,7 @@ from ypyquant.estrategias.base import matriz_cierres
 from ypyquant.estrategias.causalidad import verificar_sin_lookahead
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.incluidas import retornos_ventana_mensual
-from ypyquant.estrategias.precios import CargadorSintetico
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.registro import cargar_estrategias, obtener_estrategia
 
 cargar_estrategias()
@@ -24,7 +24,7 @@ TICKERS = ["AAA", "BBB", "CCC", "DDD"]
 
 @pytest.fixture(scope="module")
 def datos() -> dict[str, pd.DataFrame]:
-    cargador = CargadorSintetico()
+    cargador = FuenteSintetica()
     return {t: cargador(t, "2016-01-01", "2021-06-30") for t in TICKERS}
 
 

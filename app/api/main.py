@@ -41,7 +41,7 @@ from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.barridos import AlmacenBarridos
 from ypyquant.estrategias.configuraciones import AlmacenConfiguraciones
 from ypyquant.estrategias.marcos import AlmacenMarcos
-from ypyquant.estrategias.precios import cargador_por_defecto
+from ypyquant.data.fuentes import fuente_por_defecto
 
 RAIZ_REPO = Path(__file__).resolve().parents[2]
 CARPETA_WEB = RAIZ_REPO / "app" / "web" / "dist"
@@ -61,7 +61,7 @@ def crear_app(
     Construye la aplicación con sus dependencias (todas inyectables para los tests).
 
     Args:
-        cargador_precios: por defecto `cargador_por_defecto()` (yfinance con caché Parquet).
+        cargador_precios: por defecto `fuente_por_defecto()` (yfinance con caché Parquet).
         raiz_experimentos: carpeta del almacén (por defecto `data/experimentos/`).
         raiz_barridos: carpeta del almacén de barridos (por defecto `barridos/` junto a la de experimentos, es decir
             `data/barridos/`). El contador del periodo reservado vive en su carpeta padre (`reservado.json`).
@@ -89,7 +89,7 @@ def crear_app(
         almacen_barridos=almacen_barridos,
         almacen_configuraciones=AlmacenConfiguraciones(raiz_configuraciones or almacen.raiz.parent / "configuraciones"),
         almacen_marcos=AlmacenMarcos(raiz_marcos or almacen.raiz.parent / "marcos"),
-        cargador_precios=cargador_precios or cargador_por_defecto(),
+        cargador_precios=cargador_precios or fuente_por_defecto(),
         alpaca=servicio_alpaca or ServicioAlpaca(),
         bot=bot or BotControl(),
     )
