@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { OperacionFila } from '../api/tipos'
-import { etiquetaMotivo, nombreCapa, resumenMotivos } from './senales'
+import { etiquetaMotivo, exposiciones, nombreCapa, resumenMotivos } from './senales'
 
 const op = (lado: 'compra' | 'venta', motivo?: string | null): OperacionFila => ({
   fecha: '2020-01-02', ticker: 'AAA', lado, cantidad: 1, precio: 1, comision: 0, pnl: null, motivo,
@@ -31,5 +31,22 @@ describe('resumenMotivos', () => {
   })
   it('devuelve null si ninguna operación trae motivo (estrategias sin señales)', () => {
     expect(resumenMotivos([op('compra'), op('venta', null)])).toBeNull()
+  })
+})
+
+describe('margen y cortos en los pesos', () => {
+  it('rotula el CASH negativo como préstamo de margen y un peso negativo como corto', () => {
+    expect(nombreCapa('CASH', -0.5)).toBe('Préstamo (margen)')
+    expect(nombreCapa('CASH', 0.2)).toBe('Efectivo')
+    expect(nombreCapa('AAPL', -0.15)).toBe('AAPL (corto)')
+    expect(nombreCapa('AAPL', 0.3)).toBe('AAPL')
+    expect(nombreCapa('AAPL')).toBe('AAPL')
+  })
+
+  it('calcula la exposición bruta y neta sin contar el CASH', () => {
+    const e = exposiciones([{ ticker: 'A', peso: 1.3 }, { ticker: 'B', peso: -0.3 }, { ticker: 'CASH', peso: -0.2 }])
+    expect(e?.bruta).toBeCloseTo(1.6)
+    expect(e?.neta).toBeCloseTo(1.0)
+    expect(exposiciones([])).toBeNull()
   })
 })

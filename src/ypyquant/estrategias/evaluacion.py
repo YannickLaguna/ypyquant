@@ -39,6 +39,7 @@ from ypyquant.estrategias.experimentos import (
     _limpiar,
 )
 from ypyquant.estrategias.simulacion import Simulacion, simulacion_desde_tablas
+from ypyquant.execution.ejecutor import TICKER_EFECTIVO
 from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
 from ypyquant.validacion import indice_ulcer, ratio_martin
 
@@ -71,9 +72,29 @@ def _turnover(rotaciones: pd.Series, anios: float) -> tuple[float, float]:
     return float(np.mean(cambios)), float(np.sum(cambios) / anios) if anios > 0 else 0.0
 
 
+def _exposiciones(pesos: pd.DataFrame) -> dict[str, float]:
+    """
+    Exposición de los pesos objetivo de cada rebalanceo (sin `CASH`): bruta (suma de |w|), neta (suma de w) y corta (suma de
+    los negativos, en valor absoluto). Solo se calcula si la estrategia usó margen: algún peso corto o un `CASH` negativo
+    (préstamo); si no, devuelve `{}` y las métricas de los experimentos largos de siempre no cambian.
+    """
+    if pesos.empty or not ((pesos["peso"] < 0).any()):
+        return {}
+    posiciones = pesos[pesos["ticker"] != TICKER_EFECTIVO]
+    por_fecha = posiciones.groupby("fecha")["peso"]
+    bruta = por_fecha.apply(lambda w: float(w.abs().sum()))
+    neta = por_fecha.sum()
+    corta = por_fecha.apply(lambda w: float(-w[w < 0].sum()))
+    return {"exposicion_bruta_media": float(bruta.mean()), "exposicion_bruta_maxima": float(bruta.max()),
+            "exposicion_neta_media": float(neta.mean()), "exposicion_corta_media": float(corta.mean())}
+
+
 def _tasa_acierto(operaciones: pd.DataFrame) -> float:
-    """Fracción de ventas cerradas (con `pnl`) con pnl > 0; 0 si no hay ninguna (misma regla que el motor)."""
-    cerradas = operaciones[(operaciones["lado"] == "venta") & operaciones["pnl"].notna()]
+    """
+    Fracción de operaciones cerradas (con `pnl`) con pnl > 0; 0 si no hay ninguna (misma regla que el motor).
+    Cierran una posición las ventas de un largo y las compras que cubren un corto.
+    """
+    cerradas = operaciones[operaciones["pnl"].notna()]
     return float((cerradas["pnl"] > 0).sum() / len(cerradas)) if len(cerradas) else 0.0
 
 
@@ -127,6 +148,10 @@ def _calcular_metricas(simulacion: Simulacion, equity: pd.DataFrame, benchmark_r
                 "benchmark_cagr": comparacion["benchmark"].annualized_return,
                 "benchmark_sharpe": comparacion["benchmark"].sharpe_ratio,
             })
+    metricas.update(_exposiciones(simulacion.pesos))  # margen: exposición bruta/neta (solo con cortos o préstamo)
+    llamadas = sum(1 for aviso in simulacion.avisos if aviso.startswith("Llamada de margen"))
+    if metricas.get("exposicion_bruta_maxima") is not None or llamadas:
+        metricas["llamadas_margen"] = llamadas
     metricas["validacion"] = {}  # los validadores registrados (CPCV/DSR/PBO...) escriben aquí
     return _limpiar(metricas)
 

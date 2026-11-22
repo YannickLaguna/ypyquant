@@ -284,3 +284,23 @@ def test_experimento_largo_corto_de_extremo_a_extremo_avisa_y_opera_cortos():
     assert any(a.startswith("Cortos: préstamo de títulos") for a in simulacion.avisos)
     ventas_sin_pnl = simulacion.operaciones[(simulacion.operaciones["lado"] == "venta") & simulacion.operaciones["pnl"].isna()]
     assert not ventas_sin_pnl.empty  # aperturas de corto
+
+
+def test_metricas_de_exposicion_bruta_y_neta_solo_con_cortos_o_prestamo():
+    from ypyquant.data.fuentes import FuenteSintetica
+    from ypyquant.estrategias.evaluacion import evaluar
+    from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento
+    from ypyquant.estrategias.simulacion import simular
+
+    def metricas(**parametros):
+        config = ConfiguracionExperimento(
+            estrategia="momentum", universo=["AAA", "BBB", "CCC", "DDD", "EEE"], fecha_inicio="2021-01-04",
+            fecha_fin="2021-06-30", frecuencia_rebalanceo="monthly", dias_historia_previa=400,
+            parametros={"top_k": 2, "meses_retorno": 3, **parametros})
+        return evaluar(simular(config, cargar_datos_experimento(config, FuenteSintetica()), completo=False)).metricas
+
+    largo_corto = metricas(exposicion_larga=1.3, exposicion_corta=0.3)
+    assert largo_corto["exposicion_bruta_maxima"] == pytest.approx(1.6) and largo_corto["exposicion_neta_media"] == pytest.approx(1.0)
+    assert largo_corto["exposicion_corta_media"] == pytest.approx(0.3) and largo_corto["llamadas_margen"] == 0
+    solo_largo = metricas()
+    assert not any(clave.startswith("exposicion") for clave in solo_largo) and "llamadas_margen" not in solo_largo

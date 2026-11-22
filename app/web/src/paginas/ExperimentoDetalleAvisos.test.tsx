@@ -44,4 +44,16 @@ describe('ExperimentoDetalle con avisos', () => {
     expect(await screen.findByText(/Volatilidad objetivo inalcanzable en 20 de 23 rebalanceos/)).toBeInTheDocument()
     expect(screen.getByText(/cartera de mínima varianza/)).toBeInTheDocument()
   })
+
+  it('con cortos y préstamo muestra exposición bruta/neta, las llamadas de margen y rotula los pesos', async () => {
+    const cuerpo = detalle(['Llamada de margen 2020-03-12: equity 40.000 por debajo del mantenimiento 42.000 (exposición bruta 160.000); liquidación forzosa: se conserva el 60 % de las posiciones.'])
+    cuerpo.metricas_completas = { ...cuerpo.metricas_completas, exposicion_bruta_maxima: 1.6, exposicion_neta_media: 1.0, llamadas_margen: 1 }
+    cuerpo.pesos = [{ fecha: '2020-01-02', ticker: 'AAA', peso: 1.3 }, { fecha: '2020-01-02', ticker: 'BBB', peso: -0.3 }, { fecha: '2020-01-02', ticker: 'CASH', peso: -0.1 }]
+    montar(cuerpo)
+    expect(await screen.findByText(/Llamada de margen 2020-03-12/)).toBeInTheDocument()
+    expect(screen.getByText('Exposición bruta máxima').closest('tr')).toHaveTextContent('160,0')
+    expect(screen.getByText('Llamadas de margen').closest('tr')).toHaveTextContent('1')
+    expect(screen.getByText('BBB (corto)')).toBeInTheDocument()
+    expect(screen.getByText('Préstamo (margen)')).toBeInTheDocument()
+  })
 })
