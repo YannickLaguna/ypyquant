@@ -9,11 +9,13 @@ Responsabilidad: persistir cada experimento en `data/experimentos/<id>/`:
     equity.parquet   fecha, equity, benchmark, drawdown, retorno
     pesos.parquet    fecha, ticker, peso (pesos objetivo por rebalanceo)
     operaciones.parquet  fecha, ticker, lado, cantidad, precio, comision, pnl
+    rotaciones.parquet   fecha, rotacion (lo operado en cada rebalanceo; permite `reevaluar` sin repetir el backtest)
 y ofrecer `listar`, `leer`, `borrar`, `comparar` (DuckDB lee los Parquet de varios experimentos
-a la vez) y `ejecutar_sql` (vistas `equity`, `pesos`, `operaciones` con la columna `id`).
+a la vez), `ejecutar_sql` (vistas `equity`, `pesos`, `operaciones` con la columna `id`) y `reevaluar`
+(recalcula `metricas.json` desde los Parquet con `evaluacion.reevaluar`, sin repetir el backtest).
 
 Se relaciona con:
-- ypyquant.estrategias.experimentos (ConfiguracionExperimento, ResultadoExperimento) y
+- ypyquant.estrategias.experimentos (ConfiguracionExperimento, ResultadoExperimento), .evaluacion (`reevaluar`) y
   .procedencia (qué contiene `procedencia.json`).
 - ypyquant.estrategias.barridos (`AlmacenBarridos` lee las métricas y `equity.parquet` de aquí).
 - app/api (el lanzador en segundo plano escribe el estado; las rutas leen y comparan).
@@ -170,9 +172,42 @@ class AlmacenExperimentos:
         _escribir_parquet(resultado.equity, carpeta / "equity.parquet")
         _escribir_parquet(resultado.pesos, carpeta / "pesos.parquet")
         _escribir_parquet(resultado.operaciones, carpeta / "operaciones.parquet")
+        if resultado.rotaciones is not None:
+            _escribir_parquet(resultado.rotaciones, carpeta / "rotaciones.parquet")
         _escribir_json(carpeta / "metricas.json", {**resultado.metricas, "avisos": resultado.avisos})
         _escribir_json(carpeta / "procedencia.json", resultado.procedencia)
         self.marcar_estado(id_experimento, "hecho")
+
+    def reevaluar(self, id_experimento: str, guardar: bool = True) -> dict[str, Any]:
+        """
+        Recalcula las métricas de un experimento guardado solo con sus Parquet (equity, pesos, operaciones y,
+        si existe, rotaciones), sin repetir el backtest; devuelve las métricas nuevas.
+
+        Con `guardar=True` reescribe `metricas.json` conservando sus `avisos`; la procedencia y los Parquet no se
+        tocan. Lanza `ValueError` si el experimento no está `hecho`, es una importación del TFM (sus métricas no
+        salen de operaciones) o le faltan tablas.
+        """
+        from ypyquant.estrategias.evaluacion import reevaluar  # diferido: evaluacion importa de experimentos
+
+        carpeta = self._carpeta(id_experimento)
+        if self.estado_de(id_experimento) != "hecho":
+            raise ValueError(f"El experimento {id_experimento} no está terminado")
+        procedencia = _leer_json(carpeta / "procedencia.json") or {}
+        if procedencia.get("origen"):
+            raise ValueError(f"El experimento {id_experimento} es una importación ({procedencia['origen']}): no se reevalúa")
+        config, anteriores = self.leer_config(id_experimento), self.leer_metricas(id_experimento) or {}
+        tablas = {nombre: carpeta / f"{nombre}.parquet" for nombre in ("equity", "pesos", "operaciones")}
+        if config is None or not all(ruta.exists() for ruta in tablas.values()):
+            raise ValueError(f"Al experimento {id_experimento} le faltan config o tablas Parquet para reevaluarlo")
+        rotaciones = carpeta / "rotaciones.parquet"
+        evaluacion = reevaluar(
+            ConfiguracionExperimento(**config), *(pd.read_parquet(ruta) for ruta in tablas.values()),
+            rotaciones=pd.read_parquet(rotaciones) if rotaciones.exists() else None,
+            avisos=anteriores.get("avisos", []),
+        )
+        if guardar:
+            _escribir_json(carpeta / "metricas.json", {**evaluacion.metricas, "avisos": anteriores.get("avisos", [])})
+        return evaluacion.metricas
 
     def borrar(self, id_experimento: str) -> bool:
         """Elimina el experimento; False si no existía."""
