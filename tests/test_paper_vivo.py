@@ -384,3 +384,32 @@ def test_ejecutar_vivo_descarga_la_historia_que_necesita_la_estrategia(tmp_path,
     assert pedidos["dias"] == dias_naturales_para_sesiones(12 * 21 + 1 + MARGEN_SESIONES) > 252
     avisos = [r for r in caplog.records if r.levelno == logging.WARNING and "sesiones" in r.getMessage()]
     assert avisos, "debe avisar de que la historia es insuficiente"
+
+
+class TestDescargaDesdeLaFuenteCompartida:
+    """El bot lee de la misma `FuentePrecios` que el motor: mismos datos en backtest y en vivo."""
+
+    def test_devuelve_los_mismos_cierres_ajustados_que_la_fuente(self):
+        from datetime import datetime, timedelta
+
+        from pipelines.paper_trading.precios import descargar_precios
+        from ypyquant.data.fuentes import FuenteSintetica
+
+        fuente = FuenteSintetica()
+        precios = descargar_precios(["AAA", "BBB"], 100, fuente)
+        hoy = datetime.now()
+        inicio = (hoy - timedelta(days=110)).strftime("%Y-%m-%d")
+        fin = (hoy - timedelta(days=1)).strftime("%Y-%m-%d")
+        for ticker in ("AAA", "BBB"):
+            esperado = fuente.ohlcv(ticker, inicio, fin)["adjusted_close"]
+            pd.testing.assert_series_equal(precios[ticker], esperado, check_names=False)
+        assert list(precios.columns) == ["AAA", "BBB"] and precios.index.max() <= pd.Timestamp(fin)
+
+    def test_omite_los_tickers_sin_datos_y_devuelve_vacio_si_no_hay_ninguno(self):
+        from pipelines.paper_trading.precios import descargar_precios
+        from ypyquant.data.fuentes import FuenteSintetica
+
+        fuente = FuenteSintetica(ausentes={"ZZZ"})
+        assert list(descargar_precios(["AAA", "ZZZ"], 50, fuente).columns) == ["AAA"]
+        assert descargar_precios(["ZZZ"], 50, fuente).empty
+
