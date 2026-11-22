@@ -6,8 +6,8 @@ Responsabilidad:
       CLI (`python -m ypyquant.paper`). Compone el `SimuladorPaper` con el `AlmacenPaper`.
       * `crear_sesion(receta, ...)`: congela una `Receta` (la de un experimento terminado o de una configuración),
         resuelve su universo a una lista de tickers, aplica los costes opcionales de la sesión y deja la cartera en
-        efectivo con el día anterior a `fecha_alta` como último procesado. El universo `sp500_pit` (dinámico) no
-        se admite: una sesión forward necesita un universo fijo.
+        efectivo con el día anterior a `fecha_alta` como último procesado. El universo `sp500_pit` (dinámico) se
+        admite: se conserva como nombre y el simulador lo resuelve en cada fecha con la membresía vigente.
       * Consultas: `listar()` (una fila por sesión con métricas forward, costes, estado y «n días pendientes»),
         `detalle(id)` (receta, métricas, posiciones actuales, pesos objetivo, avisos), `equity`, `operaciones`,
         `pesos` y `config_espejo(id)` (la configuración del backtest espejo).
@@ -36,7 +36,7 @@ import pandas as pd
 
 from ypyquant.almacen_documentos import limpiar_para_json
 from ypyquant.data.fuente_precios import FuentePrecios
-from ypyquant.data.universos import es_universo_pit, resolver_universo
+from ypyquant.data.universos import Membresias, avisos_membresias, es_universo_pit, resolver_universo
 from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.configuraciones import crear_slug
 from ypyquant.estrategias.evaluacion import evaluar
@@ -88,10 +88,11 @@ class ServicioPaper:
     """Crea, consulta y avanza sesiones de paper interno (ver cabecera del módulo)."""
 
     def __init__(self, almacen: AlmacenPaper, fuente: FuentePrecios | Callable,
-                 ahora: Callable[[], datetime] = ahora_nueva_york):
+                 ahora: Callable[[], datetime] = ahora_nueva_york, membresias: Membresias | None = None,
+                 meses_historia_pit: int = 12):
         self.almacen = almacen
         self.ahora = ahora
-        self.simulador = SimuladorPaper(almacen, fuente, ahora)
+        self.simulador = SimuladorPaper(almacen, fuente, ahora, membresias, meses_historia_pit)
 
     # ---- altas ---------------------------------------------------------------------------------
 
@@ -124,10 +125,8 @@ class ServicioPaper:
                              "(CASH negativo con intereses en el motor)")
         receta = receta.receta().normalizada()
         if isinstance(receta.universo, str):
-            if es_universo_pit(receta.universo):
-                raise ValueError("El universo point-in-time (sp500_pit) no se admite en el paper interno: "
-                                 "una sesión forward necesita una lista fija de tickers")
-            universo = resolver_universo(receta.universo, inicio=alta, fin=alta)
+            # `sp500_pit` se conserva como nombre: el simulador lo resuelve en cada fecha (miembros vigentes ese día)
+            universo = receta.universo if es_universo_pit(receta.universo) else resolver_universo(receta.universo, inicio=alta, fin=alta)
         else:
             universo = list(receta.universo)
         cambios: dict[str, Any] = {"universo": universo}
@@ -238,7 +237,17 @@ class ServicioPaper:
             "pesos_pendientes": estado.pesos_pendientes, "fecha_decision_pendiente": estado.fecha_decision_pendiente,
             "avisos": tablas.eventos, "n_operaciones": len(tablas.operaciones),
             "ejecucion_optimista": sesion.modo_ejecucion == "cierre",
+            "universo_dinamico": sesion.universo_dinamico, "avisos_universo": self._avisos_universo(sesion, estado),
         })
+
+    def _avisos_universo(self, sesion: SesionPaper, estado: EstadoCartera) -> list[str]:
+        """Calidad de las membresías del universo dinámico ahora mismo (vacío con universo fijo); no se persiste."""
+        if not sesion.universo_dinamico:
+            return []
+        try:
+            return avisos_membresias(self.simulador.membresias(), estado.ultima_fecha_procesada)
+        except FileNotFoundError as error:
+            return [str(error)]
 
     @staticmethod
     def _registros(tabla: pd.DataFrame) -> list[dict[str, Any]]:

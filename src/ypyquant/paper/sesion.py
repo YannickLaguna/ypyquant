@@ -4,7 +4,8 @@ sesion.py — Modelos de una sesión de paper interno: su receta congelada y el 
 Responsabilidad:
     - `SesionPaper` (Pydantic): lo que NO cambia con el tiempo salvo el estado de control: la `Receta`
       congelada (estrategia + parámetros + entorno, con el universo ya resuelto a lista de tickers y los costes
-      efectivos de la sesión), el origen (`id_experimento` o `id_configuracion`), `fecha_alta`,
+      efectivos de la sesión; solo `sp500_pit` se conserva como nombre: es dinámico y se resuelve en cada fecha,
+      ver `universo_dinamico`), el origen (`id_experimento` o `id_configuracion`), `fecha_alta`,
       `capital_inicial`, `modo_ejecucion` (`cierre` | `apertura_siguiente`) y el `estado` de control
       (`activa` | `pausada` | `detenida`). `config_evaluacion` y `config_espejo` la convierten en una
       `ConfiguracionExperimento` (para evaluar lo ocurrido con `evaluar` o lanzar el backtest espejo).
@@ -29,6 +30,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ypyquant.data.universos import es_universo_pit
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.receta import Receta
 
@@ -54,8 +56,15 @@ class SesionPaper(BaseModel):
     creada: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     @property
+    def universo_dinamico(self) -> bool:
+        """True si el universo es el point-in-time `sp500_pit`: sus miembros se resuelven en cada fecha procesada."""
+        return isinstance(self.receta.universo, str) and es_universo_pit(self.receta.universo)
+
+    @property
     def tickers(self) -> list[str]:
-        """Universo congelado (lista de tickers)."""
+        """Universo congelado (lista de tickers). `ValueError` si es dinámico: entonces depende de la fecha."""
+        if self.universo_dinamico:
+            raise ValueError("El universo dinámico (sp500_pit) no tiene una lista fija de tickers: se resuelve por fecha")
         return list(self.receta.universo)  # type: ignore[arg-type]
 
     def config_experimento(self, fecha_inicio: str, fecha_fin: str) -> ConfiguracionExperimento:
