@@ -117,6 +117,10 @@ class PesosIguales(Estrategia):
         return pesos_iguales_entre(datos)
 
 
+# Parámetros de las estrategias largo-corto (cortos con exposición explícita), posteriores a los experimentos guardados
+PARAMETROS_LARGO_CORTO = ("exposicion_larga", "exposicion_corta", "top_k_cortos", "coste_prestamo_titulos")
+
+
 @registrar_estrategia
 class Momentum(Estrategia):
     """Momentum de sección cruzada: top-k por retorno acumulado de `meses_retorno` saltando `meses_salto`."""
@@ -126,10 +130,36 @@ class Momentum(Estrategia):
     frecuencia_rebalanceo = "monthly"
     universo_sugerido = "sp500_pit"  # sección cruzada: sin sesgo de supervivencia por defecto
 
+    # Parámetros largo-corto, posteriores a los experimentos guardados: fuera de la huella mientras valgan su defecto
+    parametros_fuera_de_huella_si_defecto = PARAMETROS_LARGO_CORTO
+
     class Parametros(ParametrosBase):
         top_k: int = Field(5, ge=1, le=200, description="Número de activos ganadores en cartera")
         meses_retorno: int = Field(12, ge=2, le=36, description="Meses de la ventana de retorno")
         meses_salto: int = Field(1, ge=0, le=6, description="Meses recientes que se saltan (reversión a corto plazo)")
+        exposicion_larga: float = Field(
+            1.0, gt=0.0, le=2.0,
+            description="Exposición total de la pata larga (1 = largo solo). Solo cuenta con exposicion_corta > 0: 1,3 con 0,3 = 130/30")
+        exposicion_corta: float = Field(
+            0.0, ge=0.0, le=1.0,
+            description="Exposición total de la pata corta (0 = sin cortos). 0,3 con exposicion_larga 1,3 = 130/30; "
+            "1 con exposicion_larga 1 = dólar-neutral 100/100. Exige cuenta de margen (bruta máxima 2x)")
+        top_k_cortos: int | None = Field(
+            None, ge=1, le=200, description="Activos perdedores en corto (por defecto, los mismos que top_k). Solo con cortos")
+        coste_prestamo_titulos: float = Field(
+            0.003, ge=0.0, le=0.5,
+            description="Coste anual de pedir prestados los títulos de los cortos (0,003 = 0,3 %, valores fáciles de prestar). Solo con cortos")
+
+        @model_validator(mode="after")
+        def _coherencia_largo_corto(self):
+            if self.exposicion_corta == 0.0 and self.exposicion_larga != 1.0:
+                raise ValueError("exposicion_larga distinta de 1 solo tiene sentido con exposicion_corta > 0 (largo-corto)")
+            if self.exposicion_larga + self.exposicion_corta > 2.0:
+                raise ValueError("la exposición bruta (larga + corta) no puede pasar de 2x (requisito inicial Reg T del 50 %)")
+            return self
+
+    def admite_cortos(self) -> bool:
+        return self.parametros.exposicion_corta > 0.0
 
     def sesiones_necesarias(self) -> int:
         """Retorno de `meses_retorno` meses (de `DIAS_MES` sesiones) más la sesión de partida y el margen."""
@@ -140,11 +170,18 @@ class Momentum(Estrategia):
         cierres = matriz_cierres(datos)
         fin = len(cierres) - 1 - p.meses_salto * DIAS_MES
         inicio = len(cierres) - 1 - p.meses_retorno * DIAS_MES
-        if inicio < 0 or fin <= inicio:
-            return pesos_iguales_entre(cierres.columns)  # sin historia suficiente: neutral
+        largo_corto = p.exposicion_corta > 0.0
+        if inicio < 0 or fin <= inicio:  # sin historia suficiente: neutral (largo-corto: fuera del mercado)
+            return {} if largo_corto else pesos_iguales_entre(cierres.columns)
         retorno = cierres.iloc[fin] / cierres.iloc[inicio] - 1.0
         ganadores = retorno.dropna().nlargest(p.top_k).index
-        return pesos_iguales_entre(ganadores)
+        if not largo_corto:
+            return pesos_iguales_entre(ganadores)
+        # Largo-corto por ranking: la pata larga son los ganadores y la corta los peores perdedores (nunca los mismos)
+        restantes = retorno.dropna().drop(ganadores).sort_values()
+        perdedores = restantes.head(p.top_k_cortos or p.top_k).index
+        return {**{t: p.exposicion_larga * w for t, w in pesos_iguales_entre(ganadores).items()},
+                **{t: -p.exposicion_corta * w for t, w in pesos_iguales_entre(perdedores).items()}}
 
 
 ESTIMADORES_COMUNES = ("estimador_sigma", "frecuencia_estimacion")

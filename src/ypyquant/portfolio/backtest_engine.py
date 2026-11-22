@@ -50,6 +50,16 @@ from ypyquant.execution.calendario import (
     validar_frecuencia,
 )
 from ypyquant.execution.ejecutor import POLITICA_MOTOR, VENTA, EstadoCuenta, planificar_rebalanceo
+from ypyquant.execution.margen import (
+    ReglasMargen,
+    capacidad_bruta,
+    capacidad_de_compra,
+    cargos_diarios,
+    evaluar_margen,
+    factor_de_conservacion,
+    politica_para,
+    valores_largo_corto,
+)
 from ypyquant.utils.divisas import ServicioCambio, convertir_equity_a_divisa, simbolo_divisa
 from ypyquant.utils.serializacion import convertir_numpy_a_nativo
 
@@ -300,11 +310,14 @@ class BacktestEngine:
         servicio_cambio: ServicioCambio | None = None,
         apalancamiento_maximo: float = 1.0,
         tasa_financiacion: float = 0.0,
+        reglas_margen: ReglasMargen | None = None,
     ):
-        if apalancamiento_maximo < 1.0:
-            raise ValueError("apalancamiento_maximo debe ser >= 1 (1 = sin apalancamiento)")
-        self.apalancamiento_maximo = float(apalancamiento_maximo)
-        self.tasa_financiacion = float(tasa_financiacion)
+        # `reglas_margen` (apalancamiento, cortos, mantenimiento, costes) manda sobre los dos argumentos sueltos, que se
+        # conservan por compatibilidad (solo apalancamiento y tasa de financiación)
+        self.reglas = reglas_margen if reglas_margen is not None else ReglasMargen(
+            apalancamiento_maximo=float(apalancamiento_maximo), tasa_financiacion=float(tasa_financiacion))
+        self.apalancamiento_maximo = self.reglas.apalancamiento_maximo
+        self.tasa_financiacion = self.reglas.tasa_financiacion
         self.config = config
         self.cargador_precios = cargador_precios
         self.exchange_service = servicio_cambio
@@ -337,7 +350,10 @@ class BacktestEngine:
         self.target_weights: dict[str, float] = {}
         self.rotaciones: list[tuple[datetime, float]] = []
         self.coste_financiacion = 0.0        # intereses acumulados por el efectivo negativo (divisa base)
-        self.exposicion_maxima = 1.0         # mayor valor de posiciones / equity observado tras un rebalanceo
+        self.exposicion_maxima = 1.0         # mayor exposición bruta (largos + cortos) / equity observada tras un rebalanceo
+        self._precios_valoracion: dict[str, float] = {}  # últimos precios de valoración (capacidad de margen al operar)
+        self.coste_prestamo_titulos = 0.0    # préstamo de títulos acumulado de los cortos (divisa base)
+        self.llamadas_margen: list[dict] = []  # una por liquidación forzosa: fecha, equity, requisito, bruta y factor conservado
 
     # ------------------------------------------------------------------
     # Divisas
@@ -436,14 +452,18 @@ class BacktestEngine:
                     and self._is_contribution_date(date, contribution_dates_set, all_trading_dates)):
                 self._execute_contribution(current_prices, date)
 
-            # Margen: el efectivo negativo (préstamo) paga intereses; sin apalancamiento no hay nada que cobrar
-            if self.apalancamiento_maximo > 1.0 and fecha_previa is not None:
-                self._cobrar_financiacion((date - fecha_previa).days)
+            # Margen: el efectivo negativo (préstamo) paga intereses y los cortos el préstamo de títulos; sin reglas activas no hay nada que cobrar
+            if self.reglas.activo and fecha_previa is not None:
+                self._cobrar_financiacion((date - fecha_previa).days, current_prices)
             fecha_previa = date
 
             # Valor y equity diarios
             self._update_portfolio_value(current_prices)
             self.equity_curve.append({'date': date, 'equity': self.portfolio_value, 'cash': self.cash})
+
+            # Margen: comprobación diaria del mantenimiento tras valorar; si no se cumple, liquidación forzosa
+            if self.reglas.activo and initial_allocation_done and not just_did_initial_allocation:
+                self._comprobar_margen(current_prices, date)
 
             # Rebalanceo en las fechas programadas (no el mismo día de la asignación inicial)
             if date in rebalance_dates_set and initial_allocation_done and not just_did_initial_allocation:
@@ -565,7 +585,7 @@ class BacktestEngine:
         }
         deviations = {
             t: w - current_weights.get(t, 0.0) for t, w in self.target_weights.items()
-            if w - current_weights.get(t, 0.0) > 0
+            if w - current_weights.get(t, 0.0) > 0 and (w > 0 or not self.reglas.permite_cortos)
         }
         if not deviations:
             deviations = {t: w for t, w in self.target_weights.items() if w > 0}
@@ -600,11 +620,12 @@ class BacktestEngine:
         ventas antes que compras, no opera diferencias < 10 unidades, CASH = efectivo sin orden); aquí solo
         se APLICAN las órdenes con el modelo de costes del motor (`_buy`/`_sell`: comisión y slippage).
         """
+        self._precios_valoracion = current_prices
         cuenta = EstadoCuenta(
             equity=self.portfolio_value, efectivo=self.cash,
             posiciones={t: pos['quantity'] for t, pos in self.positions.items()},
         )
-        plan = planificar_rebalanceo(target_weights, current_prices, cuenta, POLITICA_MOTOR)
+        plan = planificar_rebalanceo(target_weights, current_prices, cuenta, politica_para(self.reglas))
         if self.portfolio_value > 0:
             self.rotaciones.append((date, plan.rotacion))
 
@@ -613,41 +634,90 @@ class BacktestEngine:
             if orden.lado == VENTA:
                 self._sell(orden.ticker, orden.importe, precio, date)
             else:
-                self._buy(orden.ticker, orden.importe, precio, date)
+                self._buy(orden.ticker, orden.importe, precio, date, cierre=orden.motivo == 'cierre')
 
-        if self.apalancamiento_maximo > 1.0 and self.portfolio_value > 0:
-            self.exposicion_maxima = max(self.exposicion_maxima, (self.portfolio_value - self.cash) / self.portfolio_value)
+        if self.reglas.activo and self.portfolio_value > 0:
+            largo, corto = valores_largo_corto({t: p['quantity'] for t, p in self.positions.items()}, current_prices)
+            self.exposicion_maxima = max(self.exposicion_maxima, (largo + corto) / self.portfolio_value)
 
-    def _cobrar_financiacion(self, dias: int):
+    def _cobrar_financiacion(self, dias: int, current_prices: dict[str, float] | None = None):
         """
-        Intereses del préstamo de margen: si el efectivo es negativo se cargan `-efectivo x tasa x días / 360`
-        (convención de Alpaca: saldo deudor x tasa / 360, el fin de semana cuenta 3 días). `tasa_financiacion` es anual.
+        Cargos del margen (ver `ypyquant.execution.margen.cargos_diarios`): intereses del préstamo si el efectivo es
+        negativo (`-efectivo x tasa x días / 360`, convención de Alpaca: el fin de semana cuenta 3 días) y préstamo de
+        títulos de los cortos (valor x `coste_prestamo_titulos` x días / 360). Las tasas son anuales.
         """
-        if self.cash < 0 and dias > 0 and self.tasa_financiacion > 0:
-            interes = -self.cash * self.tasa_financiacion * dias / 360.0
+        corto = valores_largo_corto({t: p['quantity'] for t, p in self.positions.items()}, current_prices or {})[1]
+        interes, prestamo = cargos_diarios(self.cash, corto, dias, self.reglas)
+        if interes:
             self.cash -= interes
             self.coste_financiacion += interes
+        if prestamo:
+            self.cash -= prestamo
+            self.coste_prestamo_titulos += prestamo
+
+    def _comprobar_margen(self, current_prices: dict[str, float], date: datetime):
+        """
+        Comprobación diaria del mantenimiento. Si el equity cae por debajo de `mantenimiento_largo x largos +
+        mantenimiento_corto x cortos` hay llamada de margen y se liquida: TODAS las posiciones se reducen
+        proporcionalmente (con comisión y slippage) hasta volver al requisito inicial (`factor_de_conservacion`).
+        Queda anotada en `llamadas_margen`. Los pesos objetivo no cambian: el siguiente rebalanceo reconstruye la cartera.
+        """
+        self._precios_valoracion = current_prices
+        largo, corto = valores_largo_corto({t: p['quantity'] for t, p in self.positions.items()}, current_prices)
+        estado = evaluar_margen(self.portfolio_value, largo, corto, self.reglas)
+        if not estado.en_llamada:
+            return
+        coste = self.config.commission_rate + self.config.slippage_pct
+        factor = factor_de_conservacion(estado.equity, estado.bruta, self.reglas, coste)
+        for ticker, posicion in sorted(self.positions.items()):
+            precio = current_prices.get(ticker)
+            if precio is None:
+                continue
+            cantidad = posicion['quantity']
+            if factor <= 0.0:
+                if cantidad > 0:
+                    self._sell(ticker, cantidad * precio, precio, date)
+                else:
+                    self._buy(ticker, -cantidad * precio, precio, date, cierre=True)
+            elif cantidad > 0:
+                self._sell(ticker, cantidad * precio * (1.0 - factor), precio, date)
+            else:
+                self._buy(ticker, -cantidad * precio * (1.0 - factor), precio, date)
+        self._update_portfolio_value(current_prices)
+        self.llamadas_margen.append({
+            'fecha': date, 'equity': estado.equity, 'requisito_mantenimiento': estado.requisito_mantenimiento,
+            'bruta': estado.bruta, 'factor_conservado': factor,
+        })
 
     def _add_to_position(self, ticker: str, quantity: float, price: float):
-        """Suma `quantity` a la posición recalculando el precio medio."""
+        """Suma `quantity` (con el signo de la posición: negativa si se amplía un corto) recalculando el precio medio."""
         if ticker in self.positions:
             old_qty = self.positions[ticker]['quantity']
             old_avg = self.positions[ticker]['avg_price']
             new_qty = old_qty + quantity
-            self.positions[ticker] = {'quantity': new_qty, 'avg_price': (old_qty * old_avg + quantity * price) / new_qty}
+            self.positions[ticker] = {
+                'quantity': new_qty, 'avg_price': (abs(old_qty) * old_avg + abs(quantity) * price) / abs(new_qty)}
         else:
             self.positions[ticker] = {'quantity': quantity, 'avg_price': price}
 
-    def _buy(self, ticker: str, amount: float, price: float, date: datetime):
+    def _capacidad_de_compra(self) -> float:
+        """Importe que se puede gastar en una compra: el efectivo, o el margen disponible con las reglas activas."""
+        if not self.reglas.activo:
+            return self.cash
+        largo, corto = valores_largo_corto({t: p['quantity'] for t, p in self.positions.items()}, self._precios_valoracion)
+        return capacidad_de_compra(self.cash, self.portfolio_value, largo, corto, self.reglas)
+
+    def _buy(self, ticker: str, amount: float, price: float, date: datetime, cierre: bool = False):
         """
         Compra por `amount`: coste = importe + comisión; el slippage va en el precio de
         ejecución (una sola vez). Si no llega el efectivo, compra lo que se pueda pagar
         (arreglo de GrowSave: antes la última compra de cada rebalanceo nunca cabía).
+        Si hay un corto abierto en `ticker`, la compra lo CUBRE (`_cubrir`).
         """
-        capacidad = self.cash
-        if self.apalancamiento_maximo > 1.0:
-            # Margen: el valor de las posiciones puede llegar a L x equity, así que se puede pedir prestado (efectivo < 0)
-            capacidad = self.cash + (self.apalancamiento_maximo - 1.0) * self.portfolio_value
+        if self.positions.get(ticker, {}).get('quantity', 0.0) < 0:
+            return self._cubrir(ticker, amount, price, date, cierre)
+        # Margen: con las reglas activas el valor de las posiciones puede llegar a L x equity (efectivo < 0 = préstamo)
+        capacidad = self._capacidad_de_compra()
         maximo_pagable = capacidad / (1 + self.config.commission_rate)
         amount = min(amount, maximo_pagable)
         if amount < 1.0:
@@ -663,9 +733,39 @@ class BacktestEngine:
             exit_price=None, quantity=quantity, side='buy', commission=commission,
         ))
 
+    def _cubrir(self, ticker: str, amount: float, price: float, date: datetime, cierre: bool):
+        """
+        Compra para cubrir un corto: paga `cantidad x precio con slippage` más comisión y reduce el corto (como mucho a cero;
+        `cierre=True` lo cubre entero aunque el slippage encarezca el importe). El resultado (P&L) se anota como en una venta:
+        `(precio medio de venta - precio de cobertura) x cantidad - comisión`.
+        """
+        posicion = self.positions[ticker]
+        adjusted_price = price * (1 + self.config.slippage_pct)
+        quantity = -posicion['quantity'] if cierre else min(amount / adjusted_price, -posicion['quantity'])
+        if quantity <= 0:
+            return
+        cost = quantity * adjusted_price
+        commission = cost * self.config.commission_rate
+        entry_price = posicion['avg_price']
+        pnl = (entry_price - adjusted_price) * quantity - commission
+        posicion['quantity'] += quantity
+        if posicion['quantity'] > -0.001:
+            del self.positions[ticker]
+        self.cash -= cost + commission
+        self.trades.append(BacktestTrade(
+            ticker=ticker, entry_date=date, exit_date=date, entry_price=entry_price, exit_price=adjusted_price,
+            quantity=quantity, side='buy', pnl=pnl,
+            pnl_pct=(entry_price - adjusted_price) / entry_price if entry_price > 0 else 0, commission=commission,
+        ))
+
     def _sell(self, ticker: str, amount: float, price: float, date: datetime):
-        """Vende por `amount` (limitado a la posición), con slippage en precio y comisión."""
-        if ticker not in self.positions:
+        """
+        Vende por `amount` (limitado a la posición), con slippage en precio y comisión.
+        Sin posición larga y con cortos permitidos, la venta ABRE o amplía un corto (`_vender_en_corto`).
+        """
+        if self.positions.get(ticker, {}).get('quantity', 0.0) <= 0:
+            if self.reglas.permite_cortos:
+                self._vender_en_corto(ticker, amount, price, date)
             return
         adjusted_price = price * (1 - self.config.slippage_pct)
         quantity_to_sell = min(amount / adjusted_price, self.positions[ticker]['quantity'])
@@ -687,11 +787,36 @@ class BacktestEngine:
             commission=commission,
         ))
 
+    def _vender_en_corto(self, ticker: str, amount: float, price: float, date: datetime):
+        """
+        Abre o amplía un corto por `amount` (valor a precio de referencia), acotado por el límite de exposición bruta.
+        El producto de la venta (con slippage a la baja, menos comisión) entra en el efectivo. La operación se anota como
+        `sell` sin cierre (P&L al cubrir), igual que una compra abre una posición larga.
+        """
+        largo, corto = valores_largo_corto({t: p['quantity'] for t, p in self.positions.items()}, self._precios_valoracion)
+        amount = min(amount, capacidad_bruta(self.portfolio_value, largo, corto, self.reglas))
+        if amount < 1.0:
+            logger.debug(f"Sin capacidad de margen para vender en corto {ticker}")
+            return
+        adjusted_price = price * (1 - self.config.slippage_pct)
+        quantity = amount / adjusted_price
+        commission = amount * self.config.commission_rate
+        self._add_to_position(ticker, -quantity, adjusted_price)
+        self.cash += quantity * adjusted_price - commission
+        self.trades.append(BacktestTrade(
+            ticker=ticker, entry_date=date, exit_date=None, entry_price=adjusted_price,
+            exit_price=None, quantity=quantity, side='sell', commission=commission,
+        ))
+
     def _close_position(self, ticker: str, price: float | None, date: datetime):
         """Cierra la posición completa (si hay precio)."""
         if ticker not in self.positions or price is None:
             return
-        self._sell(ticker, self.positions[ticker]['quantity'] * price, price, date)
+        cantidad = self.positions[ticker]['quantity']
+        if cantidad < 0:
+            self._cubrir(ticker, -cantidad * price, price, date, cierre=True)
+        else:
+            self._sell(ticker, cantidad * price, price, date)
 
     def _calculate_metrics(self) -> BacktestResult:
         """Métricas del backtest en la divisa del usuario (equity convertida día a día)."""

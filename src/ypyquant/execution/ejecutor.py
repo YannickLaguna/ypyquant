@@ -7,10 +7,10 @@ Responsabilidad:
 
         planificar_rebalanceo(pesos, precios, cuenta, politica, tickers_bloqueados) -> PlanRebalanceo
 
-    - `EstadoCuenta`: equity, efectivo y posiciones (cantidad por ticker) en el momento de decidir.
+    - `EstadoCuenta`: equity, efectivo y posiciones (cantidad por ticker; NEGATIVA = corto) en el momento de decidir.
     - `PoliticaEjecucion`: lo que cambia de un consumidor a otro: acciones enteras o fracciones,
       umbral absoluto (divisa) y relativo (fracción del equity), si se normaliza una suma de pesos
-      desviada. `POLITICA_MOTOR` (la del backtest, intacta) y `POLITICA_BOT` (Alpaca/Nautilus).
+      desviada y si se permiten cortos (`permite_cortos`). `POLITICA_MOTOR` (la del backtest, intacta) y `POLITICA_BOT` (Alpaca/Nautilus).
     - `PlanRebalanceo`: `ordenes` (ventas y cierres primero), `omitidas` (con motivo: bloqueado,
       sin_precio, bajo_umbral) y `rotacion` (valor a operar / 2·equity, comparado con la deriva).
 
@@ -20,6 +20,14 @@ Responsabilidad:
     hasta el equity. La rotación no cuenta el CASH como valor operado: hasta 2026-11-22 el motor sí lo
     hacía (el 50 % en CASH daba una rotación fantasma de 0.5 en cada rebalanceo); los experimentos
     guardados antes de esa fecha con CASH tienen el turnover inflado (los costes no: no hubo órdenes).
+
+    Cortos (solo con `politica.permite_cortos`; sin ella un peso <= 0 se ignora como siempre): un peso NEGATIVO
+    pide una posición corta de `|peso| x equity`. Una venta sin posición larga abre o amplía el corto; una compra
+    sobre un corto lo cubre. Si el signo del objetivo cambia (largo -> corto o al revés) se emiten DOS órdenes: el
+    cierre de la posición actual (motivo 'cierre') y la apertura de la contraria, porque los brokers no cruzan por
+    cero en una sola orden. Con cortos no se normaliza la suma de pesos (son exposiciones explícitas; lo no asignado
+    queda en efectivo) y el CASH negativo sigue siendo un préstamo. Las reglas de margen (límite de exposición,
+    mantenimiento) NO las decide el Ejecutor: las aplica el adaptador (`ypyquant.execution.margen`).
 
     Orden de las órdenes: primero los cierres (peso <= 0 o fuera del objetivo, en el orden de las
     posiciones), después el resto por (objetivo - actual) ascendente, es decir, ventas antes que compras
@@ -71,11 +79,14 @@ class PoliticaEjecucion:
       `umbral_absoluto` (divisa) y `umbral_relativo * equity`; los cierres de posición no lo respetan.
     - tolerancia_suma: si no es None y la suma de pesos (CASH incluido) se desvía más que esto de 1,
       se normaliza a 1; None = no se normaliza (lo no asignado queda en efectivo).
+    - permite_cortos: True = los pesos negativos (excepto CASH) son posiciones cortas; False = se ignoran (largo solo).
+      Con True la suma de pesos no se normaliza.
     """
     fraccionable: bool = True
     umbral_absoluto: float = 0.0
     umbral_relativo: float = 0.0
     tolerancia_suma: float | None = None
+    permite_cortos: bool = False
 
 
 # Política del motor de backtest: fracciones, umbral de 10 unidades de divisa, normaliza si |suma-1| > 0.01
@@ -89,7 +100,7 @@ class Orden:
     """
     Una orden de mercado: `lado` ('compra' | 'venta'), `cantidad` (entera si la política no es
     fraccionable), `importe` (valor a precio de referencia), `cantidad_objetivo` (posición final
-    prevista) y `motivo` ('cierre' si deja la posición a cero, 'rebalanceo' en otro caso).
+    prevista, con signo: negativa = corto) y `motivo` ('cierre' si deja la posición a cero, 'rebalanceo' en otro caso).
     """
     ticker: str
     lado: str
@@ -117,6 +128,8 @@ class PlanRebalanceo:
 def _normalizar(pesos: Mapping[str, float], politica: PoliticaEjecucion) -> dict[str, float]:
     """Normaliza a suma 1 si la política lo pide y la suma se desvía más que la tolerancia."""
     pesos = dict(pesos)
+    if politica.permite_cortos:
+        return pesos  # exposiciones explícitas (largas y cortas): lo no asignado queda en efectivo
     total = sum(pesos.values())
     if politica.tolerancia_suma is not None and abs(total - 1.0) > politica.tolerancia_suma and total > 0:
         logger.warning(f"Pesos no suman 1.0 (suma: {total}), normalizando")
@@ -148,7 +161,7 @@ def planificar_rebalanceo(
     tickers_bloqueados: Collection[str] = (),
 ) -> PlanRebalanceo:
     """
-    Órdenes para llevar `cuenta` a `pesos` (largo solo) con las reglas de `politica`.
+    Órdenes para llevar `cuenta` a `pesos` con las reglas de `politica` (largo solo salvo `politica.permite_cortos`).
 
     `precios` son los de referencia de cada ticker; un ticker sin precio positivo no se opera (queda
     en `omitidas`). `tickers_bloqueados` (p. ej. con una orden aún abierta en el broker) no se toca ni
@@ -157,7 +170,8 @@ def planificar_rebalanceo(
     pesos = _normalizar(pesos, politica)
     rotacion = _rotacion(pesos, precios, cuenta)
     bloqueados = set(tickers_bloqueados)
-    posiciones = {t: q for t, q in cuenta.posiciones.items() if q > 0 and t != TICKER_EFECTIVO}
+    cortos = politica.permite_cortos
+    posiciones = {t: q for t, q in cuenta.posiciones.items() if t != TICKER_EFECTIVO and (q > 0 or (cortos and q < 0))}
     omitidas: list[Omision] = []
 
     def _precio(ticker: str) -> float | None:
@@ -167,24 +181,31 @@ def planificar_rebalanceo(
     def _cantidad(valor: float) -> float:
         return float(int(valor)) if not politica.fraccionable else valor
 
-    # 1. Cierres: posiciones sin peso positivo en el objetivo, antes que nada y sin umbral
+    def _mantiene(ticker: str, cantidad: float) -> bool:
+        """True si el objetivo conserva el lado de la posición actual (largo con peso > 0, corto con peso < 0)."""
+        peso = pesos.get(ticker, 0.0)
+        return peso > 0 if cantidad > 0 else peso < 0
+
+    # 1. Cierres: posiciones cuyo objetivo es 0 o de signo contrario, antes que nada y sin umbral
+    #    (un corto se cierra con una compra; un cambio de signo se resuelve aquí y abre en el paso 2)
     ordenes: list[Orden] = []
     cerrados: set[str] = set()
     for ticker, cantidad in posiciones.items():
-        if pesos.get(ticker, 0.0) > 0:
+        if _mantiene(ticker, cantidad):
             continue
         if ticker in bloqueados:
             omitidas.append(Omision(ticker, "bloqueado"))
         elif (precio := _precio(ticker)) is None:
             omitidas.append(Omision(ticker, "sin_precio"))
-        elif _cantidad(cantidad) > 0:
-            ordenes.append(Orden(ticker, VENTA, _cantidad(cantidad), cantidad * precio, 0.0, "cierre"))
+        elif _cantidad(abs(cantidad)) > 0:
+            lado = VENTA if cantidad > 0 else COMPRA
+            ordenes.append(Orden(ticker, lado, _cantidad(abs(cantidad)), abs(cantidad) * precio, 0.0, "cierre"))
             cerrados.add(ticker)
 
-    # 2. Resto de tickers con peso positivo: diferencia entre objetivo y posición actual
+    # 2. Resto de tickers con peso distinto de 0: diferencia entre objetivo y posición actual (0 si se acaba de cerrar)
     candidatas: list[tuple[float, Orden]] = []
     for ticker, peso in pesos.items():
-        if ticker == TICKER_EFECTIVO or peso <= 0:
+        if ticker == TICKER_EFECTIVO or peso == 0 or (peso < 0 and not cortos):
             continue
         if ticker in bloqueados:
             omitidas.append(Omision(ticker, "bloqueado"))
@@ -193,7 +214,7 @@ def planificar_rebalanceo(
         if precio is None:
             omitidas.append(Omision(ticker, "sin_precio"))
             continue
-        actual = posiciones.get(ticker, 0.0)
+        actual = 0.0 if ticker in cerrados else posiciones.get(ticker, 0.0)
         valor_actual = actual * precio
         valor_objetivo = cuenta.equity * peso
         if politica.fraccionable:
@@ -208,7 +229,7 @@ def planificar_rebalanceo(
             actual_entera = float(int(actual))
             unidades = cantidad_objetivo - actual_entera
             diferencia = unidades * precio
-            cierra = cantidad_objetivo == 0 and actual_entera > 0
+            cierra = cantidad_objetivo == 0 and actual_entera != 0
             valor_operado = abs(unidades) * precio
             cantidad_orden = abs(unidades)
             importe = abs(unidades) * precio
@@ -220,8 +241,8 @@ def planificar_rebalanceo(
             omitidas.append(Omision(ticker, "bajo_umbral"))
             continue
         lado = COMPRA if diferencia > 0 else VENTA
-        if lado == VENTA and actual <= 0:
-            continue  # no se abren cortos
+        if lado == VENTA and actual <= 0 and peso > 0:
+            continue  # un objetivo largo nunca se alcanza vendiendo sin posición
         motivo = "cierre" if cierra else "rebalanceo"
         candidatas.append((diferencia, Orden(ticker, lado, cantidad_orden, importe, cantidad_objetivo, motivo)))
 

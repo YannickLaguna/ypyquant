@@ -44,6 +44,7 @@ from ypyquant.estrategias.experimentos import ConfiguracionExperimento, DatosExp
 from ypyquant.estrategias.procedencia import obtener_procedencia
 from ypyquant.estrategias.registro import obtener_estrategia
 from ypyquant.estrategias.universo_dinamico import UniversoPuntoEnElTiempo
+from ypyquant.execution.margen import reglas_desde_parametros
 from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
 
 COLUMNAS_ROTACIONES = ["fecha", "rotacion"]
@@ -171,24 +172,22 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
         avisos = [f"Sin datos para {t}" for t in tickers if t not in precios]
         filtro_universo = None
 
-    # Apalancamiento (solo las estrategias con volatilidad objetivo lo declaran): préstamo a tasa libre + diferencial
-    apalancamiento = float(getattr(estrategia.parametros, "apalancamiento_maximo", 1.0))
-    tasa_financiacion = (float(getattr(estrategia.parametros, "tasa_libre_riesgo", 0.0))
-                         + float(getattr(estrategia.parametros, "diferencial_financiacion", 0.0))) if apalancamiento > 1.0 else 0.0
+    # Margen y cortos (reglas compartidas con el paper interno, `ypyquant.execution.margen`): apalancamiento (préstamo a
+    # tasa libre + diferencial) y/o posiciones cortas (`exposicion_corta`, con coste de préstamo de títulos). Sin esos
+    # parámetros las reglas están inactivas y el motor funciona como siempre.
+    reglas = reglas_desde_parametros(estrategia.parametros)
     motor = BacktestEngine(BacktestConfig(
         start_date=config.fecha_inicio, end_date=config.fecha_fin, initial_capital=config.capital_inicial,
         rebalance_frequency=config.frecuencia_rebalanceo, commission_rate=config.comision,
         slippage_pct=config.slippage, max_positions=max(len(precios), 1), benchmark_ticker=config.benchmark,
-    ), apalancamiento_maximo=apalancamiento, tasa_financiacion=tasa_financiacion)
+    ), reglas_margen=reglas)
     resultado_bt = motor.run_backtest(estrategia.como_funcion(filtro_universo=filtro_universo), precios)
     if not estrategia.historial_pesos:
         detalle = estrategia.errores[0] if estrategia.errores else "sin pesos"
         raise RuntimeError(f"La estrategia no generó ningún rebalanceo válido ({detalle})")
     avisos.extend(estrategia.avisos)
-    if apalancamiento > 1.0:
-        avisos.append(f"Apalancamiento: intereses del préstamo de margen {motor.coste_financiacion:,.0f} "
-                      f"({motor.coste_financiacion / config.capital_inicial:.1%} del capital inicial) a "
-                      f"{tasa_financiacion:.2%} anual; exposición bruta máxima observada {motor.exposicion_maxima:.2f}x.")
+    if reglas.activo:
+        avisos.extend(avisos_de_margen(motor, reglas, config.capital_inicial))
     if estrategia.errores:
         avisos.append(f"{len(estrategia.errores)} rebalanceos fallaron; primero: {estrategia.errores[0]}")
     if pit:
@@ -205,7 +204,7 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
     )
     operaciones = pd.DataFrame([{
         "fecha": pd.Timestamp(t.entry_date), "ticker": t.ticker, "lado": "compra" if t.side == "buy" else "venta",
-        "cantidad": t.quantity, "precio": t.entry_price if t.side == "buy" else t.exit_price,
+        "cantidad": t.quantity, "precio": t.exit_price if t.exit_price is not None else t.entry_price,
         "comision": t.commission, "pnl": t.pnl,
     } for t in motor.trades], columns=["fecha", "ticker", "lado", "cantidad", "precio", "comision", "pnl"])
     if getattr(estrategia, "eventos", None):  # estrategias de señales: cada operación lleva su motivo
@@ -218,6 +217,27 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
         benchmark_precios=extraer_serie_precios(benchmark_usado, config.benchmark, avisar=False),
         procedencia=procedencia,
     )
+
+
+def avisos_de_margen(motor: BacktestEngine, reglas, capital_inicial: float) -> list[str]:
+    """
+    Avisos del margen de una ejecución (apalancada y/o con cortos): intereses del préstamo, préstamo de títulos,
+    exposición bruta máxima y UNA línea por llamada de margen (fecha, equity, requisito y fracción conservada).
+    """
+    avisos = []
+    if (reglas.apalancamiento_maximo > 1.0 and not reglas.permite_cortos) or motor.coste_financiacion > 0:
+        avisos.append(f"Apalancamiento: intereses del préstamo de margen {motor.coste_financiacion:,.0f} "
+                      f"({motor.coste_financiacion / capital_inicial:.1%} del capital inicial) a "
+                      f"{reglas.tasa_financiacion:.2%} anual; exposición bruta máxima observada {motor.exposicion_maxima:.2f}x.")
+    if reglas.permite_cortos:
+        avisos.append(f"Cortos: préstamo de títulos {motor.coste_prestamo_titulos:,.0f} "
+                      f"({motor.coste_prestamo_titulos / capital_inicial:.1%} del capital inicial) a "
+                      f"{reglas.coste_prestamo_titulos:.2%} anual; exposición bruta máxima observada {motor.exposicion_maxima:.2f}x.")
+    for llamada in motor.llamadas_margen:
+        avisos.append(f"Llamada de margen {pd.Timestamp(llamada['fecha']):%Y-%m-%d}: equity {llamada['equity']:,.0f} por debajo del "
+                      f"mantenimiento {llamada['requisito_mantenimiento']:,.0f} (exposición bruta {llamada['bruta']:,.0f}); "
+                      f"liquidación forzosa: se conserva el {llamada['factor_conservado']:.0%} de las posiciones.")
+    return avisos
 
 
 def estimar_rotaciones(equity: pd.DataFrame, pesos: pd.DataFrame, operaciones: pd.DataFrame) -> pd.DataFrame:
