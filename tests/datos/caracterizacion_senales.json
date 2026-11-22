@@ -1,0 +1,68 @@
+{
+  "canal_defecto": {
+    "equity": "bb02ce0af5ba13d23d4d3de833e7e6ab6f71e63ba839b50af0764cabe6e7cc36",
+    "equity_final": 97103.69355428885,
+    "estado": "e583410a1300d534550c78f6a248e39982e7e9278dd9f8dead752340030bbece",
+    "eventos": "1afb067ccc64046dcf416273223bdfe80336f6a3c066200cf1fbf21d67b99b8b",
+    "id": "canal_rsi_volatilidad-0b1f1b9513",
+    "motivos_legado": "3879e054962cf79f1b2f79d312bc6476ee5e1b7dbddff8c792663b743febf69d",
+    "n_operaciones": 130,
+    "operaciones": "a853483e46b254716fad3b1cf802cd51de4170ac76fe9874536958c1bbd7d238",
+    "pesos": "f40613d0aed1b3a5257d15e953ee01b8b987e4edea719fb1978628016a013b0f"
+  },
+  "canal_iguales_stop": {
+    "equity": "2f48abccdc7b6ec6c725ecc5509efda2a558c3969d4fae284153805095dfb3ab",
+    "equity_final": 90585.69757858885,
+    "estado": "92add12585cccc3954623bb7234413453a9138a64a8f5fef0a27f7c8f1dd9869",
+    "eventos": "024cc12b2f58b9c85d7ed94049ec7bb518c7e530fe4004726eb21e1107522bc5",
+    "id": "canal_rsi_volatilidad-9b692f793b",
+    "motivos_legado": "d04365cd1345afe19971e8e97f3f72af03a13159577310db10f3ea6b8422cfb6",
+    "n_operaciones": 282,
+    "operaciones": "207c1fc8b8c484a3e39b0a8b5186293968769d3d2b770590698b456f64a0436c",
+    "pesos": "fd12c585b1d8aaf2738f511ae554d03b9813a3964e10c0906fff99bcd7860255"
+  },
+  "cruce_defecto": {
+    "equity": "b9997e5e442e2f517064834cd9a34b9b9292181b1e6d66b26493150db0a33c87",
+    "equity_final": 102559.76288000774,
+    "estado": "07e44fc3540c2d7b4cf24ec68ea57dfc4b72a6d9ea9a12363d5e5980ab8aa37f",
+    "eventos": "3a965b4ddf34df03608f0dd1191be9391f8ca0cc8b2f205a1b68757f27bdbf9d",
+    "id": "cruce_medias-8b6a742554",
+    "motivos_legado": "0c4f834f3dea558920fbfb08a28067ac266402d1e5524f32d7a566799c573756",
+    "n_operaciones": 76,
+    "operaciones": "c483fafedec8794e19462e8461ba59242129f3b2caafddadb245f5cd72ad51f4",
+    "pesos": "82b8d335f694ecb3cbb189c0aaa330a575529a074e6b81c6febceb212628ee6d"
+  },
+  "cruce_inv_vol": {
+    "equity": "22aa687acf3cd6ec076ae6229be3d50854166ceb5f873d8a12f8f7d1f1323ad6",
+    "equity_final": 101872.88643866296,
+    "estado": "3b7a9f7372768362bc4de3e80ac53eb350099d501a5bfe41da8bb1979321c980",
+    "eventos": "73eff18a682269a02bf104b7fdc9c865b1392c71b51877b3edd0acee039ea7c7",
+    "id": "cruce_medias-09c16be810",
+    "motivos_legado": "8496cf80772fff289459e33c1518ab7ed855ed1c7c250470a58cf8a28e5da789",
+    "n_operaciones": 323,
+    "operaciones": "2742b94eefaeb64baa6667e0fd51824b5e7b35ed7ce098042446c9685a5b549f",
+    "pesos": "aa3b77c15a6f234a999f0e912fb34c7038dd11e34e6b82c2e86f1dea6d923c4b"
+  },
+  "cruce_stops": {
+    "equity": "0884fcca7d0645ee012604866243de62c18081b211fc36cfa1b4776129ee4af3",
+    "equity_final": 93058.34091700864,
+    "estado": "f59b962451940f31b6b78fb42b460629b918ae13dbf84ae4c1a5f7939d3d2e13",
+    "eventos": "2b6d2fecbf81a6d736a19a8c620c1443e71e7f568d8b2161974d9297e2ab4e1c",
+    "id": "cruce_medias-796e7fe367",
+    "motivos_legado": "a9f32b5b5248a1f0bbcb31bad212bb0c4b43cdc9b815bdf7b75192477683ead4",
+    "n_operaciones": 299,
+    "operaciones": "2335c394556161266f125a28df6fff471cece716b6f1747659e0c65646a5d633",
+    "pesos": "f81bb4e80ae6a33e1290c4fcd09ac1c672acf4648fb8c307a81602737abdc745"
+  },
+  "tecnicas": {
+    "equity": "6a7b1cd883d594db352cf93c0a6edc311588dc7ddaf85e994272e8f6e9c58109",
+    "equity_final": 89105.48387340394,
+    "estado": "18c54ae6dbce8931c47ca4e292a6c144e0a2540f59480d02bc64807c1ca7545c",
+    "eventos": "6f32bccf93b8b071f205b0198dbbf2ef57cccf635f8cd0e8b63aa0d12359b8e4",
+    "id": "senales_tecnicas-e78decd765",
+    "motivos_legado": "ae20d7a2d1281871a63040f97e770e48a180368d293ef78aee29140df88b00b5",
+    "n_operaciones": 246,
+    "operaciones": "dc68b92d5b0e971a5e837afd28ae8b77828b2915effe58a58ce58e60b3255f28",
+    "pesos": "d3e3b67daa72a3cdc3a3a9ec1863d3f31122d4b32377b81875eaf8d624008949"
+  }
+}
