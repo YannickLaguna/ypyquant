@@ -17,12 +17,15 @@ Cómo ejecutar los tests de red:
     python -m pytest -m "red or not red"   # todo
 """
 
+import os
 import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+
+os.environ.setdefault("YPYQUANT_MEMBRESIAS_AUTO", "0")  # los tests no consultan Wikipedia/SPDR
 
 RAIZ_REPO = Path(__file__).resolve().parent.parent
 
