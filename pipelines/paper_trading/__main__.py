@@ -26,7 +26,7 @@ from pipelines.paper_trading.config import (
     ConfiguracionServicio,
     cargar_env,
 )
-from ypyquant.estrategias.base import FRECUENCIAS_VALIDAS
+from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS
 
 FORMATO_LOG = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 

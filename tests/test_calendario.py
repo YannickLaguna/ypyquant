@@ -21,16 +21,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pipelines.paper_trading.estado_bot import toca_rebalancear
-from ypyquant.portfolio.backtest_engine import BacktestEngine
+from ypyquant.estrategias.base import FRECUENCIAS_VALIDAS as FRECUENCIAS_ESTRATEGIAS
+from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS, fechas_de_rebalanceo, toca_rebalancear
+from ypyquant.portfolio.backtest_engine import _FRECUENCIAS, BacktestConfig, BacktestEngine
 
 FRECUENCIAS = ("daily", "weekly", "monthly", "quarterly")
 
 
 def _fechas_motor(inicio, fin, frecuencia, dias):
     """Fechas de rebalanceo periódico del motor: programadas alineadas al primer día hábil >= fecha."""
-    programadas = BacktestEngine._get_rebalance_dates(inicio, fin, frecuencia)
-    return [d for d in BacktestEngine._alinear_a_dias_de_trading(programadas, list(dias)) if d != dias[0]]
+    return [d for d in fechas_de_rebalanceo(inicio, fin, frecuencia, list(dias)) if d != dias[0]]
 
 
 def _fechas_bot(frecuencia, dias):
@@ -93,3 +93,14 @@ def test_toca_rebalancear_casos_limite(frecuencia, ultimo, hoy, toca):
 def test_frecuencia_desconocida_falla_con_un_mensaje_claro():
     with pytest.raises(ValueError, match="[Ff]recuencia"):
         BacktestEngine._get_rebalance_dates("2023-01-01", "2023-12-31", "anual")
+
+
+def test_una_sola_lista_de_frecuencias_en_motor_estrategias_y_calendario():
+    assert FRECUENCIAS_ESTRATEGIAS is FRECUENCIAS_VALIDAS and tuple(_FRECUENCIAS) == FRECUENCIAS_VALIDAS
+    with pytest.raises(ValueError, match="[Ff]recuencia"):
+        BacktestConfig(start_date="2023-01-01", end_date="2023-12-31", initial_capital=1, rebalance_frequency="anual")
+    # el motor y el calendario dan las mismas fechas por el camino público y por el privado heredado
+    dias = list(pd.bdate_range("2023-01-02", "2023-12-29"))
+    programadas = BacktestEngine._get_rebalance_dates("2023-01-02", "2023-12-29", "monthly")
+    assert BacktestEngine._alinear_a_dias_de_trading(programadas, dias) == fechas_de_rebalanceo(
+        "2023-01-02", "2023-12-29", "monthly", dias)

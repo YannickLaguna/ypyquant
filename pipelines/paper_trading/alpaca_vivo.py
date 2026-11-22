@@ -38,7 +38,7 @@ from pipelines.paper_trading.precios import (
     dias_naturales_para_sesiones,
     resolver_dias_historico,
 )
-from ypyquant.estrategias.base import FRECUENCIAS_VALIDAS
+from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS
 from ypyquant.execution.nautilus.constructor_senales import construir_combinador
 from ypyquant.execution.nautilus.ordenes import decidir_orden, decidir_ordenes_rebalanceo
 from ypyquant.execution.nautilus.registro_fills import RegistroFills

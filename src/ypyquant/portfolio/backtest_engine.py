@@ -43,6 +43,12 @@ import numpy as np
 import pandas as pd
 
 from ypyquant.data.matriz_precios import CargadorPrecios, con_columna_close
+from ypyquant.execution.calendario import (
+    ALIAS_PANDAS,
+    alinear_a_dias_de_trading,
+    fechas_programadas,
+    validar_frecuencia,
+)
 from ypyquant.utils.divisas import ServicioCambio, convertir_equity_a_divisa, simbolo_divisa
 from ypyquant.utils.serializacion import convertir_numpy_a_nativo
 
@@ -73,8 +79,9 @@ DIVISA_BASE = 'USD'
 # Días de trading por año para anualizar Sharpe y Sortino
 _DIAS_ANUAL = 252
 
-# Frecuencias de rebalanceo admitidas → alias de pandas
-_FRECUENCIAS = {'daily': 'D', 'weekly': 'W-MON', 'monthly': 'MS', 'quarterly': 'QS'}
+# Frecuencias de rebalanceo admitidas → alias de pandas (la definición vive en execution/calendario.py;
+# el nombre se conserva por si alguna subclase de GrowSave lo lee)
+_FRECUENCIAS = ALIAS_PANDAS
 
 # Firma de la estrategia: (fecha, {ticker: OHLCV}) -> {ticker: peso}
 FuncionEstrategia = Callable[[datetime, dict[str, pd.DataFrame]], dict[str, float]]
@@ -134,8 +141,7 @@ class BacktestConfig:
         ]
         if faltan:
             raise TypeError(f"BacktestConfig: faltan campos obligatorios {faltan}")
-        if self.rebalance_frequency not in _FRECUENCIAS:
-            raise ValueError(f"Frecuencia no soportada: {self.rebalance_frequency}")
+        validar_frecuencia(self.rebalance_frequency)
 
 
 # Lectura con los nombres en español (los InitVar no se guardan en la instancia)
@@ -470,23 +476,13 @@ class BacktestEngine:
 
     @staticmethod
     def _get_rebalance_dates(start_date: str, end_date: str, frequency: str) -> list[datetime]:
-        """Fechas de rebalanceo: daily (D), weekly (lunes), monthly (inicio de mes), quarterly."""
-        if frequency not in _FRECUENCIAS:
-            raise ValueError(f"Frecuencia no soportada: {frequency}")
-        return [d.to_pydatetime() for d in pd.date_range(start_date, end_date, freq=_FRECUENCIAS[frequency])]
+        """Fechas de rebalanceo: daily (D), weekly (lunes), monthly (inicio de mes), quarterly (calendario único)."""
+        return fechas_programadas(start_date, end_date, frequency)
 
     @staticmethod
     def _alinear_a_dias_de_trading(programadas: list, dias_trading: list) -> list[pd.Timestamp]:
-        """
-        Lleva cada fecha programada al primer día de trading >= ella y quita duplicados (dos
-        fechas de calendario que caen en el mismo día hábil, p. ej. sábado y domingo con
-        frecuencia diaria). Las posteriores al último día de trading se descartan.
-        """
-        if not dias_trading:
-            return []
-        dias = pd.DatetimeIndex(dias_trading)
-        posiciones = dias.searchsorted(pd.DatetimeIndex(programadas), side='left')
-        return sorted({dias[i] for i in posiciones if i < len(dias)})
+        """Lleva cada fecha programada al primer día de trading >= ella, sin duplicados (calendario único)."""
+        return alinear_a_dias_de_trading(programadas, dias_trading)
 
     @staticmethod
     def _get_prices_at_date(historical_data: dict[str, pd.DataFrame], date: datetime) -> dict[str, float]:
