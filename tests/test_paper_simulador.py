@@ -289,3 +289,10 @@ def test_alta_rechaza_universo_dinamico_y_modo_invalido(tmp_path):
         servicio.crear_sesion(Receta(estrategia="pesos_iguales", universo="sp500_pit"))
     with pytest.raises(ValueError, match="Modo"):
         servicio.crear_sesion(_receta(), modo_ejecucion="intradia")
+
+
+def test_alta_rechaza_apalancamiento_mayor_que_uno(tmp_path):
+    servicio = _servicio(tmp_path, _fuente())
+    receta = Receta.model_construct(**{**_receta().model_dump(), "parametros": {"apalancamiento_maximo": 1.5}})
+    with pytest.raises(ValueError, match="margen"):
+        servicio.crear_sesion(receta)
