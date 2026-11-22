@@ -1,5 +1,6 @@
 /**
- * Tests del detalle de una sesión de paper interno: cabecera, avisos, posiciones, estado vacío de las operaciones y
+ * Tests del detalle de una sesión de paper interno: cabecera, bloque «Tiempo en paper interno» (periodo, duración,
+ * pendientes, frecuencia y próximo rebalanceo), avisos del universo, posiciones, estado vacío de las operaciones y
  * controles (pausar, detener con confirmación). Se relaciona con: paginas/PaperInternoDetalle.tsx y api/paper_interno.ts.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -18,6 +19,8 @@ const detalle: DetalleSesionPaper = {
   id: 'momentum-a', nombre: 'Momentum A', estrategia: 'momentum', modo_ejecucion: 'cierre', estado: 'activa', fecha_alta: '2026-11-02',
   capital_inicial: 100000, equity: 101500, dias: 12, ultima_fecha: '2026-11-20', retorno_total: 0.015, sharpe: 1.2, max_drawdown: -0.02,
   volatilidad: 0.12, costes: 85, dias_pendientes: 2, al_dia: false, id_experimento: 'exp-1', id_configuracion: null,
+  frecuencia_rebalanceo: 'monthly', ultimo_rebalanceo: '2026-11-02', proximo_rebalanceo: '2026-12-01',
+  universo_dinamico: false, avisos_universo: [],
   sesion: { receta: { estrategia: 'momentum', parametros: { top_k: 3 }, universo: ['AAA', 'BBB'], benchmark: 'SPY', comision: 0.001, slippage: 0.001, frecuencia_rebalanceo: 'monthly' } },
   metricas: { sharpe: 1.2, max_drawdown: -0.02, volatilidad: 0.12 }, costes_detalle: { comisiones: 60, slippage: 25, total: 85 }, efectivo: 1200,
   posiciones: [{ ticker: 'AAA', cantidad: 10.5, precio_medio: 100, ultimo_cierre: 105, valor: 1102.5, peso: 0.4 }],
@@ -61,6 +64,27 @@ describe('Detalle de sesión de paper interno', () => {
     expect(within(posiciones).getByText('AAA')).toBeInTheDocument()
     expect(screen.getByRole('table', { name: 'Operaciones' })).toHaveTextContent('Sin operaciones')
     expect(screen.getByRole('link', { name: 'exp-1' })).toHaveAttribute('href', '/experimentos/exp-1')
+  })
+
+  it('explica el tiempo: periodo, duración, pendientes, frecuencia y próximo rebalanceo', async () => {
+    simularApi([])
+    montar()
+    const bloque = (await screen.findByRole('heading', { name: 'Tiempo en paper interno' })).closest('section')!
+    expect(within(bloque).getByText(/2 nov\.? 2026 → 20 nov\.? 2026/)).toBeInTheDocument()
+    expect(within(bloque).getByText('12 sesiones de mercado · 2 semanas y 5 días')).toBeInTheDocument()
+    expect(within(bloque).getByText('2 días pendientes')).toBeInTheDocument()
+    expect(within(bloque).getByText('rebalanceo mensual')).toBeInTheDocument()
+    expect(within(bloque).getByText(/1 dic\.? 2026/)).toBeInTheDocument()
+  })
+
+  it('avisa de la calidad de las membresías con universo dinámico', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (ruta: string) => ({ ok: true, status: 200, json: async () => (
+      ruta.endsWith('/equity') ? { equity: [] } : ruta.endsWith('/operaciones') ? { operaciones: [] } : ruta.endsWith('/espejo')
+        ? { estado: 'sin_datos', id_experimento: null, real: [], espejo: [] }
+        : { ...detalle, universo_dinamico: true, avisos_universo: ['El S&P 500 tiene 525 miembros vigentes'] }) })))
+    montar()
+    expect(await screen.findByText(/calidad de las membresías/)).toBeInTheDocument()
+    expect(screen.getByText(/525 miembros vigentes/)).toBeInTheDocument()
   })
 
   it('pausar llama a la API; detener pide confirmación y no actúa si se rechaza', async () => {

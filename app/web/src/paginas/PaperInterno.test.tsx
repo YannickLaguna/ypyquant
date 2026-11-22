@@ -1,6 +1,6 @@
 /**
- * Tests de la página Paper interno: estado vacío, tabla de sesiones (retorno, Sharpe, «al día / n días pendientes»,
- * estado), botón «Avanzar ahora» con sondeo mientras está en curso y selección múltiple -> gráfico a base 100.
+ * Tests de la página Paper interno: estado vacío, tabla de sesiones (periodo, duración, retorno, Sharpe, días
+ * pendientes, frecuencia y próximo rebalanceo, estado), comprobación automática (próxima y última), botón «Avanzar ahora» con sondeo mientras está en curso y selección múltiple -> gráfico a base 100.
  * Se relaciona con: paginas/PaperInterno.tsx, api/paper_interno.ts y lib/paperInterno.ts.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -8,7 +8,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { EstadoAvancePaper, ResumenSesionPaper } from '../api/paper_interno'
+import type { EstadoAvancePaper, EstadoPlanificadorPaper, ResumenSesionPaper } from '../api/paper_interno'
 import PaperInterno from './PaperInterno'
 
 // El gráfico usa canvas, que jsdom no implementa: basta saber qué series recibe
@@ -19,18 +19,25 @@ vi.mock('../componentes/Graficos', () => ({
 const sesion = (cambios: Partial<ResumenSesionPaper>): ResumenSesionPaper => ({
   id: 'a', nombre: 'Momentum A', estrategia: 'momentum', modo_ejecucion: 'apertura_siguiente', estado: 'activa', fecha_alta: '2026-11-02',
   capital_inicial: 100000, equity: 101500, dias: 12, ultima_fecha: '2026-11-20', retorno_total: 0.015, sharpe: 1.234, max_drawdown: -0.021,
-  volatilidad: 0.12, costes: 85, dias_pendientes: 0, al_dia: true, id_experimento: 'exp-1', id_configuracion: null, ...cambios,
+  volatilidad: 0.12, costes: 85, dias_pendientes: 0, al_dia: true, id_experimento: 'exp-1', id_configuracion: null,
+  frecuencia_rebalanceo: 'monthly', ultimo_rebalanceo: '2026-11-02', proximo_rebalanceo: '2026-12-01', ...cambios,
 })
 
 const SIN_AVANCE: EstadoAvancePaper = { en_curso: false, inicio: null, fin: null, resultados: [], error: null }
 
-function simularApi(sesiones: ResumenSesionPaper[], avances: EstadoAvancePaper[] = [SIN_AVANCE]) {
+const PLANIFICADOR: EstadoPlanificadorPaper = {
+  activo: true, intervalo_min: 30, proxima_comprobacion: '2026-11-22T20:30:00+01:00',
+  ultima: { hora: '2026-11-22T20:00:00+01:00', resultado: 'avanzado', dias_procesados: 2, error: null },
+}
+
+function simularApi(sesiones: ResumenSesionPaper[], avances: EstadoAvancePaper[] = [SIN_AVANCE], planificador: EstadoPlanificadorPaper = PLANIFICADOR) {
   let n = 0
   const llamadas: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (ruta: string, opciones?: RequestInit) => {
     llamadas.push(`${opciones?.method ?? 'GET'} ${ruta}`)
     let cuerpo: unknown = {}
     if (ruta.endsWith('/sesiones')) cuerpo = { sesiones }
+    else if (ruta.endsWith('/planificador')) cuerpo = planificador
     else if (ruta.endsWith('/avanzar/estado')) cuerpo = avances[Math.min(n++, avances.length - 1)]
     else if (ruta.endsWith('/avanzar')) cuerpo = { ...SIN_AVANCE, en_curso: true, inicio: '2026-11-22T20:00:00' }
     else if (ruta.endsWith('/equity')) {
@@ -73,6 +80,33 @@ describe('Paper interno', () => {
     expect(within(otra).getByText('3 días pendientes')).toBeInTheDocument()
     expect(within(otra).getByText('pausada')).toBeInTheDocument()
     expect(within(otra).getByText('Al cierre (optimista)')).toBeInTheDocument()
+  })
+
+  it('la tabla explica el tiempo: periodo, duración, frecuencia y próximo rebalanceo, con unidades en las cabeceras', async () => {
+    simularApi([sesion({})])
+    montar()
+    const tabla = await screen.findByRole('table', { name: 'Sesiones de paper interno' })
+    const fila = within(tabla).getByText('Momentum A').closest('tr')!
+    expect(within(fila).getByText(/2 nov\.? 2026 → 20 nov\.? 2026/)).toBeInTheDocument()
+    expect(within(fila).getByText('12 sesiones de mercado · 2 semanas y 5 días')).toBeInTheDocument()
+    expect(within(fila).getByText('rebalanceo mensual')).toBeInTheDocument()
+    expect(within(fila).getByText(/próximo: .*1 dic\.? 2026/)).toBeInTheDocument()
+    for (const cabecera of ['Periodo (alta → última fecha)', 'Retorno total (%)', 'Costes (USD)', 'Pendientes (días hábiles)'])
+      expect(within(tabla).getByRole('columnheader', { name: new RegExp(cabecera.replace(/[()]/g, '\\$&')) })).toBeInTheDocument()
+  })
+
+  it('muestra la próxima comprobación automática y qué hizo la última', async () => {
+    simularApi([sesion({})])
+    montar()
+    const nota = await screen.findByText(/Comprobación automática cada 30 min/)
+    expect(nota).toHaveTextContent('próxima:')
+    expect(nota).toHaveTextContent('2 días procesados')
+  })
+
+  it('avisa si la comprobación automática está desactivada', async () => {
+    simularApi([sesion({})], [SIN_AVANCE], { activo: false, intervalo_min: 0, proxima_comprobacion: null, ultima: null })
+    montar()
+    expect(await screen.findByText(/comprobación automática está desactivada/)).toBeInTheDocument()
   })
 
   it('«Avanzar ahora» lanza el avance, se deshabilita mientras está en curso y muestra el resultado', async () => {
