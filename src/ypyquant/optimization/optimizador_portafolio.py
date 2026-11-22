@@ -25,6 +25,15 @@ de las funciones Markowitz es retorno / volatilidad (sin restar r_f), salvo dond
 Los pesos se etiquetan con las columnas de la matriz de retornos (si el preprocesador
 descarta un ticker por baja calidad, no aparece en los pesos).
 
+ESTADO (2026-11-21, ver docs/planes/2026-11-21-optimizacion-canonica.md): este módulo es una FACHADA DE
+COMPATIBILIDAD con GrowSave. NO AMPLIAR. Código nuevo debe usar:
+- `ypyquant.optimization.estimacion_robusta` (max-Sharpe QP, mínima varianza, volatilidad objetivo, estimadores
+  de µ y Σ, paridad de riesgo y CVaR en `riesgo.py`);
+- los modelos de `ypyquant.optimization.portfolio_models` / `presets` para componer estimador + optimizador;
+- las estrategias de `ypyquant.estrategias` (`bayes_stein`, `michaud`, `bl_prior`, `preset_ypyquant`...).
+Aquí se conservan, con nombre, firma y resultados intactos, las funciones scipy/pypfopt (SLSQP) y el
+servicio que GrowSave subclasifica; paridad de riesgo y CVaR ya delegan en `estimacion_robusta.riesgo`.
+
 Se relaciona con:
 - ypyquant.optimization.portfolio_models (PortfolioOptimizationModel y componentes).
 - ypyquant.optimization.presets (obtener_preset, listar_presets, obtener_detalles_preset).
@@ -36,22 +45,15 @@ import hashlib
 import json
 import logging
 import warnings
-from collections.abc import Callable
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import fsolve, minimize
 
 from ypyquant.data.matriz_precios import CargadorPrecios, calcular_matriz_retornos, construir_matriz_precios
-from ypyquant.optimization.data_preprocessing import (
-    DiasTrading,
-    Periodo,
-    TipoRetorno,
-    anualizar_covarianza,
-    anualizar_retorno_medio,
-    anualizar_volatilidad,
-)
+from ypyquant.optimization.data_preprocessing import TipoRetorno
+from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_riesgo, var_cvar_historicos
 from ypyquant.optimization.portfolio_models import (
     BayesSteinReturnsModel,
     BlackLittermanReturnsModel,
@@ -202,19 +204,10 @@ def optimizar_max_sharpe_pypfopt(
 
 
 def optimizar_risk_parity(cov_anual: pd.DataFrame, restricciones: dict | None = None) -> np.ndarray:
-    """Paridad de riesgo: contribuciones al riesgo iguales (mínimos cuadrados, SLSQP)."""
-    n = len(cov_anual)
-
-    def objetivo(pesos):
-        vol = np.sqrt(np.dot(pesos.T, np.dot(cov_anual, pesos)))
-        contribucion = pesos * (np.dot(cov_anual, pesos) / vol)
-        return np.sum((contribucion - vol / n) ** 2)
-
-    resultado = minimize(
-        objetivo, _pesos_iguales(n), method='SLSQP', bounds=_limites(n, restricciones),
-        constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}],
-    )
-    return resultado.x
+    """Paridad de riesgo: contribuciones al riesgo iguales (delega en `estimacion_robusta.riesgo`)."""
+    max_peso = restricciones.get('max_weight', 1.0) if restricciones else 1.0
+    pesos, _ = optimizar_paridad_riesgo(cov_anual, max_peso)
+    return pesos
 
 
 def optimizar_portafolio(
@@ -529,13 +522,9 @@ def calcular_cvar(
     Returns:
         {cvar, var, cvar_horizon, shortfall_risk, interpretation, tail_mean, confidence_level}
     """
-    retornos_cartera = (retornos_df * weights).sum(axis=1)
-    if target_return is not None:
-        retornos_cartera = retornos_cartera - target_return / _DIAS
-
-    var = np.percentile(retornos_cartera, (1 - confidence_level) * 100)
-    cola = retornos_cartera[retornos_cartera <= var]
-    cvar_diario = var if len(cola) == 0 else cola.mean()
+    var, cvar_diario = var_cvar_historicos(
+        retornos_df, weights, confidence_level, target_return / _DIAS if target_return is not None else 0.0
+    )
 
     cvar_anual = float(cvar_diario * np.sqrt(_DIAS))
     var_anual = float(var * np.sqrt(_DIAS))
@@ -827,6 +816,12 @@ def modelos_disponibles() -> dict[str, list[str]]:
 
 class PortfolioOptimizationService:
     """
+    FACHADA DE COMPATIBILIDAD CON GROWSAVE: no ampliar; usar `estimacion_robusta`, los modelos de
+    `portfolio_models`/`presets` o las estrategias de `ypyquant.estrategias`. Cada método de una línea
+    delega en una función pura de este módulo; GrowSave la subclasifica (constructor con
+    `cargador_precios` y `tipo_retorno`, gancho `_obtener_datos_modelo`, `optimize_advanced`,
+    `calcular_metricas_cartera`, presets y modelos), así que su nombre y firmas son contrato.
+
     Servicio de optimización con las firmas de GrowSave: recibe tickers y fechas, carga los
     precios con `cargador_precios` (ticker, inicio, fin) -> OHLCV, calcula retornos con el
     preprocesador centralizado (log por defecto, 95 % de datos válidos) y delega en las
@@ -839,7 +834,6 @@ class PortfolioOptimizationService:
     """
 
     CACHE_TTL_HOURS = 6
-    DIAS_TRADING_ANUAL = DiasTrading.ANUAL
 
     def __init__(
         self,
@@ -872,15 +866,6 @@ class PortfolioOptimizationService:
         return calcular_matriz_retornos(
             precios, tipo_retorno=tipo_retorno or self.tipo_retorno, ratio_minimo_validos=0.95, estricto=True
         )
-
-    def _anualizar_media(self, media_retornos: pd.Series) -> pd.Series:
-        return anualizar_retorno_medio(media_retornos, tipo_retorno=self._tipo_retorno_enum, periodo_origen=Periodo.DIARIO)
-
-    def _anualizar_volatilidad(self, volatilidad: pd.Series) -> pd.Series:
-        return anualizar_volatilidad(volatilidad, periodo_origen=Periodo.DIARIO)
-
-    def _anualizar_covarianza(self, matriz_cov: pd.DataFrame) -> pd.DataFrame:
-        return anualizar_covarianza(matriz_cov, periodo_origen=Periodo.DIARIO)
 
     @staticmethod
     def _calculate_tickers_hash(tickers: list[str], start_date: str, end_date: str) -> str:
@@ -1095,7 +1080,3 @@ class PortfolioOptimizationService:
             'note': 'Full backtesting implementation pending',
         }
         return resultado
-
-
-# Tipo de la función de datos externos que puede pasar la aplicación al subclasificar
-ProveedorDatosModelo = Callable[[PortfolioOptimizationModel, str, str], dict[str, Any]]
