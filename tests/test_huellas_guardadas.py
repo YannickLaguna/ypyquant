@@ -2,13 +2,13 @@
 Garantía de compatibilidad de las huellas con los datos reales ya guardados.
 
 Responsabilidad: recalcula, SIN modificar nada, la huella de las configuraciones de experimento, de las
-configuraciones guardadas y los marcos que hay en `data/` del repo principal (`Sistema_trading`) y comprueba que
+configuraciones guardadas y los marcos que hay en `data/` local del repo y comprueba que
 coincide con lo persistido: id de carpeta de cada experimento (`<estrategia>-<10 primeros de la huella>`),
 `huella_estrategia` de cada versión de configuración, y que las comparativas siguen apuntando a experimentos que
 existen con el id que les corresponde. Si el cálculo canónico de `receta.py` cambiase una sola coma, este test falla.
 
 Se relaciona con: ypyquant.estrategias.receta/experimentos/configuraciones/marcos (lo que protege) y
-tests/test_estrategias.py (huella fija de un caso sintético). Se omite si el repo principal no está en la ruta.
+tests/test_estrategias.py (huella fija de un caso sintético). Se omite si no hay `data/` local (p. ej. en un worktree recién creado).
 Los experimentos importados del TFM (`tfm-*`, estrategia `tfm_*`) tienen otro esquema de id (`tfm-<slug>`): se excluyen.
 """
 
@@ -24,7 +24,7 @@ from ypyquant.estrategias.configuraciones import ConfiguracionGuardada
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.marcos import MarcoComparacion
 
-DATOS_REALES = Path("C:/Users/yanni/Documents/Codigo/Proyectos/Sistema_trading/data")
+DATOS_REALES = Path(__file__).resolve().parents[1] / "data"  # data/ local del repo
 pytestmark = pytest.mark.skipif(not DATOS_REALES.is_dir(), reason="no está el repo principal con sus datos")
 
 
