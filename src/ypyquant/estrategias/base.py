@@ -39,6 +39,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ypyquant.data.matriz_precios import extraer_serie_precios
 from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS  # noqa: F401  (reexportada: única definición)
+from ypyquant.execution.ejecutor import TICKER_EFECTIVO
 from ypyquant.portfolio.backtest_engine import FuncionEstrategia
 
 # `(fecha, datos_recortados_a_fecha) -> {ticker: OHLCV}` solo con los tickers elegibles en esa fecha
@@ -93,7 +94,18 @@ def sanear_pesos(pesos: dict[str, float]) -> dict[str, float]:
 
     Si la suma es 0 devuelve `{}` (el motor liquida y queda en efectivo). El motor ya
     normaliza a 1 cuando la suma se desvía más de 1 %, así que no existe efectivo parcial.
+
+    Excepción (apalancamiento): un `CASH` NEGATIVO es un préstamo de margen (financiación). Se conserva y las
+    posiciones se escalan a sumar `1 - CASH` (p. ej. CASH = -0,5 -> posiciones suman 1,5), de modo que la suma
+    total sigue siendo 1 y el motor no la normaliza. Sin `CASH` negativo el comportamiento no cambia.
     """
+    prestamo = pesos.get(TICKER_EFECTIVO)
+    if prestamo is not None and math.isfinite(prestamo) and prestamo < 0:
+        largas = sanear_pesos({t: w for t, w in pesos.items() if t != TICKER_EFECTIVO})
+        if not largas:
+            return {}
+        exposicion = 1.0 - float(prestamo)
+        return {**{t: w * exposicion for t, w in largas.items()}, TICKER_EFECTIVO: float(prestamo)}
     limpios = {t: float(w) for t, w in pesos.items() if w is not None and math.isfinite(w) and w > 0}
     total = sum(limpios.values())
     if total <= 0:

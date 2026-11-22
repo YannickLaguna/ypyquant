@@ -3,6 +3,7 @@ Estimación robusta de µ y optimización max-Sharpe (lógica del TFM «Optimiza
 
 Responsabilidad: punto de entrada público del subpaquete. Agrupa funciones puras
 (sin estado, sin BD) portadas de la rejilla v2 del TFM:
+- avisos.py:          textos de aviso únicos (volatilidad objetivo inalcanzable).
 - sigma.py:           Σ Ledoit-Wolf.
 - estimadores_mu.py:  µ muestral, Bayes-Stein, BL-prior, BL-momentum, Michaud (+ diagnósticos).
 - max_sharpe_qp.py:   max-Sharpe long-only vía QP exacto con cascada de respaldo.
@@ -17,6 +18,7 @@ BLPriorReturnsModel, BLMomentumReturnsModel, MaxSharpeQPOptimizer, MichaudOptimi
 optimization/presets/tfm.py (presets) y docs/migracion-v0.4.0.md.
 """
 
+from ypyquant.optimization.estimacion_robusta.avisos import aviso_volatilidad_inalcanzable, porcentaje_es
 from ypyquant.optimization.estimacion_robusta.elipsoide import (
     delta_caja,
     kappa_confianza,
@@ -102,6 +104,8 @@ __all__ = [
     "optimizar_robusto_caja",
     "optimizar_robusto_elipsoide",
     "optimizar_volatilidad_objetivo",
+    "aviso_volatilidad_inalcanzable",
+    "porcentaje_es",
     "pesos_mercado",
     "preparar_panel",
     "seed_para",

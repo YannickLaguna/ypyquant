@@ -250,3 +250,16 @@ def test_permutacion_en_curso_no_se_duplica_y_se_cancela(tmp_path):
     assert servicio.cancelar_permutacion(id_barrido, "permutacion_in_sample") is True
     servicio.ejecutor_barridos.soltar()
     assert servicio.almacen_barridos.tarea(id_barrido, "permutacion_in_sample")["estado"] == "cancelado"
+
+
+def test_backtest_y_comparativa_de_configuracion_comparten_las_fechas_por_defecto(tmp_path):
+    """Misma regla en ambos caminos: con el experimento de origen como fuente, las dos usan sus fechas."""
+    from ypyquant.estrategias.configuraciones import OrigenConfiguracion
+
+    servicio = _servicio(tmp_path)
+    guardada = _guardada(servicio).model_copy(update={"origen": OrigenConfiguracion(tipo="experimento", fechas=["2020-02-03", "2021-03-04"])})
+    config = servicio.almacen.leer_config(servicio.lanzar_backtest_de_configuracion(guardada).id)
+    assert (config["fecha_inicio"], config["fecha_fin"]) == ("2020-02-03", "2021-03-04")
+    comparativa = servicio.lanzar_comparativa_de_configuracion(guardada, [{"estrategia": "pesos_iguales", "parametros": {}}])
+    marco = servicio.almacen_marcos.leer(comparativa["id_marco"] if "id_marco" in comparativa else comparativa["marco"]["id"])
+    assert (marco.fecha_inicio, marco.fecha_fin) == ("2020-02-03", "2021-03-04")

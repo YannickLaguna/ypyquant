@@ -298,7 +298,13 @@ class BacktestEngine:
         config: BacktestConfig,
         cargador_precios: CargadorPrecios | None = None,
         servicio_cambio: ServicioCambio | None = None,
+        apalancamiento_maximo: float = 1.0,
+        tasa_financiacion: float = 0.0,
     ):
+        if apalancamiento_maximo < 1.0:
+            raise ValueError("apalancamiento_maximo debe ser >= 1 (1 = sin apalancamiento)")
+        self.apalancamiento_maximo = float(apalancamiento_maximo)
+        self.tasa_financiacion = float(tasa_financiacion)
         self.config = config
         self.cargador_precios = cargador_precios
         self.exchange_service = servicio_cambio
@@ -330,6 +336,8 @@ class BacktestEngine:
         self.total_contributions_user = 0.0  # en divisa del usuario
         self.target_weights: dict[str, float] = {}
         self.rotaciones: list[tuple[datetime, float]] = []
+        self.coste_financiacion = 0.0        # intereses acumulados por el efectivo negativo (divisa base)
+        self.exposicion_maxima = 1.0         # mayor valor de posiciones / equity observado tras un rebalanceo
 
     # ------------------------------------------------------------------
     # Divisas
@@ -402,6 +410,7 @@ class BacktestEngine:
 
         rebalance_count = 0
         initial_allocation_done = False
+        fecha_previa = None
 
         for date in all_trading_dates:
             self.current_date = date
@@ -426,6 +435,11 @@ class BacktestEngine:
             if (self.config.monthly_contribution > 0 and initial_allocation_done
                     and self._is_contribution_date(date, contribution_dates_set, all_trading_dates)):
                 self._execute_contribution(current_prices, date)
+
+            # Margen: el efectivo negativo (préstamo) paga intereses; sin apalancamiento no hay nada que cobrar
+            if self.apalancamiento_maximo > 1.0 and fecha_previa is not None:
+                self._cobrar_financiacion((date - fecha_previa).days)
+            fecha_previa = date
 
             # Valor y equity diarios
             self._update_portfolio_value(current_prices)
@@ -601,6 +615,19 @@ class BacktestEngine:
             else:
                 self._buy(orden.ticker, orden.importe, precio, date)
 
+        if self.apalancamiento_maximo > 1.0 and self.portfolio_value > 0:
+            self.exposicion_maxima = max(self.exposicion_maxima, (self.portfolio_value - self.cash) / self.portfolio_value)
+
+    def _cobrar_financiacion(self, dias: int):
+        """
+        Intereses del préstamo de margen: si el efectivo es negativo se cargan `-efectivo x tasa x días / 360`
+        (convención de Alpaca: saldo deudor x tasa / 360, el fin de semana cuenta 3 días). `tasa_financiacion` es anual.
+        """
+        if self.cash < 0 and dias > 0 and self.tasa_financiacion > 0:
+            interes = -self.cash * self.tasa_financiacion * dias / 360.0
+            self.cash -= interes
+            self.coste_financiacion += interes
+
     def _add_to_position(self, ticker: str, quantity: float, price: float):
         """Suma `quantity` a la posición recalculando el precio medio."""
         if ticker in self.positions:
@@ -617,7 +644,11 @@ class BacktestEngine:
         ejecución (una sola vez). Si no llega el efectivo, compra lo que se pueda pagar
         (arreglo de GrowSave: antes la última compra de cada rebalanceo nunca cabía).
         """
-        maximo_pagable = self.cash / (1 + self.config.commission_rate)
+        capacidad = self.cash
+        if self.apalancamiento_maximo > 1.0:
+            # Margen: el valor de las posiciones puede llegar a L x equity, así que se puede pedir prestado (efectivo < 0)
+            capacidad = self.cash + (self.apalancamiento_maximo - 1.0) * self.portfolio_value
+        maximo_pagable = capacidad / (1 + self.config.commission_rate)
         amount = min(amount, maximo_pagable)
         if amount < 1.0:
             logger.debug(f"Cash insuficiente para comprar {ticker}")

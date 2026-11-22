@@ -280,3 +280,22 @@ def test_actualizar_conserva_el_vinculo_con_la_configuracion_si_no_se_envia(tmp_
     assert (actualizado.id_configuracion, actualizado.version_configuracion) == ("cfg-receta", 2)
     leido = almacen.leer(actualizado.id)
     assert (leido.id_configuracion, leido.version_configuracion, leido.comision) == ("cfg-receta", 2, 0.002)
+
+
+def test_resolver_fechas_regla_unica_explicitas_marco_origen_cinco_anios():
+    """Una sola regla para backtest y comparativa: explícitas > marco > origen > 5 años hasta el último día hábil."""
+    from datetime import date
+
+    from ypyquant.estrategias.configuraciones import OrigenConfiguracion
+    from ypyquant.estrategias.marcos import resolver_fechas
+
+    hoy = date(2026, 11, 22)  # domingo: el último día hábil anterior es el viernes 20
+    sin_fechas = _configuracion()
+    assert resolver_fechas(sin_fechas, None, hoy=hoy) == ("2021-11-21", "2026-11-20")
+    con_origen = sin_fechas.model_copy(update={"origen": OrigenConfiguracion(tipo="experimento", fechas=["2018-01-01", "2024-12-31"])})
+    assert resolver_fechas(con_origen, None, hoy=hoy) == ("2018-01-01", "2024-12-31")
+    assert resolver_fechas(con_origen, _marco(), hoy=hoy) == ("2020-01-01", "2021-12-31")
+    # las explícitas mandan, campo a campo; lo que falta sale de la fuente siguiente
+    assert resolver_fechas(con_origen, _marco(), "2019-05-01", None, hoy=hoy) == ("2019-05-01", "2021-12-31")
+    assert resolver_fechas(sin_fechas, None, None, "2023-12-29", hoy=hoy) == ("2018-12-30", "2023-12-29")
+    assert resolver_fechas(sin_fechas, None, "2020-01-02", "2021-01-04", hoy=hoy) == ("2020-01-02", "2021-01-04")

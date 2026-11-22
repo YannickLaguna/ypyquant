@@ -53,6 +53,7 @@ from scipy.optimize import fsolve, minimize
 
 from ypyquant.data.matriz_precios import CargadorPrecios, calcular_matriz_retornos, construir_matriz_precios
 from ypyquant.optimization.data_preprocessing import TipoRetorno
+from ypyquant.optimization.estimacion_robusta.avisos import aviso_volatilidad_inalcanzable
 from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import (
     optimizar_max_sharpe,
     optimizar_min_varianza,
@@ -294,7 +295,8 @@ def optimizar_volatilidad_objetivo(
       ningún peso supere 2 (como el antiguo límite [-2, 2]). Ya no hay cortos. `estado = 'apalancamiento'`.
 
     Returns:
-        {weights, expected_return, volatility, sharpe_ratio, target_volatility, volatility_achieved, estado}.
+        {weights, expected_return, volatility, sharpe_ratio, target_volatility, volatility_achieved, estado, aviso};
+        `aviso` es un texto legible solo si la σ* es inalcanzable (None en otro caso).
     """
     medias = retornos_df.mean() * _DIAS
     cov = retornos_df.cov() * _DIAS
@@ -322,6 +324,7 @@ def optimizar_volatilidad_objetivo(
         'target_volatility': target_volatility,
         'volatility_achieved': bool(abs(vol - target_volatility) < 0.001),
         'estado': estado,
+        'aviso': aviso_volatilidad_inalcanzable(target_volatility, vol) if estado == 'gmv_volatilidad_inalcanzable' else None,
     }
 
 

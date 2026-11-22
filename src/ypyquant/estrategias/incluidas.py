@@ -35,11 +35,12 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ypyquant.estrategias import senales_tecnicas  # noqa: F401 - registra `senales_tecnicas` al importar este módulo
 from ypyquant.estrategias.base import MARGEN_SESIONES, Estrategia, ParametrosBase, matriz_cierres, matriz_volumen
 from ypyquant.estrategias.registro import registrar_estrategia
+from ypyquant.execution.ejecutor import TICKER_EFECTIVO
 from ypyquant.optimization.estimacion_robusta import (
     delta_caja,
     estimar_mu_bayes_stein,
@@ -54,6 +55,7 @@ from ypyquant.optimization.estimacion_robusta import (
     optimizar_robusto_elipsoide,
     optimizar_volatilidad_objetivo,
     pesos_mercado,
+    porcentaje_es,
     z_confianza,
 )
 from ypyquant.optimization.presets import PRESETS_REGISTRADOS
@@ -146,6 +148,8 @@ class Momentum(Estrategia):
 
 
 ESTIMADORES_COMUNES = ("estimador_sigma", "frecuencia_estimacion")
+# Parámetros de apalancamiento, posteriores a los experimentos guardados: fuera de la huella mientras valgan su defecto
+PARAMETROS_APALANCAMIENTO = ("apalancamiento_maximo", "diferencial_financiacion")
 
 
 class _ParametrosEstimacion(ParametrosBase):
@@ -160,7 +164,35 @@ class _ParametrosEstimacion(ParametrosBase):
     )
 
 
-class _ParametrosEstimador(_ParametrosEstimacion):
+class _ParametrosApalancamiento(_ParametrosEstimacion):
+    """
+    Apalancamiento opcional de las estrategias con `volatilidad_objetivo` (las demás no lo declaran).
+
+    Con `apalancamiento_maximo` = 1 (defecto) no hay apalancamiento y nada cambia. Con L > 1, si la σ objetivo es
+    mayor que la que alcanza la cartera long-only totalmente invertida, la cartera se escala por
+    min(L, σ*/σ) y el resto es un préstamo de margen (peso negativo en `CASH`) que paga la tasa libre de riesgo
+    más `diferencial_financiacion`. Exige `volatilidad_objetivo` > 0 (sin objetivo no hay a qué escalar).
+    """
+
+    apalancamiento_maximo: float = Field(
+        1.0, ge=1.0, le=2.0,
+        description="Exposición bruta máxima sobre el patrimonio (1 = sin apalancamiento; 2 = límite Reg T overnight). "
+        "Solo actúa si la σ objetivo es inalcanzable sin apalancar; exige volatilidad_objetivo > 0",
+    )
+    diferencial_financiacion: float = Field(
+        0.01, ge=0.0, le=0.10,
+        description="Diferencial anual sobre la tasa libre que cuesta el préstamo de margen (0,01 = 1 %). "
+        "Solo se usa con apalancamiento_maximo > 1",
+    )
+
+    @model_validator(mode="after")
+    def _apalancamiento_exige_volatilidad_objetivo(self):
+        if self.apalancamiento_maximo > 1.0 and getattr(self, "volatilidad_objetivo", 0.0) <= 0:
+            raise ValueError("apalancamiento_maximo > 1 exige volatilidad_objetivo > 0 (sin objetivo no hay a qué escalar)")
+        return self
+
+
+class _ParametrosEstimador(_ParametrosApalancamiento):
     """Parámetros comunes de las estrategias de optimización robusta."""
 
     ventana_dias: int = Field(756, ge=60, le=2520, description="Días de historia para estimar µ y Σ (756 ≈ 3 años)")
@@ -182,7 +214,7 @@ class _EstimadorRobusto(Estrategia):
     """
 
     frecuencia_rebalanceo = "monthly"
-    parametros_fuera_de_huella_si_defecto = ESTIMADORES_COMUNES
+    parametros_fuera_de_huella_si_defecto = ESTIMADORES_COMUNES + PARAMETROS_APALANCAMIENTO
     Parametros = _ParametrosEstimador
 
     def estimar_pesos(self, retornos: pd.DataFrame, datos, fecha, pesos_previos: np.ndarray | None) -> np.ndarray:
@@ -215,6 +247,43 @@ class _EstimadorRobusto(Estrategia):
         if mensaje not in self.avisos:
             self.avisos.append(mensaje)
 
+    def _actualizar_aviso(self, clave: str, mensaje: str) -> None:
+        """Mantiene UN aviso por `clave` (se reescribe en cada rebalanceo: agregado, no uno por fecha)."""
+        indices = self.__dict__.setdefault("_indices_avisos", {})
+        if clave in indices:
+            self.avisos[indices[clave]] = mensaje
+        else:
+            indices[clave] = len(self.avisos)
+            self.avisos.append(mensaje)
+
+    def _anotar_vol_inalcanzable(self, vol_minima: float, fraccion_replicas: float | None = None) -> None:
+        """
+        Registra que en el rebalanceo actual la `volatilidad_objetivo` era inalcanzable y se usó la mínima varianza.
+
+        Acumula fechas y σ mínimas y reescribe un único aviso: «en N de M rebalanceos (primero, último): σ objetivo X %
+        < σ mínima alcanzable (entre a % y b %): se usa la cartera de mínima varianza». En Michaud `fraccion_replicas`
+        es la parte de réplicas bootstrap que cayó en la GMV (la media de pesos mezcla réplicas, no es toda la GMV).
+        """
+        registro = self.__dict__.setdefault("_vol_inalcanzable", {"fechas": [], "vols": [], "fracciones": []})
+        registro["fechas"].append(self._fecha_actual)
+        registro["vols"].append(vol_minima)
+        if fraccion_replicas is not None:
+            registro["fracciones"].append(fraccion_replicas)
+        n, total = len(registro["fechas"]), self._n_rebalanceos
+        minima, maxima = min(registro["vols"]), max(registro["vols"])
+        rango = porcentaje_es(minima) if abs(maxima - minima) < 5e-4 else f"entre {porcentaje_es(minima)} y {porcentaje_es(maxima)}"
+        cuando = f"primero {registro['fechas'][0]:%Y-%m-%d}, último {registro['fechas'][-1]:%Y-%m-%d}"
+        objetivo = porcentaje_es(self.parametros.volatilidad_objetivo)
+        if registro["fracciones"]:
+            sujeto = (f"En {n} de {total} rebalanceos hubo réplicas del bootstrap con la volatilidad objetivo inalcanzable "
+                      f"(de media el {np.mean(registro['fracciones']):.0%} de las réplicas; {cuando})")
+            cola = "esas réplicas usaron la cartera de mínima varianza"
+        else:
+            sujeto = f"Volatilidad objetivo inalcanzable en {n} de {total} rebalanceos ({cuando})"
+            cola = "en esos rebalanceos se usó la cartera de mínima varianza"
+        self._actualizar_aviso("vol_inalcanzable",
+                               f"{sujeto}: σ objetivo {objetivo} < σ mínima alcanzable {rango}; {cola}.")
+
     def sesiones_necesarias(self) -> int:
         """Ventana completa de estimación (`ventana_dias` retornos = `ventana_dias` + 1 cierres) más el margen."""
         return self.parametros.ventana_dias + 1 + MARGEN_SESIONES
@@ -223,7 +292,9 @@ class _EstimadorRobusto(Estrategia):
         """Max-Sharpe (con penalización de turnover) o, si hay `volatilidad_objetivo`, máx. µ'w con σ <= objetivo."""
         p = self.parametros
         if p.volatilidad_objetivo > 0:
-            pesos, _ = optimizar_volatilidad_objetivo(mu - rf, sigma, p.volatilidad_objetivo, peso_maximo=p.peso_maximo)
+            pesos, estado = optimizar_volatilidad_objetivo(mu - rf, sigma, p.volatilidad_objetivo, peso_maximo=p.peso_maximo)
+            if estado == "gmv_volatilidad_inalcanzable":
+                self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)))
             return pesos
         pesos, _, _ = optimizar_max_sharpe(
             mu, sigma, rf=rf, peso_maximo=p.peso_maximo,
@@ -240,8 +311,46 @@ class _EstimadorRobusto(Estrategia):
             return pesos_iguales_entre(matriz_cierres(datos).columns)
         previos = estado.get("pesos_previos") or {}
         pesos_previos = np.array([previos.get(t, 0.0) for t in retornos.columns])
+        self._fecha_actual = fecha  # para los avisos agregados (qué rebalanceos cayeron en un caso límite)
+        self._n_rebalanceos = getattr(self, "_n_rebalanceos", 0) + 1
         pesos = self.estimar_pesos(retornos, datos, fecha, pesos_previos if pesos_previos.sum() > 0 else None)
-        return dict(zip(retornos.columns, pesos, strict=True))
+        resultado = dict(zip(retornos.columns, pesos, strict=True))
+        return self._apalancar(retornos, pesos, resultado)
+
+    def _apalancar(self, retornos: pd.DataFrame, pesos: np.ndarray, resultado: dict[str, float]) -> dict[str, float]:
+        """
+        Escala la cartera por min(L, σ*/σ) si `apalancamiento_maximo` > 1 y la σ de la cartera queda por debajo del
+        objetivo; el préstamo es un peso NEGATIVO en `CASH` (posiciones suman `factor`, CASH = 1 - factor). Sin
+        apalancamiento (o con σ >= σ*) devuelve `resultado` sin tocar. El tope de peso se aplica antes de apalancar.
+        """
+        p = self.parametros
+        maximo = getattr(p, "apalancamiento_maximo", 1.0)
+        if maximo <= 1.0 or p.volatilidad_objetivo <= 0:
+            return resultado
+        sigma = self.estimar_sigma(retornos).values
+        total = float(np.sum(pesos))
+        if total <= 0:
+            return resultado
+        normalizados = pesos / total
+        vol = float(np.sqrt(normalizados @ sigma @ normalizados))
+        if vol <= 0:
+            return resultado
+        factor = min(maximo, p.volatilidad_objetivo / vol)
+        if factor <= 1.0 + 1e-9:
+            return resultado
+        self._anotar_apalancamiento(factor)
+        return {**{t: w / total * factor for t, w in resultado.items()}, TICKER_EFECTIVO: 1.0 - factor}
+
+    def _anotar_apalancamiento(self, factor: float) -> None:
+        """Aviso único y agregado: en cuántos rebalanceos se tomó préstamo, exposición media y máxima, y su coste."""
+        factores = self.__dict__.setdefault("_factores_apalancamiento", [])
+        factores.append(factor)
+        p = self.parametros
+        self._actualizar_aviso(
+            "apalancamiento",
+            f"Apalancamiento (máximo {p.apalancamiento_maximo:.2f}x): en {len(factores)} de {self._n_rebalanceos} rebalanceos "
+            f"se tomó préstamo de margen (exposición bruta media {np.mean(factores):.2f}x, máxima {max(factores):.2f}x); "
+            f"coste de financiación = tasa libre + {porcentaje_es(p.diferencial_financiacion)}.")
 
 
 @registrar_estrategia
@@ -272,11 +381,16 @@ class Michaud(_EstimadorRobusto):
         p = self.parametros
         # La penalización de turnover no aplica: el promedio de réplicas ya es una cartera estable
         rng = self.generador_azar()  # generador propio de la ejecución (misma secuencia que default_rng(semilla))
-        return estimar_mu_michaud(
+        pesos, fraccion_gmv = estimar_mu_michaud(
             retornos, n_replicas=p.n_replicas, rf=p.tasa_libre_riesgo / self.periodos_anio,
             peso_maximo=p.peso_maximo, rng=rng, frecuencia=self.periodos_anio,
             volatilidad_objetivo=p.volatilidad_objetivo or None, estimador_sigma=p.estimador_sigma,
+            devolver_diagnostico=True,
         )
+        if p.volatilidad_objetivo > 0 and fraccion_gmv > 0:  # NaN (ninguna réplica convergió) no entra
+            sigma = self.estimar_sigma(retornos).values
+            self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)), float(fraccion_gmv))
+        return pesos
 
 
 @registrar_estrategia
@@ -301,7 +415,7 @@ class BLPrior(_EstimadorRobusto):
         return self.optimizar(mu, sigma.values, 0.0, pesos_previos)
 
 
-class _ParametrosIncertidumbre(_ParametrosEstimacion):
+class _ParametrosIncertidumbre(_ParametrosApalancamiento):
     """Parámetros comunes de las estrategias con incertidumbre en µ (elipsoide y caja)."""
 
     estimador_mu: Literal["muestral", "bayes_stein", "bl_prior"] = Field(
@@ -381,10 +495,12 @@ class RobustaElipsoide(_EstimadorIncertidumbre):
         p = self.parametros
         theta = matriz_incertidumbre(sigma, n_observaciones, p.tipo_theta, frecuencia=self.periodos_anio)
         kappa = p.kappa if p.kappa > 0 else kappa_confianza(p.confianza, len(mu))
-        pesos, _estado, _diagnostico = optimizar_robusto_elipsoide(
+        pesos, estado, _diagnostico = optimizar_robusto_elipsoide(
             mu, sigma, theta, kappa, aversion=p.aversion,
             volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),
         )
+        if estado == "gmv_volatilidad_inalcanzable":
+            self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)))
         return pesos
 
 
@@ -413,10 +529,12 @@ class RobustaCaja(_EstimadorIncertidumbre):
         p = self.parametros
         z = p.z if p.z > 0 else z_confianza(p.confianza)
         delta = delta_caja(sigma, n_observaciones, z, frecuencia=self.periodos_anio)
-        pesos, _estado, _diagnostico = optimizar_robusto_caja(
+        pesos, estado, _diagnostico = optimizar_robusto_caja(
             mu, sigma, delta, aversion=p.aversion,
             volatilidad_objetivo=p.volatilidad_objetivo or None, peso_maximo=max(p.peso_maximo, 1.0 / len(mu)),
         )
+        if estado == "gmv_volatilidad_inalcanzable":
+            self._anotar_vol_inalcanzable(float(np.sqrt(pesos @ sigma @ pesos)))
         return pesos
 
 
