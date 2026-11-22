@@ -26,3 +26,22 @@ def test_el_modo_solo_largo_reproduce_exactamente_el_marco_anterior(nombre):
     obtenido = {**huella_caso(*CASOS[nombre]), **huella_estado(*CASOS[nombre])}
     for clave in ("id", "equity_final", "equity", "pesos", "n_operaciones", "operaciones", "estado", "eventos"):
         assert obtenido[clave] == esperado[clave], f"{nombre}: cambió {clave}"
+
+
+@pytest.mark.parametrize("nombre", sorted(CASOS))
+def test_los_motivos_actuales_equivalen_a_los_anteriores_operacion_a_operacion(nombre):
+    """El desglose de motivos solo cambia de nombre: traducido al vocabulario anterior coincide con el guardado."""
+    import json as _json
+
+    from tests._generar_caracterizacion_senales import UNIVERSO
+    from ypyquant.data.fuentes import FuenteSintetica
+    from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
+    from ypyquant.estrategias.senales_modelo import MOTIVOS, a_motivo_legado
+
+    estrategia, parametros = CASOS[nombre]
+    config = ConfiguracionExperimento(estrategia=estrategia, universo=UNIVERSO, fecha_inicio="2020-01-01",
+                                      fecha_fin="2021-12-31", parametros=parametros)
+    motivos = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica())).operaciones["motivo"]
+    assert set(motivos) <= set(MOTIVOS)
+    conteo = sorted(motivos.map(a_motivo_legado).value_counts().to_dict().items())
+    assert hashlib.sha256(_json.dumps(conteo, sort_keys=True, default=str).encode()).hexdigest() == ORACULO[nombre]["motivos_legado"]

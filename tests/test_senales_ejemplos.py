@@ -41,8 +41,8 @@ def test_cruce_medias_corre_con_el_motor_y_devuelve_metricas_y_pesos_con_efectiv
     assert not resultado.equity.empty and resultado.equity["equity"].iloc[-1] > 0
     assert set(resultado.pesos["ticker"]) <= set(UNIVERSO) | {TICKER_EFECTIVO}
     assert "motivo" in resultado.operaciones.columns and resultado.operaciones["motivo"].notna().all()
-    assert set(resultado.operaciones["motivo"]) <= {"entrada", "senal", "stop_perdida", "ajuste", "stop_trailing",
-                                                    "take_profit", "tiempo", "fuera_universo"}
+    assert set(resultado.operaciones["motivo"]) <= {"entrada_larga", "senal_salida", "stop_loss", "ajuste", "trailing",
+                                                    "take_profit", "tiempo", "salida_universo"}
 
 
 def test_las_estrategias_sin_senales_no_ganan_columna_motivo():
@@ -136,7 +136,7 @@ def test_senales_tecnicas_devuelve_pesos_validos_con_el_generador_tecnico_por_de
     # Diferencia documentada: el tamaño de entrada es fijo (1/max_posiciones); luego solo deriva con el precio
     assert all(w <= 0.40 for p in pesos for t, w in p.items() if t != TICKER_EFECTIVO)
     entradas = [e for e in estrategia.eventos if e['tipo'] == 'entrada']
-    assert entradas and all(e['motivo'] == 'senal' for e in entradas)
+    assert entradas and all(e['motivo'] == 'entrada_larga' for e in entradas)
 
 
 # ---- marcos de comparación -----------------------------------------------------------------------------

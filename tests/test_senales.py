@@ -105,7 +105,7 @@ def test_sale_por_la_senal_de_salida_y_no_reentra_mientras_la_salida_siga_activa
     assert pesos[9] == {"AAA": 1.0}
     assert pesos[10] == {TICKER_EFECTIVO: 1.0} and pesos[11] == {TICKER_EFECTIVO: 1.0}
     salida = [e for e in estrategia.eventos if e["tipo"] == "salida"]
-    assert [(e["fecha"], e["motivo"]) for e in salida] == [(f"{FECHAS[10]:%Y-%m-%d}", "senal")]
+    assert [(e["fecha"], e["motivo"]) for e in salida] == [(f"{FECHAS[10]:%Y-%m-%d}", "senal_salida")]
 
 
 def test_stop_perdida_dispara_con_caida_del_9_por_ciento_y_el_enfriamiento_impide_reentrar():
@@ -116,7 +116,7 @@ def test_stop_perdida_dispara_con_caida_del_9_por_ciento_y_el_enfriamiento_impid
     assert pesos[10] == {TICKER_EFECTIVO: 1.0}          # 91/100 - 1 = -9 % <= -8 %
     assert pesos[11] == {TICKER_EFECTIVO: 1.0} and pesos[12] == {TICKER_EFECTIVO: 1.0}
     assert pesos[13] == {"AAA": 1.0}                    # 3 días hábiles después puede reentrar
-    assert [e["motivo"] for e in estrategia.eventos if e["tipo"] == "salida"] == ["stop_perdida"]
+    assert [e["motivo"] for e in estrategia.eventos if e["tipo"] == "salida"] == ["stop_loss"]
 
 
 def test_stop_perdida_no_dispara_con_una_caida_menor():
@@ -132,7 +132,7 @@ def test_stop_trailing_usa_el_maximo_desde_la_entrada():
     pesos = _recorrer(estrategia, datos, hasta=11)
     assert pesos[9] == {"AAA": 1.0}
     assert pesos[10] == {TICKER_EFECTIVO: 1.0}
-    assert [e["motivo"] for e in estrategia.eventos if e["tipo"] == "salida"] == ["stop_trailing"]
+    assert [e["motivo"] for e in estrategia.eventos if e["tipo"] == "salida"] == ["trailing"]
 
 
 def test_stop_trailing_mira_el_maximo_de_los_dias_en_que_no_hubo_llamada():
@@ -165,7 +165,7 @@ def test_un_ticker_que_sale_del_universo_se_vende_con_motivo_fuera_universo():
     funcion = estrategia.como_funcion(filtro_universo=lambda fecha, d: {t: v for t, v in d.items() if t == "AAA" or fecha < FECHAS[8]})
     pesos = [funcion(FECHAS[i].to_pydatetime(), datos) for i in range(5, 10)]
     assert set(pesos[2]) == {"AAA", "BBB"} and set(pesos[3]) == {"AAA", TICKER_EFECTIVO}
-    assert [e["motivo"] for e in estrategia.eventos if e["tipo"] == "salida"] == ["fuera_universo"]
+    assert [e["motivo"] for e in estrategia.eventos if e["tipo"] == "salida"] == ["salida_universo"]
 
 
 def test_salida_personalizada_recibe_la_posicion_y_los_cierres_hasta_la_fecha():
