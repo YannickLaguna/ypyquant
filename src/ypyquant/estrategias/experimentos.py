@@ -32,6 +32,7 @@ Responsabilidad:
 
 Se relaciona con:
 - ypyquant.estrategias.receta (`Receta`, `Entorno`, huella canónica), .registro (clase de estrategia) y .base (adaptador al motor).
+- ypyquant.almacen_documentos (`limpiar_para_json`, que aquí conserva el alias `_limpiar`).
 - ypyquant.estrategias.simulacion (`simular`) y .evaluacion (`evaluar`, `reevaluar`): el núcleo de la ejecución.
 - ypyquant.data.fuente_precios y ypyquant.data.fuentes (fuente de precios), .almacen (persistencia Parquet + DuckDB),
   .procedencia (huella de reproducibilidad), .barridos y .validacion_barridos (usan
@@ -58,6 +59,7 @@ import numpy as np
 import pandas as pd
 from pydantic import Field, ValidationError, field_validator, model_validator
 
+from ypyquant.almacen_documentos import limpiar_para_json
 from ypyquant.data.fuente_precios import Deslistado, FuentePrecios, como_fuente
 from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.data.universos import (  # noqa: F401 - re-exportados: configuraciones, marcos, la API y los tests los importan de aquí
@@ -233,19 +235,7 @@ def _cargar_precios(simbolos: list[str], inicio: str, fin: str, fuente: FuentePr
 # ----------------------------------------------------------------------------
 
 
-def _limpiar(valor: Any) -> Any:
-    """Convierte tipos NumPy a nativos y NaN/inf a None (JSON válido)."""
-    if isinstance(valor, dict):
-        return {k: _limpiar(v) for k, v in valor.items()}
-    if isinstance(valor, (list, tuple)):
-        return [_limpiar(v) for v in valor]
-    if isinstance(valor, (np.floating, float)):
-        return None if not math.isfinite(float(valor)) else float(valor)
-    if isinstance(valor, np.integer):
-        return int(valor)
-    if isinstance(valor, np.bool_):
-        return bool(valor)
-    return valor
+_limpiar = limpiar_para_json  # alias histórico: otros módulos lo importan de aquí
 
 
 # ----------------------------------------------------------------------------
