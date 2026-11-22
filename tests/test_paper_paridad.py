@@ -7,7 +7,9 @@ Responsabilidad:
     rotaciones (tolerancia 1e-9) que `simular` del mismo rango. Se prueba con `pesos_iguales`, `momentum` y
     `cruce_medias`, y con margen: una receta apalancada (`bayes_stein` con volatilidad objetivo y L = 2), largo-corto
     (130/30 y dólar-neutral 100/100, con comisión, slippage y préstamo de títulos) y un caso con LLAMADA DE MARGEN
-    (el corto se dispara: liquidación forzosa idéntica en el motor y en el paper, con su evento). Si alguien cambia el motor (GrowSave lo usa), este test lo detecta.
+    (el corto se dispara: liquidación forzosa idéntica en el motor y en el paper, con su evento). También estrategias de señales
+    largo-corto con stops, trailing, take profit y giro (`cruce_medias`, `canal_rsi_volatilidad`), con la sesión partida en dos
+    procesos. Si alguien cambia el motor (GrowSave lo usa), este test lo detecta.
 
 Se relaciona con:
     src/ypyquant/paper/{simulador,almacen,sesion}.py y src/ypyquant/estrategias/simulacion.py (`simular`).
