@@ -16,8 +16,8 @@ from pathlib import Path
 import pandas as pd
 
 from ypyquant.data.fuentes import FuenteSintetica
-from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
 from ypyquant.estrategias import registro
+from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
 
 UNIVERSO = ["AAA", "BBB", "CCC", "DDD", "EEE"]
 CASOS = {
@@ -48,7 +48,7 @@ def huella_caso(estrategia: str, parametros: dict) -> dict:
         "equity_final": float(resultado.equity["equity"].iloc[-1]),
         "equity": _hash([round(float(v), 10) for v in resultado.equity["equity"]]),
         "pesos": _hash([(f"{f:%Y-%m-%d}", t, round(float(w), 12)) for f, t, w in resultado.pesos[["fecha", "ticker", "peso"]].itertuples(index=False)]),
-        "n_operaciones": int(len(operaciones)),
+        "n_operaciones": len(operaciones),
         "operaciones": _hash([(f"{r.fecha:%Y-%m-%d}", r.ticker, r.lado, round(float(r.cantidad), 8), round(float(r.precio), 8),
                                None if pd.isna(r.pnl) else round(float(r.pnl), 8)) for r in operaciones.itertuples()]),
         "motivos_legado": _hash(sorted(resultado.operaciones["motivo"].value_counts().to_dict().items())),

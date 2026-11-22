@@ -15,11 +15,11 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias import registro
 from ypyquant.estrategias.causalidad import verificar_sin_lookahead
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
 from ypyquant.estrategias.marcos import MarcoComparacion, aplicar_marco
-from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.senales import TICKER_EFECTIVO, EstrategiaSenales
 
 # ---- 2.4 integración con el motor y el registro -------------------------------------------------------
@@ -176,3 +176,33 @@ def test_el_almacen_mezcla_operaciones_con_motivo_y_sin_el_en_las_consultas_sql(
     tabla = almacen.ejecutar_sql("SELECT id, motivo, COUNT(*) AS n FROM operaciones GROUP BY id, motivo")
     assert set(tabla["id"]) == set(ids)                                      # ambos experimentos aparecen
     assert tabla["motivo"].notna().any() and tabla["motivo"].isna().any()   # los sin señales llevan motivo nulo
+
+
+# ---- modo largo-corto de las estrategias migradas ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("nombre, parametros", [
+    ("cruce_medias", {"rapida": 5, "lenta": 20, "stop_perdida": 0.1, "stop_trailing": 0.1, "max_posiciones": 2}),
+    ("canal_rsi_volatilidad", {"ventana_canal": 20, "ventana_salida": 8, "ventana_rsi": 7, "max_posiciones": 2}),
+    ("senales_tecnicas", {"max_posiciones": 2, "umbral": 0.2}),
+])
+def test_el_modo_largo_corto_de_las_estrategias_incluidas_tampoco_mira_al_futuro(nombre, parametros):
+    clase = registro.obtener_estrategia(nombre)
+    parametros = {**parametros, "lados": "largo_corto", "exposicion_bruta_max": 1.5, "permitir_giro": True}
+    assert verificar_sin_lookahead(clase, parametros, _datos_aleatorios(), FECHAS_MUESTRA) == []
+
+
+@pytest.mark.parametrize("nombre, parametros", [
+    ("cruce_medias", {"rapida": 10, "lenta": 40}),
+    ("canal_rsi_volatilidad", {"ventana_canal": 20, "ventana_salida": 8, "ventana_rsi": 7}),
+    ("senales_tecnicas", {"max_posiciones": 3, "umbral": 0.2}),
+])
+def test_las_estrategias_migradas_abren_cortos_con_lados_largo_corto_y_el_modo_cambia_la_huella(nombre, parametros):
+    base = _config(nombre, parametros=parametros)
+    largo_corto = _config(nombre, parametros={**parametros, "lados": "largo_corto", "exposicion_bruta_max": 1.5})
+    assert base.normalizada().identificador() != largo_corto.normalizada().identificador()
+    assert base.normalizada().identificador() == _config(nombre, parametros={**parametros, "lados": "largo"}).normalizada().identificador()
+    resultado = ejecutar_con_datos(largo_corto, cargar_datos_experimento(largo_corto, FuenteSintetica()))
+    assert (resultado.pesos["peso"] < 0).any()
+    assert "entrada_corta" in set(resultado.operaciones["motivo"])
+    assert resultado.metricas["exposicion_bruta_maxima"] < 1.8   # el límite de 1,5 rige al entrar; la deriva puede superarlo algo

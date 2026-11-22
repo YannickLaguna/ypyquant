@@ -318,3 +318,96 @@ def test_el_estado_es_json_y_una_instancia_nueva_continua_igual_que_la_original(
     ]
     assert pesos_reanudada == pesos_original[10:]
     assert estado_nuevo == json.loads(json.dumps(estado))
+
+
+# ---- largo-corto: adaptador de pandas -----------------------------------------------------------------------
+
+
+def _estrategia_largo_corto(entrada, salida=None, entrada_corta=None, salida_corta=None, **parametros) -> EstrategiaSenales:
+    """Estrategia de prueba con reglas de los dos lados como tablas fijas (sin registrar)."""
+
+    class Manual(EstrategiaSenales):
+        nombre = "manual_largo_corto_prueba"
+
+        def _tabla(self, cierres, tabla):
+            vacia = pd.DataFrame(False, index=cierres.index, columns=cierres.columns)
+            return vacia if tabla is None else tabla.reindex_like(cierres).fillna(False)
+
+        def senal_entrada(self, cierres, indicadores):
+            return self._tabla(cierres, entrada)
+
+        def senal_salida(self, cierres, indicadores):
+            return self._tabla(cierres, salida)
+
+        def senal_entrada_corta(self, cierres, indicadores):
+            return self._tabla(cierres, entrada_corta)
+
+        def senal_salida_corta(self, cierres, indicadores):
+            return self._tabla(cierres, salida_corta)
+
+    return Manual({"peso_maximo": 1.0, "lados": "largo_corto", **parametros})
+
+
+def test_largo_corto_devuelve_pesos_negativos_y_cash_como_resto_hasta_1():
+    datos = _datos(AAA=[100] * N, BBB=[100] * N)
+    estrategia = _estrategia_largo_corto(_tabla(["AAA", "BBB"], AAA=(5, N)), entrada_corta=_tabla(["AAA", "BBB"], BBB=(5, N)),
+                                         max_posiciones=4, peso_maximo=0.25, exposicion_bruta_max=1.5)
+    pesos = _recorrer(estrategia, datos)
+    assert pesos[5] == pytest.approx({"AAA": 0.25, "BBB": -0.25, TICKER_EFECTIVO: 1.0})   # neto 0: todo el capital queda en CASH
+    assert all(sum(p.values()) == pytest.approx(1.0) for p in pesos)                      # los pesos con CASH siempre suman 1
+    assert estrategia.admite_cortos() is True
+    assert [(e["ticker"], e["motivo"]) for e in estrategia.eventos] == [("AAA", "entrada_larga"), ("BBB", "entrada_corta")]
+
+
+def test_con_exposicion_neta_por_encima_de_1_el_efectivo_queda_negativo_como_prestamo_de_margen():
+    """Dimensionado por riesgo (0,1 / 0,05 = 2 por posición) y escalado al límite neto de 1,5: CASH = -0,5."""
+    datos = _datos(AAA=[100] * N, BBB=[100] * N)
+    estrategia = _estrategia_largo_corto(_tabla(["AAA", "BBB"], AAA=(5, N), BBB=(5, N)), lados="largo", max_posiciones=2,
+                                         ponderacion="riesgo", riesgo_por_operacion=0.1, stop_perdida=0.05,
+                                         exposicion_neta_max=1.5, exposicion_bruta_max=1.5)
+    pesos = _recorrer(estrategia, datos)
+    assert pesos[5] == pytest.approx({"AAA": 0.75, "BBB": 0.75, TICKER_EFECTIVO: -0.5})
+    assert sum(pesos[5].values()) == pytest.approx(1.0)
+
+
+def test_un_corto_con_stop_de_perdida_sale_cuando_el_precio_sube_y_registra_su_motivo():
+    datos = _datos(AAA=[100] * 8 + [104, 112] + [112] * (N - 10))
+    estrategia = _estrategia_largo_corto(None, entrada_corta=_tabla(["AAA"], AAA=(5, N)), max_posiciones=1,
+                                         stop_perdida=0.1, enfriamiento_dias=0)
+    pesos = _recorrer(estrategia, datos, hasta=11)
+    assert pesos[8]["AAA"] < 0 and pesos[9] == {TICKER_EFECTIVO: 1.0}          # +12 % > stop del 10 %: cubre el día 9
+    assert [(e["fecha"], e["lado"], e["motivo"]) for e in estrategia.eventos if e["tipo"] == "salida"] == [
+        (f"{FECHAS[9]:%Y-%m-%d}", "corto", "stop_loss")]
+
+
+def test_el_estado_largo_corto_es_json_y_una_instancia_nueva_continua_igual():
+    datos = _datos(AAA=[100] * 12 + [95] * (N - 12), BBB=[100 + i for i in range(N)])
+    fabrica = lambda: _estrategia_largo_corto(
+        _tabla(["AAA", "BBB"], BBB=(3, N)), entrada_corta=_tabla(["AAA", "BBB"], AAA=(5, N)),
+        max_posiciones=2, peso_maximo=0.5, stop_trailing=0.04, exposicion_bruta_max=1.0)
+    original, estado = fabrica(), {}
+    pesos_original = []
+    for i in range(N):
+        pesos_original.append(original.generar_pesos(FECHAS[i].to_pydatetime(), recortar_hasta(datos, FECHAS[i]), estado))
+        if i == 9:
+            guardado = json.loads(json.dumps(estado))
+    reanudada, estado_nuevo = fabrica(), guardado
+    pesos_reanudada = [reanudada.generar_pesos(FECHAS[i].to_pydatetime(), recortar_hasta(datos, FECHAS[i]), estado_nuevo)
+                       for i in range(10, N)]
+    assert pesos_reanudada == pesos_original[10:]
+    assert any(w < 0 for p in pesos_original for w in p.values())
+
+
+def test_el_motor_corre_una_estrategia_largo_corto_con_margen_y_etiqueta_cada_operacion():
+    from ypyquant.data.fuentes import FuenteSintetica
+    from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
+
+    config = ConfiguracionExperimento(
+        estrategia="cruce_medias", universo=["AAA", "BBB", "CCC", "DDD", "EEE"], fecha_inicio="2020-01-01",
+        fecha_fin="2021-12-31", parametros={"rapida": 10, "lenta": 40, "lados": "largo_corto", "exposicion_bruta_max": 1.5,
+                                            "stop_perdida": 0.1, "max_posiciones": 4})
+    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica()))
+    assert (resultado.pesos["peso"] < 0).any(), "debe haber cortos"
+    assert {"entrada_larga", "entrada_corta"} <= set(resultado.operaciones["motivo"])
+    assert resultado.metricas["exposicion_bruta_maxima"] > 0
+    assert not resultado.equity.empty and resultado.equity["equity"].iloc[-1] > 0

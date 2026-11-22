@@ -285,7 +285,7 @@ def _escenarios(draw):
                       draw(st.one_of(st.none(), st.floats(0, 5))))
                 for t in TICKERS if draw(st.booleans())] for _ in range(n)]
     universo = [draw(st.sets(st.sampled_from(TICKERS), min_size=3)) for _ in range(n)]
-    opcional = lambda fraccion: st.one_of(st.none(), st.floats(0.02, fraccion))  # noqa: E731
+    opcional = lambda fraccion: st.one_of(st.none(), st.floats(0.02, fraccion))
     maquina = _maquina(
         lados=draw(st.sampled_from([(LARGO,), (CORTO,), AMBOS])), max_posiciones=draw(st.integers(1, 4)),
         peso_maximo=draw(st.floats(0.1, 1.0)), bruta=draw(st.floats(0.3, 2.0)), neta_max=draw(st.floats(0.3, 1.5)),

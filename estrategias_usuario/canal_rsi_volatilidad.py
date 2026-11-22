@@ -11,17 +11,24 @@ anteriores (canal de salida más corto) o por stop. Entre candidatos elige la ma
 Los canales usan `shift(1)`: se compara con el máximo/mínimo ANTERIORES, así que no hay look-ahead
 (se comprueba en tests/test_senales_ejemplos.py).
 
+Con `lados="largo_corto"` el lado corto es el espejo: vende en corto cuando el cierre pierde el mínimo de las
+`ventana_canal` sesiones anteriores con el RSI por encima de `rsi_minimo` (no sobrevendido) y recompra cuando el
+cierre supera el máximo de las `ventana_salida` anteriores.
+
 Se relaciona con: ypyquant.estrategias.senales (base, stops y tamaño), el registro (descubrimiento
 automático), docs/estrategias_senales.md (guía) y estrategias_usuario/cruce_medias.py (plantilla mínima).
 """
-
-from typing import Literal
 
 from pydantic import Field, model_validator
 
 from ypyquant.estrategias import registrar_estrategia
 from ypyquant.estrategias.base import MARGEN_SESIONES
-from ypyquant.estrategias.senales import EstrategiaSenales, ParametrosSenales
+from ypyquant.estrategias.senales import (
+    PARAMETROS_LARGO_CORTO_SENALES,
+    EstrategiaSenales,
+    ParametrosSenales,
+    Ponderacion,
+)
 
 
 def calcular_rsi(cierres, ventana):
@@ -41,16 +48,18 @@ class CanalRsiVolatilidad(EstrategiaSenales):
     descripcion = ("Compra rupturas de máximos con RSI no sobrecomprado y tamaño por volatilidad; "
                    "sale al perder el canal corto o por stop (ejemplo de señales).")
     universo_sugerido = "sp500_pit"
+    parametros_fuera_de_huella_si_defecto = PARAMETROS_LARGO_CORTO_SENALES + ("rsi_minimo",)
 
     class Parametros(ParametrosSenales):
         """Parámetros de la base (con tamaño por volatilidad y trailing por defecto) más los del canal y el RSI."""
 
-        ponderacion: Literal["iguales", "inversa_volatilidad"] = "inversa_volatilidad"
+        ponderacion: Ponderacion = "inversa_volatilidad"
         stop_trailing: float | None = Field(0.15, gt=0, lt=1, description="Sale si cae esta fracción desde el máximo")
         ventana_canal: int = Field(55, ge=5, le=400, description="Sesiones del canal de entrada (máximo previo)")
         ventana_salida: int = Field(20, ge=2, le=200, description="Sesiones del canal de salida (mínimo previo)")
         ventana_rsi: int = Field(14, ge=2, le=100, description="Sesiones del RSI")
         rsi_maximo: float = Field(80.0, gt=0, le=100, description="No entra si el RSI supera este valor (sobrecompra)")
+        rsi_minimo: float = Field(20.0, ge=0, lt=100, description="Lado corto: no vende en corto si el RSI está por debajo de este valor (sobreventa)")
 
         @model_validator(mode="after")
         def _salida_menor_que_entrada(self):
@@ -61,11 +70,15 @@ class CanalRsiVolatilidad(EstrategiaSenales):
     def indicadores(self, cierres, datos):
         """Máximo y mínimo de las sesiones PREVIAS (shift(1)) y RSI de Wilder."""
         p = self.parametros
-        return {
+        indicadores = {
             "maximo_previo": cierres.rolling(p.ventana_canal).max().shift(1),
             "minimo_previo": cierres.rolling(p.ventana_salida).min().shift(1),
             "rsi": calcular_rsi(cierres, p.ventana_rsi),
         }
+        if p.lados != "largo":  # canales espejo del lado corto
+            indicadores["minimo_canal"] = cierres.rolling(p.ventana_canal).min().shift(1)
+            indicadores["maximo_salida"] = cierres.rolling(p.ventana_salida).max().shift(1)
+        return indicadores
 
     def senal_entrada(self, cierres, indicadores):
         """Cierre por encima del máximo previo y RSI por debajo de `rsi_maximo`."""
@@ -79,6 +92,19 @@ class CanalRsiVolatilidad(EstrategiaSenales):
     def puntuacion(self, cierres, indicadores):
         """Entre candidatos, la mayor ruptura relativa sobre el máximo previo."""
         return cierres / indicadores["maximo_previo"] - 1.0
+
+    def senal_entrada_corta(self, cierres, indicadores):
+        """Cierre por debajo del mínimo previo del canal largo y RSI por encima de `rsi_minimo`."""
+        ruptura = cierres < indicadores["minimo_canal"]
+        return (ruptura & (indicadores["rsi"] > self.parametros.rsi_minimo)).fillna(False)
+
+    def senal_salida_corta(self, cierres, indicadores):
+        """Recompra: cierre por encima del máximo previo del canal corto."""
+        return (cierres > indicadores["maximo_salida"]).fillna(False)
+
+    def puntuacion_corta(self, cierres, indicadores):
+        """Entre candidatos a corto, la mayor ruptura relativa bajo el mínimo previo."""
+        return indicadores["minimo_canal"] / cierres - 1.0
 
     def sesiones_necesarias(self) -> int:
         """Historia mínima: el canal más largo (o el RSI, si fuera mayor) más el margen estándar."""

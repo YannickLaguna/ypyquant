@@ -8,10 +8,12 @@ Al dejar este archivo en `estrategias_usuario/` se descubre solo y aparece en la
 
 Regla: largo mientras la media rápida esté por encima de la lenta. Entra al cruzar al alza; sale al
 cruzar a la baja o por stop. Entre varios candidatos elige los de mayor distancia relativa entre medias.
+Con `lados="largo_corto"` el lado corto es el espejo: vende en corto con la rápida por debajo de la lenta y
+recompra al cruzar de nuevo al alza (un cruce a la baja de un largo cuenta como señal contraria).
 Todas las operaciones son CAUSALES (medias móviles hacia atrás): `verificar_sin_lookahead` lo comprueba
 en tests/test_senales_ejemplos.py.
 
-Se relaciona con: ypyquant.estrategias.senales (base y stops), el registro (descubrimiento automático),
+Se relaciona con: ypyquant.estrategias.senales (base, stops y lado corto), el registro (descubrimiento automático),
 docs/estrategias_senales.md (guía) y estrategias_usuario/canal_rsi_volatilidad.py (otra plantilla).
 """
 
@@ -58,6 +60,18 @@ class CruceMedias(EstrategiaSenales):
     def puntuacion(self, cierres, indicadores):
         """Entre candidatos, el de mayor distancia relativa entre medias."""
         return indicadores["rapida"] / indicadores["lenta"] - 1.0
+
+    def senal_entrada_corta(self, cierres, indicadores):
+        """Lado corto (espejo): rápida por debajo de la lenta."""
+        return (indicadores["rapida"] < indicadores["lenta"]).fillna(False)
+
+    def senal_salida_corta(self, cierres, indicadores):
+        """Recompra: rápida por encima de la lenta."""
+        return (indicadores["rapida"] > indicadores["lenta"]).fillna(False)
+
+    def puntuacion_corta(self, cierres, indicadores):
+        """Entre candidatos a corto, el de mayor distancia relativa entre medias (con la lenta por encima)."""
+        return indicadores["lenta"] / indicadores["rapida"] - 1.0
 
     def sesiones_necesarias(self) -> int:
         """Historia mínima: la media lenta más el margen estándar."""
