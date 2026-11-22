@@ -14,7 +14,11 @@ y ofrecer `listar`, `leer`, `borrar`, `comparar` (DuckDB lee los Parquet de vari
 a la vez), `ejecutar_sql` (vistas `equity`, `pesos`, `operaciones` con la columna `id`) y `reevaluar`
 (recalcula `metricas.json` desde los Parquet con `evaluacion.reevaluar`, sin repetir el backtest).
 
+Es un adaptador de dominio fino sobre `ypyquant.almacen_documentos.AlmacenDocumentos` (carpeta por id, JSON y Parquet
+atómicos, ids, borrado): aquí solo viven el formato de cada archivo, los estados, los resúmenes y las consultas DuckDB.
+
 Se relaciona con:
+- ypyquant.almacen_documentos (persistencia por id) y ypyquant.raiz_datos (dónde vive `data/experimentos`).
 - ypyquant.estrategias.indice_recetas (índice en memoria receta -> experimentos: `indexar`, `resumenes_de_receta`),
   .experimentos (ConfiguracionExperimento, ResultadoExperimento), .evaluacion (`reevaluar`) y
   .procedencia (qué contiene `procedencia.json`).
@@ -25,12 +29,7 @@ Se relaciona con:
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import threading
-import time
 import traceback
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -38,76 +37,17 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+from ypyquant.almacen_documentos import AlmacenDocumentos, id_sin_separadores, limpiar_para_json
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
     ResultadoExperimento,
-    _limpiar,
 )
 from ypyquant.estrategias.indice_recetas import IndiceRecetas
+from ypyquant.raiz_datos import RaizDatos
 
-RAIZ_REPO = Path(__file__).resolve().parents[3]
-RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "experimentos"
 ESTADOS = ("pendiente", "en_curso", "hecho", "error")
-REINTENTOS_ARCHIVO = 20  # ~2 s en total ante bloqueos transitorios de Windows
 CLAVES_RESUMEN = ("retorno_total", "cagr", "volatilidad", "sharpe", "sortino", "calmar", "max_drawdown",
                   "turnover_anual", "alfa", "beta", "n_operaciones")
-
-
-def _reintentar_en_windows(operacion: Callable[[], Any]) -> Any:
-    """
-    Ejecuta `operacion` reintentando ante `PermissionError`.
-
-    En Windows, `os.replace` falla si otro hilo tiene el destino abierto en ese instante, y
-    una lectura falla si coincide con el reemplazo (fallo intermitente de `tests/test_api.py`
-    del 2026-11-19). Son bloqueos de milisegundos: se reintenta con espera creciente.
-    """
-    for intento in range(REINTENTOS_ARCHIVO):
-        try:
-            return operacion()
-        except PermissionError:
-            if intento == REINTENTOS_ARCHIVO - 1:
-                raise
-            time.sleep(0.01 * (intento + 1))
-    return None
-
-
-def _escribir_json(ruta: Path, contenido: Any) -> None:
-    """Escritura atómica (archivo temporal + reemplazo): la API puede leer mientras otro hilo escribe."""
-    # Temporal único por hilo: dos hilos escribiendo el mismo archivo no comparten el .tmp
-    temporal = ruta.with_name(f"{ruta.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    temporal.write_text(json.dumps(_limpiar(contenido), ensure_ascii=False, indent=2), encoding="utf-8")
-    _reintentar_en_windows(lambda: os.replace(temporal, ruta))
-
-
-def _escribir_parquet(tabla: pd.DataFrame, ruta: Path, index: bool = False) -> None:
-    """
-    Escritura atómica de un Parquet (temporal + reemplazo). Sin ella, una lectura concurrente
-    podía abrir el archivo a medio escribir: pyarrow lanza `ArrowInvalid` (un `ValueError`) y
-    la API respondía 404 (fallo intermitente de `tests/test_api.py`, 2026-11-19).
-    """
-    temporal = ruta.with_name(f"{ruta.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tabla.to_parquet(temporal, index=index)
-    _reintentar_en_windows(lambda: os.replace(temporal, ruta))
-
-
-def _leer_json(ruta: Path, reintentar_si_falta: bool = False) -> Any:
-    """
-    Lee un JSON del almacén (None si no existe).
-
-    `reintentar_si_falta`: para archivos que deben existir (p. ej. `estado.json` de un experimento
-    con `config.json`): en Windows el destino de `os.replace` puede no verse durante un instante.
-    """
-    for intento in range(REINTENTOS_ARCHIVO):
-        try:
-            return json.loads(ruta.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            if not reintentar_si_falta or intento == REINTENTOS_ARCHIVO - 1:
-                return None
-        except PermissionError:
-            if intento == REINTENTOS_ARCHIVO - 1:
-                raise
-        time.sleep(0.01 * (intento + 1))
-    return None
 
 
 def _a_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -116,41 +56,36 @@ def _a_registros(df: pd.DataFrame) -> list[dict[str, Any]]:
     for columna in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[columna]):
             df[columna] = df[columna].dt.strftime("%Y-%m-%d")
-    return _limpiar(df.astype(object).where(df.notna(), None).to_dict("records"))
+    return limpiar_para_json(df.astype(object).where(df.notna(), None).to_dict("records"))
 
 
 class AlmacenExperimentos:
     """
     Persistencia de experimentos en disco (Parquet + JSON) con consultas DuckDB.
 
+    Adaptador de dominio sobre un `AlmacenDocumentos` (`self.documentos`): el id del experimento es el de su carpeta.
+
     Args:
-        raiz: carpeta del almacén (por defecto `data/experimentos/` del repo).
+        raiz: carpeta del almacén (por defecto `data/experimentos/` del repo, según `RaizDatos`).
     """
 
     def __init__(self, raiz: Path | str | None = None):
-        self.raiz = Path(raiz) if raiz else RAIZ_POR_DEFECTO
-        self.raiz.mkdir(parents=True, exist_ok=True)
-        self._cerrojo = threading.Lock()
+        self.documentos = AlmacenDocumentos(raiz or RaizDatos().experimentos, nombre="experimento",
+                                            validar_id=id_sin_separadores)
+        self.raiz = self.documentos.raiz
         self._indice = IndiceRecetas()  # receta -> ids; se construye en la primera consulta (o con `indexar`)
 
     # ---- escritura -----------------------------------------------------------
 
-    def _carpeta(self, id_experimento: str) -> Path:
-        if not id_experimento or "/" in id_experimento or "\\" in id_experimento or id_experimento.startswith("."):
-            raise ValueError(f"Identificador de experimento inválido: {id_experimento!r}")
-        return self.raiz / id_experimento
-
     def registrar(self, config: ConfiguracionExperimento) -> str:
         """Crea la carpeta del experimento en estado `pendiente` (sobrescribe un intento anterior) y devuelve su id."""
         id_experimento = config.identificador()
-        carpeta = self._carpeta(id_experimento)
-        with self._cerrojo:
-            if carpeta.exists():
-                shutil.rmtree(carpeta)
-            carpeta.mkdir(parents=True)
-            _escribir_json(carpeta / "config.json", config.model_dump())
-            _escribir_json(carpeta / "estado.json", {"estado": "pendiente", "creado": datetime.now().isoformat(),
-                                                     "actualizado": datetime.now().isoformat(), "error": None})
+        with self.documentos.cerrojo:
+            self.documentos.crear(id_experimento, reemplazar=True)
+            self.documentos.escribir_json(id_experimento, "config", config.model_dump())
+            self.documentos.escribir_json(id_experimento, "estado", {
+                "estado": "pendiente", "creado": datetime.now().isoformat(),
+                "actualizado": datetime.now().isoformat(), "error": None})
         self._indice.anadir(id_experimento, config.model_dump())  # también sin construir: una construcción en curso lo vería
         return id_experimento
 
@@ -158,8 +93,7 @@ class AlmacenExperimentos:
         """Actualiza `estado.json`; con una excepción guarda su traza."""
         if estado not in ESTADOS:
             raise ValueError(f"Estado inválido: {estado}")
-        carpeta = self._carpeta(id_experimento)
-        actual = _leer_json(carpeta / "estado.json") or {"creado": datetime.now().isoformat()}
+        actual = self.documentos.leer_json(id_experimento, "estado") or {"creado": datetime.now().isoformat()}
         traza = None
         if isinstance(error, BaseException):
             traza = "".join(traceback.format_exception(type(error), error, error.__traceback__))
@@ -167,19 +101,18 @@ class AlmacenExperimentos:
             traza = str(error)
         mensaje = f"{type(error).__name__}: {error}" if isinstance(error, BaseException) else (str(error) if error else None)
         actual.update({"estado": estado, "actualizado": datetime.now().isoformat(), "error": mensaje, "traza": traza})
-        _escribir_json(carpeta / "estado.json", actual)
+        self.documentos.escribir_json(id_experimento, "estado", actual)
 
     def guardar(self, id_experimento: str, resultado: ResultadoExperimento) -> None:
         """Escribe métricas y Parquet del resultado y marca el experimento como `hecho`."""
-        carpeta = self._carpeta(id_experimento)
-        carpeta.mkdir(parents=True, exist_ok=True)
-        _escribir_parquet(resultado.equity, carpeta / "equity.parquet")
-        _escribir_parquet(resultado.pesos, carpeta / "pesos.parquet")
-        _escribir_parquet(resultado.operaciones, carpeta / "operaciones.parquet")
+        self.documentos.crear(id_experimento)
+        self.documentos.escribir_parquet(id_experimento, "equity", resultado.equity)
+        self.documentos.escribir_parquet(id_experimento, "pesos", resultado.pesos)
+        self.documentos.escribir_parquet(id_experimento, "operaciones", resultado.operaciones)
         if resultado.rotaciones is not None:
-            _escribir_parquet(resultado.rotaciones, carpeta / "rotaciones.parquet")
-        _escribir_json(carpeta / "metricas.json", {**resultado.metricas, "avisos": resultado.avisos})
-        _escribir_json(carpeta / "procedencia.json", resultado.procedencia)
+            self.documentos.escribir_parquet(id_experimento, "rotaciones", resultado.rotaciones)
+        self.documentos.escribir_json(id_experimento, "metricas", {**resultado.metricas, "avisos": resultado.avisos})
+        self.documentos.escribir_json(id_experimento, "procedencia", resultado.procedencia)
         self.marcar_estado(id_experimento, "hecho")
 
     def reevaluar(self, id_experimento: str, guardar: bool = True) -> dict[str, Any]:
@@ -193,54 +126,51 @@ class AlmacenExperimentos:
         """
         from ypyquant.estrategias.evaluacion import reevaluar  # diferido: evaluacion importa de experimentos
 
-        carpeta = self._carpeta(id_experimento)
         if self.estado_de(id_experimento) != "hecho":
             raise ValueError(f"El experimento {id_experimento} no está terminado")
-        procedencia = _leer_json(carpeta / "procedencia.json") or {}
+        procedencia = self.documentos.leer_json(id_experimento, "procedencia") or {}
         if procedencia.get("origen"):
             raise ValueError(f"El experimento {id_experimento} es una importación ({procedencia['origen']}): no se reevalúa")
         config, anteriores = self.leer_config(id_experimento), self.leer_metricas(id_experimento) or {}
-        tablas = {nombre: carpeta / f"{nombre}.parquet" for nombre in ("equity", "pesos", "operaciones")}
-        if config is None or not all(ruta.exists() for ruta in tablas.values()):
+        nombres = ("equity", "pesos", "operaciones")
+        if config is None or not all(self.documentos.tiene_parquet(id_experimento, n) for n in nombres):
             raise ValueError(f"Al experimento {id_experimento} le faltan config o tablas Parquet para reevaluarlo")
-        rotaciones = carpeta / "rotaciones.parquet"
         evaluacion = reevaluar(
-            ConfiguracionExperimento(**config), *(pd.read_parquet(ruta) for ruta in tablas.values()),
-            rotaciones=pd.read_parquet(rotaciones) if rotaciones.exists() else None,
+            ConfiguracionExperimento(**config), *(self.documentos.leer_parquet(id_experimento, n) for n in nombres),
+            rotaciones=self.documentos.leer_parquet(id_experimento, "rotaciones"),
             avisos=anteriores.get("avisos", []),
         )
         if guardar:
-            _escribir_json(carpeta / "metricas.json", {**evaluacion.metricas, "avisos": anteriores.get("avisos", [])})
+            self.documentos.escribir_json(id_experimento, "metricas",
+                                          {**evaluacion.metricas, "avisos": anteriores.get("avisos", [])})
         return evaluacion.metricas
 
     def borrar(self, id_experimento: str) -> bool:
         """Elimina el experimento; False si no existía."""
-        carpeta = self._carpeta(id_experimento)
-        if not carpeta.exists():
+        if not self.documentos.borrar(id_experimento):
             return False
-        shutil.rmtree(carpeta)
         self._indice.quitar(id_experimento)
         return True
 
     def marcar_interrumpidos(self) -> int:
         """Pasa a `error` los experimentos que quedaron `pendiente` o `en_curso` (el proceso anterior murió)."""
         cuenta = 0
-        for carpeta in self.raiz.iterdir():
-            estado = _leer_json(carpeta / "estado.json") if carpeta.is_dir() else None
+        for id_experimento in self.documentos.ids():
+            estado = self.documentos.leer_json(id_experimento, "estado")
             if estado and estado["estado"] in ("pendiente", "en_curso"):
-                self.marcar_estado(carpeta.name, "error", "Interrumpido: el servidor se reinició durante la ejecución")
+                self.marcar_estado(id_experimento, "error", "Interrumpido: el servidor se reinició durante la ejecución")
                 cuenta += 1
         return cuenta
 
     # ---- lectura -------------------------------------------------------------
 
     def existe(self, id_experimento: str) -> bool:
-        return (self._carpeta(id_experimento) / "estado.json").exists()
+        return self.documentos.tiene_json(id_experimento, "estado")
 
     def indexar(self) -> None:
         """(Re)construye el índice por receta leyendo los `config.json` del disco (una vez al arrancar basta)."""
-        configs = ((c.name, config) for c in self.raiz.iterdir() if c.is_dir()
-                   if (config := _leer_json(c / "config.json")) is not None)
+        configs = ((i, config) for i in self.documentos.ids()
+                   if (config := self.documentos.leer_json(i, "config")) is not None)
         self._indice.construir(configs)
 
     def resumenes_de_receta(self, huella_receta: str) -> list[dict[str, Any]]:
@@ -252,43 +182,40 @@ class AlmacenExperimentos:
             self.indexar()
         resumenes = []
         for id_experimento in self._indice.ids(huella_receta):
-            carpeta = self._carpeta(id_experimento)
-            resumen = self._resumen(carpeta) if carpeta.is_dir() else None
+            resumen = self._resumen(id_experimento) if self.documentos.hay_carpeta(id_experimento) else None
             if resumen is not None:
                 resumenes.append(resumen)
         return sorted(resumenes, key=lambda r: r["creado"] or "", reverse=True)
 
     def estado_de(self, id_experimento: str) -> str | None:
         """Estado (`pendiente|en_curso|hecho|error`) del experimento; None si no existe (lectura ligera)."""
-        estado = _leer_json(self._carpeta(id_experimento) / "estado.json")
+        estado = self.documentos.leer_json(id_experimento, "estado")
         return estado["estado"] if estado else None
 
     def leer_config(self, id_experimento: str) -> dict[str, Any] | None:
         """`config.json` del experimento (None si no existe): la configuración tal como se guardó, sin series."""
-        return _leer_json(self._carpeta(id_experimento) / "config.json")
+        return self.documentos.leer_json(id_experimento, "config")
 
     def leer_metricas(self, id_experimento: str) -> dict[str, Any] | None:
         """Contenido de `metricas.json` (None si el experimento no ha terminado)."""
-        return _leer_json(self._carpeta(id_experimento) / "metricas.json")
+        return self.documentos.leer_json(id_experimento, "metricas")
 
     def leer_equity(self, id_experimento: str) -> pd.DataFrame | None:
         """DataFrame de `equity.parquet` (`fecha, equity, benchmark, drawdown, retorno`); None si no existe."""
-        ruta = self._carpeta(id_experimento) / "equity.parquet"
-        return pd.read_parquet(ruta) if ruta.exists() else None
+        return self.documentos.leer_parquet(id_experimento, "equity")
 
     def leer_pesos(self, id_experimento: str) -> pd.DataFrame | None:
         """DataFrame de `pesos.parquet` (`fecha, ticker, peso`); None si no existe (p. ej. experimentos del TFM)."""
-        ruta = self._carpeta(id_experimento) / "pesos.parquet"
-        return pd.read_parquet(ruta) if ruta.exists() else None
+        return self.documentos.leer_parquet(id_experimento, "pesos")
 
-    def _resumen(self, carpeta: Path) -> dict[str, Any] | None:
-        config = _leer_json(carpeta / "config.json")
-        estado = _leer_json(carpeta / "estado.json", reintentar_si_falta=config is not None)
+    def _resumen(self, id_experimento: str) -> dict[str, Any] | None:
+        config = self.documentos.leer_json(id_experimento, "config")
+        estado = self.documentos.leer_json(id_experimento, "estado", reintentar_si_falta=config is not None)
         if config is None or estado is None:
             return None
-        metricas = _leer_json(carpeta / "metricas.json") or {}
+        metricas = self.documentos.leer_json(id_experimento, "metricas") or {}
         return {
-            "id": carpeta.name, "estrategia": config["estrategia"], "parametros": config["parametros"],
+            "id": id_experimento, "estrategia": config["estrategia"], "parametros": config["parametros"],
             "universo": config["universo"], "fecha_inicio": config["fecha_inicio"], "fecha_fin": config["fecha_fin"],
             "benchmark": config["benchmark"], "frecuencia_rebalanceo": config["frecuencia_rebalanceo"],
             "etiqueta": config.get("etiqueta", ""), "estado": estado["estado"], "error": estado.get("error"),
@@ -300,10 +227,8 @@ class AlmacenExperimentos:
                texto: str | None = None) -> list[dict[str, Any]]:
         """Resúmenes (más recientes primero), filtrables por estrategia, estado y texto libre (id, etiqueta, universo)."""
         resumenes = []
-        for carpeta in self.raiz.iterdir():
-            if not carpeta.is_dir():
-                continue
-            resumen = self._resumen(carpeta)
+        for id_experimento in self.documentos.ids():
+            resumen = self._resumen(id_experimento)
             if resumen is None:
                 continue
             if estrategia and resumen["estrategia"] != estrategia:
@@ -317,36 +242,35 @@ class AlmacenExperimentos:
 
     def leer(self, id_experimento: str) -> dict[str, Any]:
         """Experimento completo: resumen, configuración, estado, métricas, procedencia y series (equity, pesos, operaciones)."""
-        carpeta = self._carpeta(id_experimento)
-        resumen = self._resumen(carpeta)
+        resumen = self._resumen(id_experimento)
         if resumen is None:
             raise KeyError(id_experimento)
         detalle: dict[str, Any] = {
-            **resumen, "config": _leer_json(carpeta / "config.json"),
-            "traza": (_leer_json(carpeta / "estado.json") or {}).get("traza"),
-            "metricas_completas": _leer_json(carpeta / "metricas.json"),
-            "procedencia": _leer_json(carpeta / "procedencia.json"),
+            **resumen, "config": self.documentos.leer_json(id_experimento, "config"),
+            "traza": (self.documentos.leer_json(id_experimento, "estado") or {}).get("traza"),
+            "metricas_completas": self.documentos.leer_json(id_experimento, "metricas"),
+            "procedencia": self.documentos.leer_json(id_experimento, "procedencia"),
             "equity": [], "pesos": [], "operaciones": [],
         }
         for clave in ("equity", "pesos", "operaciones"):
-            ruta = carpeta / f"{clave}.parquet"
             # Las series solo son definitivas cuando el experimento está `hecho` (se escriben antes)
-            if resumen["estado"] == "hecho" and ruta.exists():
-                detalle[clave] = _a_registros(pd.read_parquet(ruta))
+            if resumen["estado"] == "hecho" and self.documentos.tiene_parquet(id_experimento, clave):
+                detalle[clave] = _a_registros(self.documentos.leer_parquet(id_experimento, clave))
         return detalle
 
     # ---- DuckDB --------------------------------------------------------------
 
     def _rutas_parquet(self, nombre: str, ids: list[str] | None = None) -> list[str]:
-        carpetas = [self._carpeta(i) for i in ids] if ids is not None else sorted(p for p in self.raiz.iterdir() if p.is_dir())
-        return [str(c / f"{nombre}.parquet").replace("\\", "/") for c in carpetas if (c / f"{nombre}.parquet").exists()]
+        ids = self.documentos.ids() if ids is None else ids
+        return [str(self.documentos.ruta_parquet(i, nombre)).replace("\\", "/") for i in ids
+                if self.documentos.tiene_parquet(i, nombre)]
 
     def comparar(self, ids: list[str]) -> dict[str, Any]:
         """
         Compara experimentos terminados con DuckDB: equity normalizada a base 100 sobre el eje de
         fechas común (intersección), benchmark del primero y tabla de métricas lado a lado.
         """
-        validos = [i for i in ids if (self._carpeta(i) / "equity.parquet").exists()]
+        validos = [i for i in ids if self.documentos.tiene_parquet(i, "equity")]
         if not validos:
             raise KeyError("Ninguno de los experimentos pedidos tiene resultados")
         # Se rebasa a 100 en la primera fecha COMÚN (no en la primera de cada serie): así series con fechas
@@ -370,11 +294,11 @@ class AlmacenExperimentos:
         fechas = sorted(largo["fecha"].unique())
         series = {i: largo[largo["id"] == i].sort_values("fecha")["valor"].tolist() for i in validos}
         bench = largo[largo["id"] == validos[0]].sort_values("fecha")["bench"].tolist()
-        return _limpiar({
+        return limpiar_para_json({
             "fechas": [pd.Timestamp(f).strftime("%Y-%m-%d") for f in fechas],
             "series": series, "benchmark": bench, "ids": validos,
-            "metricas": {i: (_leer_json(self._carpeta(i) / "metricas.json") or {}) for i in validos},
-            "resumenes": {i: self._resumen(self._carpeta(i)) for i in validos},
+            "metricas": {i: (self.documentos.leer_json(i, "metricas") or {}) for i in validos},
+            "resumenes": {i: self._resumen(i) for i in validos},
         })
 
     def ejecutar_sql(self, sql: str) -> pd.DataFrame:

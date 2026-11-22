@@ -59,6 +59,6 @@ def test_la_consulta_no_recorre_el_almacen(tmp_path, monkeypatch):
     almacen.indexar()
     llamadas = []
     original = almacen._resumen
-    monkeypatch.setattr(almacen, "_resumen", lambda carpeta: llamadas.append(carpeta.name) or original(carpeta))
+    monkeypatch.setattr(almacen, "_resumen", lambda id_experimento: llamadas.append(id_experimento) or original(id_experimento))
     assert len(almacen.resumenes_de_receta(huella)) == 1
     assert len(llamadas) == 1  # solo se lee el experimento de la receta, no los otros cuatro

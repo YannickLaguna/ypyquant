@@ -192,7 +192,7 @@ def test_walk_forward_barrido_sin_lookahead(barrido):
     _, elecciones_alteradas, _ = seleccion_walk_forward(alterada, ventana, paso)
     assert elecciones_alteradas["columna"].iloc[0] == r["elecciones"][0]["id"]
     assert set(r["metricas"]) >= {"sharpe_anualizado", "cagr", "max_drawdown"}
-    assert (barrido.almacen._carpeta(barrido.id) / "walk_forward_oos.parquet").exists()
+    assert barrido.almacen.documentos.tiene_parquet(barrido.id, "walk_forward_oos")
     with pytest.raises(ValueError, match="no cabe"):
         walk_forward_barrido(barrido, ventana_entreno_dias=5000, paso_dias=30)
 

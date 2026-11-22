@@ -18,7 +18,8 @@ selección): el contador no lo impide, lo hace visible.
 
 Se relaciona con:
 - ypyquant.estrategias.barridos (`Barrido`, `fecha_fin_desarrollo`) y .experimentos
-  (`ejecutar_experimento`, `resolver_universo`), .almacen (guarda el experimento reservado).
+  (`ejecutar_experimento`, `resolver_universo`), .almacen (guarda el experimento reservado) y
+  ypyquant.almacen_documentos (primitivas de E/S atómica de un archivo suelto: `leer_json`, `escribir_json_atomico`).
 - app/api/rutas_barridos.py (`POST /api/barridos/{id}/reservado`).
 """
 
@@ -33,7 +34,7 @@ from typing import Any
 
 import pandas as pd
 
-from ypyquant.estrategias.almacen import _escribir_json, _leer_json
+from ypyquant.almacen_documentos import escribir_json_atomico, leer_json
 from ypyquant.estrategias.barridos import Barrido
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
@@ -59,19 +60,19 @@ class RegistroReservado:
 
     def usos(self, clave: str) -> list[dict[str, Any]]:
         """Usos registrados para esa clave (lista vacía si nunca se ha mirado)."""
-        return (_leer_json(self.ruta) or {}).get(clave, {}).get("usos", [])
+        return (leer_json(self.ruta) or {}).get(clave, {}).get("usos", [])
 
     def registrar(self, clave: str, universo: list[str], fecha_fin_desarrollo: str, fecha_fin: str,
                   barrido: str, experimento: str) -> None:
         """Añade un uso `{fecha, barrido, experimento}` (escritura atómica)."""
         with _CERROJO:
-            datos = _leer_json(self.ruta) or {}
+            datos = leer_json(self.ruta) or {}
             entrada = datos.setdefault(clave, {"universo": sorted(universo), "fecha_fin_desarrollo": fecha_fin_desarrollo,
                                                "fecha_fin": fecha_fin, "usos": []})
             entrada["usos"].append({"fecha": datetime.now().isoformat(timespec="seconds"), "barrido": barrido,
                                     "experimento": experimento})
             self.ruta.parent.mkdir(parents=True, exist_ok=True)
-            _escribir_json(self.ruta, datos)
+            escribir_json_atomico(self.ruta, datos)
 
 
 def _resolver_combinacion(barrido: Barrido, referencia: str) -> dict[str, Any]:

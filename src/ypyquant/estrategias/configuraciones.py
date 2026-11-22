@@ -25,7 +25,6 @@ Se relaciona con:
 from __future__ import annotations
 
 import re
-import threading
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -33,16 +32,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ypyquant.estrategias.almacen import _escribir_json, _leer_json
+from ypyquant.almacen_documentos import AlmacenDocumentos, id_slug
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
     es_universo_pit,
     resolver_universo,
 )
 from ypyquant.estrategias.receta import Frecuencia, Receta
+from ypyquant.raiz_datos import RaizDatos
 
-RAIZ_REPO = Path(__file__).resolve().parents[3]
-RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "configuraciones"
 # Campos que `nueva_version` permite cambiar (la estrategia no: otra estrategia es otra configuración)
 CAMPOS_EDITABLES = ("nombre", "notas", "etiquetas", "parametros", "universo", "frecuencia_rebalanceo", "comision",
                     "slippage", "benchmark", "capital_inicial", "semilla", "dias_historia_previa", "id_marco")
@@ -136,59 +134,53 @@ class AlmacenConfiguraciones:
     """
     Persistencia de configuraciones en `<raiz>/<id>/v<n>.json` + `<raiz>/<id>/indice.json`
     (`{"ultima_version", "archivada"}`). Las versiones nunca se reescriben.
+
+    Adaptador de dominio sobre un `AlmacenDocumentos` (`self.documentos`, ids tipo slug, `indice.json` como marca): aquí
+    solo viven el versionado, el índice y los filtros.
     """
 
     def __init__(self, raiz: Path | str | None = None):
-        self.raiz = Path(raiz) if raiz else RAIZ_POR_DEFECTO
-        self.raiz.mkdir(parents=True, exist_ok=True)
-        self._cerrojo = threading.Lock()
+        self.documentos = AlmacenDocumentos(raiz or RaizDatos().configuraciones, nombre="configuración",
+                                            validar_id=id_slug, marca="indice")
+        self.raiz = self.documentos.raiz
 
-    def _carpeta(self, id_configuracion: str) -> Path:
-        if not id_configuracion or not re.fullmatch(r"[a-z0-9][a-z0-9\-_.]*", id_configuracion) or ".." in id_configuracion:
-            raise ValueError(f"Identificador de configuración inválido: {id_configuracion!r}")
-        return self.raiz / id_configuracion
-
-    def _indice(self, carpeta: Path) -> dict[str, Any]:
-        indice = _leer_json(carpeta / "indice.json")
+    def _indice(self, id_configuracion: str) -> dict[str, Any]:
+        indice = self.documentos.leer_json(id_configuracion, "indice")
         if indice is None:
-            raise KeyError(carpeta.name)
+            raise KeyError(id_configuracion)
         return indice
 
     def guardar(self, configuracion: ConfiguracionGuardada) -> ConfiguracionGuardada:
         """Guarda la versión 1. `ConfiguracionExistente` si el id ya existe."""
-        carpeta = self._carpeta(configuracion.id)
-        with self._cerrojo:
-            if (carpeta / "indice.json").exists():
+        with self.documentos.cerrojo:
+            if self.documentos.existe(configuracion.id):
                 raise ConfiguracionExistente(f"Ya existe la configuración '{configuracion.id}'")
-            carpeta.mkdir(parents=True, exist_ok=True)
-            _escribir_json(carpeta / "v1.json", configuracion.model_dump())
-            _escribir_json(carpeta / "indice.json", {"ultima_version": 1, "archivada": False})
+            self.documentos.crear(configuracion.id)
+            self.documentos.escribir_json(configuracion.id, "v1", configuracion.model_dump())
+            self.documentos.escribir_json(configuracion.id, "indice", {"ultima_version": 1, "archivada": False})
         return configuracion
 
     def leer(self, id_configuracion: str, version: int | None = None) -> ConfiguracionGuardada:
         """Una versión (la última por defecto); incluye `archivada` del índice. `KeyError` si no existe."""
-        carpeta = self._carpeta(id_configuracion)
-        indice = self._indice(carpeta)
+        indice = self._indice(id_configuracion)
         numero = version or indice["ultima_version"]
-        datos = _leer_json(carpeta / f"v{numero}.json")
+        datos = self.documentos.leer_json(id_configuracion, f"v{numero}")
         if datos is None:
             raise KeyError(f"{id_configuracion} v{numero}")
         return ConfiguracionGuardada(**{**datos, "archivada": indice["archivada"]})
 
     def versiones(self, id_configuracion: str) -> list[ConfiguracionGuardada]:
         """Todas las versiones, de la más antigua a la última."""
-        ultima = self._indice(self._carpeta(id_configuracion))["ultima_version"]
+        ultima = self._indice(id_configuracion)["ultima_version"]
         return [self.leer(id_configuracion, n) for n in range(1, ultima + 1)]
 
     def listar(self, estrategia: str | None = None, texto: str | None = None,
                archivadas: bool = False) -> list[ConfiguracionGuardada]:
         """Última versión de cada configuración (más recientes primero), filtrable por estrategia y texto libre."""
         resultado = []
-        for carpeta in self.raiz.iterdir():
-            if not carpeta.is_dir() or not (carpeta / "indice.json").exists():
-                continue
+        for id_configuracion in self.documentos.ids():
             try:
-                configuracion = self.leer(carpeta.name)
+                configuracion = self.leer(id_configuracion)
             except (KeyError, ValueError):
                 continue
             if configuracion.archivada and not archivadas:
@@ -209,8 +201,7 @@ class AlmacenConfiguraciones:
         no_editables = sorted(set(cambios) - set(CAMPOS_EDITABLES))
         if no_editables:
             raise ValueError(f"campo no editable: {', '.join(no_editables)} (editables: {', '.join(CAMPOS_EDITABLES)})")
-        carpeta = self._carpeta(id_configuracion)
-        with self._cerrojo:
+        with self.documentos.cerrojo:
             actual = self.leer(id_configuracion)
             datos = {**actual.model_dump(), **cambios}
             if "universo" in cambios and isinstance(cambios["universo"], str) and not es_universo_pit(cambios["universo"]):
@@ -222,24 +213,18 @@ class AlmacenConfiguraciones:
             receta = nueva.receta().normalizada()  # valida parámetros y universo
             nueva.parametros = receta.parametros
             nueva.huella_estrategia = receta.huella()
-            _escribir_json(carpeta / f"v{nueva.version}.json", nueva.model_dump())
-            _escribir_json(carpeta / "indice.json", {"ultima_version": nueva.version, "archivada": actual.archivada})
+            self.documentos.escribir_json(id_configuracion, f"v{nueva.version}", nueva.model_dump())
+            self.documentos.escribir_json(id_configuracion, "indice",
+                                          {"ultima_version": nueva.version, "archivada": actual.archivada})
         return nueva
 
     def archivar(self, id_configuracion: str, archivada: bool = True) -> None:
         """Marca (o desmarca) como archivada: desaparece del listado por defecto pero conserva todo."""
-        carpeta = self._carpeta(id_configuracion)
-        with self._cerrojo:
-            indice = self._indice(carpeta)
-            _escribir_json(carpeta / "indice.json", {**indice, "archivada": archivada})
+        with self.documentos.cerrojo:
+            indice = self._indice(id_configuracion)
+            self.documentos.escribir_json(id_configuracion, "indice", {**indice, "archivada": archivada})
 
     def borrar(self, id_configuracion: str) -> bool:
         """Borra la configuración con todas sus versiones. False si no existía."""
-        import shutil
-
-        carpeta = self._carpeta(id_configuracion)
-        with self._cerrojo:
-            if not carpeta.exists():
-                return False
-            shutil.rmtree(carpeta)
-        return True
+        with self.documentos.cerrojo:
+            return self.documentos.borrar(id_configuracion)
