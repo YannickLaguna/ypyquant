@@ -53,6 +53,13 @@ from scipy.optimize import fsolve, minimize
 
 from ypyquant.data.matriz_precios import CargadorPrecios, calcular_matriz_retornos, construir_matriz_precios
 from ypyquant.optimization.data_preprocessing import TipoRetorno
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import (
+    optimizar_max_sharpe,
+    optimizar_min_varianza,
+)
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import (
+    optimizar_volatilidad_objetivo as optimizar_volatilidad_objetivo_canonica,
+)
 from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_riesgo, var_cvar_historicos
 from ypyquant.optimization.portfolio_models import (
     BayesSteinReturnsModel,
@@ -80,14 +87,9 @@ from ypyquant.utils.serializacion import convertir_numpy_a_nativo
 
 logger = logging.getLogger(__name__)
 
-try:
-    from pypfopt import EfficientFrontier
-    PYPFOPT_AVAILABLE = True
-except ImportError:  # pragma: no cover - PyPortfolioOpt es dependencia del paquete
-    PYPFOPT_AVAILABLE = False
-    logger.warning("PyPortfolioOpt no instalado: se usa el optimizador scipy de reserva")
-
 _DIAS = 252  # Días de trading por año
+_RF_PYPFOPT = 0.02  # r_f por defecto de pypfopt, que usaba `optimizar_max_sharpe_pypfopt`
+_PESO_MAXIMO_APALANCADO = 2.0  # tope de peso por activo con apalancamiento (el antiguo límite [-2, 2])
 
 
 # ============================================================================
@@ -132,37 +134,31 @@ def _pesos_a_dict(columnas, pesos: np.ndarray) -> dict[str, float]:
 # ============================================================================
 
 
+def _max_peso(restricciones: dict | None) -> float:
+    """Tope de peso por activo de las restricciones (1,0 si no se indica)."""
+    return float(restricciones.get('max_weight', 1.0)) if restricciones else 1.0
+
+
 def optimizar_max_sharpe_scipy(retornos_df: pd.DataFrame, restricciones: dict | None = None) -> np.ndarray:
-    """Máximo Sharpe (retorno/vol, sin r_f) con SLSQP, pesos en [0, max_weight] y suma 1."""
-    medias = retornos_df.mean()
-    cov = retornos_df.cov()
-    n = len(retornos_df.columns)
+    """
+    Máximo Sharpe (retorno/vol, rf = 0), pesos en [0, max_weight] y suma 1.
 
-    def sharpe_negativo(pesos):
-        retorno = np.sum(medias * pesos) * _DIAS
-        vol = np.sqrt(np.dot(pesos.T, np.dot(cov * _DIAS, pesos)))
-        return -(retorno / vol)
-
-    resultado = minimize(
-        sharpe_negativo, _pesos_iguales(n), method='SLSQP', bounds=_limites(n, restricciones),
-        constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}],
+    Desde 2026-11-22 delega en el QP exacto canónico `estimacion_robusta.optimizar_max_sharpe` (antes SLSQP).
+    El nombre se conserva por compatibilidad con GrowSave; la firma no cambia y sigue sin usar r_f.
+    """
+    pesos, _, _ = optimizar_max_sharpe(
+        (retornos_df.mean() * _DIAS).values, (retornos_df.cov() * _DIAS).values, 0.0, _max_peso(restricciones)
     )
-    return resultado.x
+    return pesos
 
 
 def optimizar_min_volatilidad(retornos_df: pd.DataFrame, restricciones: dict | None = None) -> np.ndarray:
-    """Mínima volatilidad anualizada con SLSQP, pesos en [0, max_weight] y suma 1."""
-    cov = retornos_df.cov()
-    n = len(retornos_df.columns)
+    """
+    Mínima volatilidad anualizada, pesos en [0, max_weight] y suma 1.
 
-    def volatilidad(pesos):
-        return np.sqrt(np.dot(pesos.T, np.dot(cov * _DIAS, pesos)))
-
-    resultado = minimize(
-        volatilidad, _pesos_iguales(n), method='SLSQP', bounds=_limites(n, restricciones),
-        constraints=[{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}],
-    )
-    return resultado.x
+    Desde 2026-11-22 delega en `estimacion_robusta.optimizar_min_varianza` (antes un SLSQP propio).
+    """
+    return optimizar_min_varianza((retornos_df.cov() * _DIAS).values, _max_peso(restricciones))
 
 
 def optimizar_para_retorno_objetivo(
@@ -193,14 +189,16 @@ def optimizar_para_retorno_objetivo(
 def optimizar_max_sharpe_pypfopt(
     medias_anuales: pd.Series, cov_anual: pd.DataFrame, restricciones: dict | None = None
 ) -> np.ndarray:
-    """Máximo Sharpe con PyPortfolioOpt (r_f por defecto de pypfopt) y pesos limpiados."""
-    ef = EfficientFrontier(medias_anuales, cov_anual)
-    if restricciones and 'max_weight' in restricciones:
-        max_peso = restricciones['max_weight']
-        ef.add_constraint(lambda w: w <= max_peso)
-    ef.max_sharpe()
-    limpios = ef.clean_weights()
-    return np.array([limpios[col] for col in medias_anuales.index])
+    """
+    Máximo Sharpe con r_f = 2 % (el valor por defecto que tenía pypfopt) y pesos en [0, max_weight].
+
+    Desde 2026-11-22 delega en el QP canónico (que conserva pypfopt como respaldo de su cascada);
+    ya no se redondean los pesos con `clean_weights`. El nombre se conserva por GrowSave.
+    """
+    pesos, _, _ = optimizar_max_sharpe(
+        medias_anuales.values, cov_anual.values, _RF_PYPFOPT, _max_peso(restricciones)
+    )
+    return pesos
 
 
 def optimizar_risk_parity(cov_anual: pd.DataFrame, restricciones: dict | None = None) -> np.ndarray:
@@ -214,7 +212,7 @@ def optimizar_portafolio(
     retornos_df: pd.DataFrame, objective: str = 'max_sharpe', constraints: dict | None = None
 ) -> dict:
     """
-    Optimiza según `objective`: 'max_sharpe' (pypfopt si está, si no scipy), 'min_vol',
+    Optimiza según `objective`: 'max_sharpe' (QP canónico, rf = 2 %), 'min_vol',
     'equal_weight' o 'risk_parity'.
 
     Returns:
@@ -225,10 +223,7 @@ def optimizar_portafolio(
     n = len(retornos_df.columns)
 
     if objective == 'max_sharpe':
-        pesos = (
-            optimizar_max_sharpe_pypfopt(medias, cov, constraints) if PYPFOPT_AVAILABLE
-            else optimizar_max_sharpe_scipy(retornos_df, constraints)
-        )
+        pesos = optimizar_max_sharpe_pypfopt(medias, cov, constraints)
     elif objective == 'min_vol':
         pesos = optimizar_min_volatilidad(retornos_df, constraints)
     elif objective == 'equal_weight':
@@ -283,41 +278,50 @@ def optimizar_volatilidad_objetivo(
     retornos_df: pd.DataFrame, target_volatility: float, allow_leverage: bool = False
 ) -> dict:
     """
-    Máximo retorno con volatilidad <= target_volatility. Sin apalancamiento: pesos [0, 1] y
-    suma 1; con apalancamiento: pesos [-2, 2] sin restricción de suma.
+    Máximo retorno con volatilidad <= target_volatility (long-only).
 
-    Raises:
-        ValueError si el optimizador no converge.
+    Desde 2026-11-22 delega en el SOCP canónico `estimacion_robusta.optimizar_volatilidad_objetivo`
+    (antes SLSQP). Cambios de semántica respecto a la versión scipy:
+    - Sin apalancamiento: pesos en [0, 1] y suma 1. Si σ* está por debajo de la mínima varianza
+      alcanzable, NO se lanza ValueError: se devuelve la cartera de mínima varianza con
+      `estado = 'gmv_volatilidad_inalcanzable'` y `volatility_achieved = False` (es lo que hace el
+      núcleo canónico y deja el hecho explícito en el resultado en vez de abortar). Si σ* supera la
+      volatilidad de la cartera de máximo retorno, se devuelve esa cartera
+      (`estado = 'volatilidad_objetivo_holgada'`).
+    - ValueError solo si el solver falla del todo (`estado = 'gmv_fallback'`) o σ* <= 0.
+    - Con apalancamiento: se escala la cartera tangente long-only (rf = 0) por σ*/σ_tangente, que es la
+      solución exacta de máx. µ'w con σ <= σ*, w >= 0 y suma libre; el factor se limita para que
+      ningún peso supere 2 (como el antiguo límite [-2, 2]). Ya no hay cortos. `estado = 'apalancamiento'`.
+
+    Returns:
+        {weights, expected_return, volatility, sharpe_ratio, target_volatility, volatility_achieved, estado}.
     """
     medias = retornos_df.mean() * _DIAS
     cov = retornos_df.cov() * _DIAS
-    n = len(retornos_df.columns)
-
-    def restriccion_vol(pesos):
-        return target_volatility - np.sqrt(np.dot(pesos.T, np.dot(cov, pesos)))
-
     if allow_leverage:
-        restricciones = [{'type': 'ineq', 'fun': restriccion_vol}]
-        limites = tuple((-2, 2) for _ in range(n))
+        if target_volatility is None or target_volatility <= 0:
+            raise ValueError("target_volatility debe ser > 0")
+        tangente, degenerada, estado_tangente = optimizar_max_sharpe(medias.values, cov.values, 0.0, 1.0)
+        vol_tangente = float(np.sqrt(tangente @ cov.values @ tangente))
+        if degenerada or vol_tangente <= 0:
+            pesos, estado = tangente, estado_tangente  # sin exceso de retorno positivo no hay nada que apalancar
+        else:
+            factor = min(target_volatility / vol_tangente, _PESO_MAXIMO_APALANCADO / float(tangente.max()))
+            pesos, estado = tangente * factor, "apalancamiento"
     else:
-        restricciones = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}, {'type': 'ineq', 'fun': restriccion_vol}]
-        limites = tuple((0, 1) for _ in range(n))
+        pesos, estado = optimizar_volatilidad_objetivo_canonica(medias.values, cov.values, target_volatility)
+        if estado == "gmv_fallback":
+            raise ValueError("Could not optimize for target volatility. Try adjusting target.")
 
-    resultado = minimize(
-        lambda w: -np.sum(medias * w), _pesos_iguales(n), method='SLSQP',
-        bounds=limites, constraints=restricciones, options={'maxiter': 1000},
-    )
-    if not resultado.success:
-        raise ValueError("Could not optimize for target volatility. Try adjusting target.")
-
-    retorno, vol, sharpe = metricas_cartera(resultado.x, medias, cov)
+    retorno, vol, sharpe = metricas_cartera(pesos, medias, cov)
     return {
-        'weights': _pesos_a_dict(retornos_df.columns, resultado.x),
+        'weights': _pesos_a_dict(retornos_df.columns, pesos),
         'expected_return': retorno,
         'volatility': vol,
         'sharpe_ratio': sharpe,
         'target_volatility': target_volatility,
         'volatility_achieved': bool(abs(vol - target_volatility) < 0.001),
+        'estado': estado,
     }
 
 

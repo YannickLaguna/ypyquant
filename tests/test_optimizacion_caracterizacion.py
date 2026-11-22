@@ -157,50 +157,104 @@ def test_cvar_diario_del_optimizador_igual_a_calcular_cvar(semilla):
 
 
 # ---------------------------------------------------------------------------------------
-# Diferencias medidas: NO coinciden; la cota es la diferencia máxima de pesos observada (con margen)
+# Fachada = canónica (2026-11-22): las funciones scipy/pypfopt y MarkowitzOptimizer delegan en el QP/SOCP
 # ---------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("semilla", SEMILLAS)
 @pytest.mark.parametrize("peso_maximo", [1.0, 0.3])
-def test_max_sharpe_scipy_difiere_del_qp_exacto_por_tolerancia_del_solver(semilla, peso_maximo):
-    """SLSQP (retorno/vol sin rf) frente al QP exacto: medido hasta 1,4e-4 en pesos."""
+def test_max_sharpe_scipy_delega_en_el_qp_canonico(semilla, peso_maximo):
+    """La función «scipy» (sin rf) devuelve exactamente el QP canónico con rf=0."""
     r = _retornos(semilla)
     mu, cov = r.mean() * 252, r.cov() * 252
     qp, _, _ = optimizar_max_sharpe(mu.values, cov.values, 0.0, peso_maximo)
-    scipy_ = legado.optimizar_max_sharpe_scipy(r, {"max_weight": peso_maximo})
-    assert _dif(scipy_, qp) < 3e-4
+    assert _dif(legado.optimizar_max_sharpe_scipy(r, {"max_weight": peso_maximo}), qp) < 1e-12
 
 
 @pytest.mark.parametrize("semilla", SEMILLAS)
 @pytest.mark.parametrize("peso_maximo", [1.0, 0.3])
-def test_min_volatilidad_scipy_difiere_de_min_varianza_qp(semilla, peso_maximo):
-    """SLSQP frente a la GMV del QP: medido hasta 6,5e-4 en pesos."""
+def test_min_volatilidad_delega_en_min_varianza_canonica(semilla, peso_maximo):
     r = _retornos(semilla)
     gmv = optimizar_min_varianza((r.cov() * 252).values, peso_maximo)
-    scipy_ = legado.optimizar_min_volatilidad(r, {"max_weight": peso_maximo})
-    assert _dif(scipy_, gmv) < 1.5e-3
+    assert _dif(legado.optimizar_min_volatilidad(r, {"max_weight": peso_maximo}), gmv) < 1e-12
 
 
 @pytest.mark.parametrize("semilla", SEMILLAS)
 @pytest.mark.parametrize("objetivo", [0.12, 0.15])
-def test_volatilidad_objetivo_scipy_difiere_de_la_conica(semilla, objetivo):
-    """SLSQP (sin tope de peso, sin GMV de respaldo) frente al SOCP: medido hasta 5,3e-4."""
+def test_volatilidad_objetivo_delega_en_la_conica(semilla, objetivo):
     r = _retornos(semilla)
     mu, cov = r.mean() * 252, r.cov() * 252
-    conica, _ = optimizar_volatilidad_objetivo(mu.values, cov.values, objetivo)
-    scipy_ = legado.optimizar_volatilidad_objetivo(r, objetivo)["weights"]
-    assert _dif(list(scipy_.values()), conica) < 1.5e-3
+    conica, estado = optimizar_volatilidad_objetivo(mu.values, cov.values, objetivo)
+    res = legado.optimizar_volatilidad_objetivo(r, objetivo)
+    assert _dif(list(res["weights"].values()), conica) < 1e-12
+    assert res["estado"] == estado
+
+
+def test_volatilidad_objetivo_inalcanzable_devuelve_gmv_y_no_lanza():
+    """Por debajo de la GMV la fachada devuelve la GMV con estado explícito (antes: ValueError o resultado arbitrario)."""
+    r = _retornos(1)
+    cov = r.cov() * 252
+    gmv = optimizar_min_varianza(cov.values, 1.0)
+    res = legado.optimizar_volatilidad_objetivo(r, 0.001)
+    assert res["estado"] == "gmv_volatilidad_inalcanzable"
+    assert res["volatility_achieved"] is False
+    assert _dif(list(res["weights"].values()), gmv) < 1e-12
+
+
+@pytest.mark.parametrize("objetivo", [0.30, 0.40])
+def test_volatilidad_objetivo_con_apalancamiento_escala_la_tangente(objetivo):
+    """allow_leverage: tangente long-only (rf=0) escalada a σ*; suma de pesos > 1 y peso máximo <= 2."""
+    r = _retornos(1)
+    mu, cov = r.mean() * 252, r.cov() * 252
+    tangente, _, _ = optimizar_max_sharpe(mu.values, cov.values, 0.0, 1.0)
+    res = legado.optimizar_volatilidad_objetivo(r, objetivo, allow_leverage=True)
+    pesos = np.array(list(res["weights"].values()))
+    assert pesos.sum() > 1.0
+    assert pesos.max() <= 2.0 + 1e-9
+    assert res["estado"] == "apalancamiento"
+    # misma dirección que la tangente
+    assert _dif(pesos / pesos.sum(), tangente) < 1e-12
+    if pesos.max() < 2.0 - 1e-9:
+        assert res["volatility"] == pytest.approx(objetivo, rel=1e-9)
 
 
 @pytest.mark.parametrize("semilla", SEMILLAS)
 @pytest.mark.parametrize("rf", [0.0, 0.02])
-def test_markowitz_pypfopt_difiere_del_qp_por_clean_weights(semilla, rf):
-    """pypfopt.max_sharpe + `clean_weights` (redondeo a 5 decimales) frente al QP: medido hasta 5e-6."""
+def test_markowitz_max_sharpe_delega_en_el_qp(semilla, rf):
     r = _retornos(semilla)
     mu, cov = r.mean() * 252, r.cov() * 252
     qp, _, _ = optimizar_max_sharpe(mu.values, cov.values, rf)
-    markowitz = modelos.MarkowitzOptimizer("max_sharpe", rf).optimize(mu, cov)["weights"]
-    assert _dif(list(markowitz.values()), qp) < 5e-5
+    res = modelos.MarkowitzOptimizer("max_sharpe", rf).optimize(mu, cov)
+    assert _dif(list(res["weights"].values()), qp) < 1e-12
+
+
+@pytest.mark.parametrize("semilla", SEMILLAS)
+def test_markowitz_min_volatility_delega_en_min_varianza(semilla):
+    r = _retornos(semilla)
+    mu, cov = r.mean() * 252, r.cov() * 252
+    res = modelos.MarkowitzOptimizer("min_volatility").optimize(mu, cov, {"max_weight": 0.4})
+    assert _dif(list(res["weights"].values()), optimizar_min_varianza(cov.values, 0.4)) < 1e-12
+
+
+@pytest.mark.parametrize("semilla", SEMILLAS)
+def test_max_sharpe_pypfopt_delega_en_el_qp_con_rf_por_defecto_de_pypfopt(semilla):
+    r = _retornos(semilla)
+    mu, cov = r.mean() * 252, r.cov() * 252
+    qp, _, _ = optimizar_max_sharpe(mu.values, cov.values, 0.02, 0.4)
+    assert _dif(legado.optimizar_max_sharpe_pypfopt(mu, cov, {"max_weight": 0.4}), qp) < 1e-12
+
+
+def test_ledoit_wolf_misma_reserva_en_funcion_y_modelo(monkeypatch):
+    """Si pypfopt falla (cualquier causa), función y modelo devuelven la covarianza muestral anualizada."""
+    from pypfopt import risk_models
+
+    def _falla(*args, **kwargs):
+        raise ValueError("fallo simulado")
+
+    monkeypatch.setattr(risk_models.CovarianceShrinkage, "ledoit_wolf", _falla)
+    r = _retornos(1)
+    esperado = r.cov() * 252
+    assert _dif(estimar_sigma_ledoit_wolf(r, 252), esperado) < 1e-12
+    assert _dif(modelos.LedoitWolfShrinkageModel(252).calculate(r), esperado) < 1e-12
 
 
 def test_semicovarianza_pypfopt_no_equivale_a_la_de_ceros():
