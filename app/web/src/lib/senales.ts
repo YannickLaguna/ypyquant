@@ -23,9 +23,25 @@ export function etiquetaMotivo(motivo: string | null | undefined): string {
   return MOTIVOS[motivo] ?? motivo
 }
 
-/** Nombre de una capa del gráfico de pesos: el pseudo-ticker `CASH` (efectivo no invertido) se muestra como «Efectivo». */
-export function nombreCapa(ticker: string): string {
-  return ticker === 'CASH' ? 'Efectivo' : ticker
+/**
+ * Nombre de una capa del gráfico de pesos. `CASH` es el efectivo no invertido («Efectivo»); con peso NEGATIVO es el préstamo
+ * de margen del apalancamiento («Préstamo (margen)»). Un activo con peso negativo es una posición corta («AAPL (corto)»).
+ * `peso` es el de la capa (en una fecha o su mínimo en el periodo); sin él se usa el nombre por defecto.
+ */
+export function nombreCapa(ticker: string, peso?: number): string {
+  const negativo = peso !== undefined && peso < -0.0005
+  if (ticker === 'CASH') return negativo ? 'Préstamo (margen)' : 'Efectivo'
+  return negativo ? `${ticker} (corto)` : ticker
+}
+
+/** Exposición bruta (suma de |w|) y neta (suma de w) de unos pesos, sin el `CASH`; null si no hay pesos. */
+export function exposiciones(pesos: { ticker: string; peso: number }[]): { bruta: number; neta: number } | null {
+  const posiciones = pesos.filter((p) => p.ticker !== 'CASH')
+  if (posiciones.length === 0) return null
+  return {
+    bruta: posiciones.reduce((s, p) => s + Math.abs(p.peso), 0),
+    neta: posiciones.reduce((s, p) => s + p.peso, 0),
+  }
 }
 
 export interface ResumenMotivos {

@@ -142,7 +142,7 @@ export function GraficoPesos({ pesos }: { pesos: PesoFila[] }) {
   const modelo = useMemo(() => {
     const fechas = [...new Set(pesos.map((p) => p.fecha))].sort()
     const media = new Map<string, number>()
-    for (const p of pesos) media.set(p.ticker, (media.get(p.ticker) ?? 0) + p.peso)
+    for (const p of pesos) media.set(p.ticker, (media.get(p.ticker) ?? 0) + Math.abs(p.peso)) // |w|: los cortos también pesan
     const ranking = [...media.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)
     const visibles = ranking.slice(0, 11)
     const hayOtros = ranking.length > visibles.length
@@ -162,23 +162,32 @@ export function GraficoPesos({ pesos }: { pesos: PesoFila[] }) {
   const t0 = new Date(fechas[0]).getTime()
   const t1 = new Date(fechas[fechas.length - 1]).getTime()
   const x = (f: string) => (t1 === t0 ? 0 : ((new Date(f).getTime() - t0) / (t1 - t0)) * W)
-  const y = (v: number) => H - v * H
+  // Eje vertical: de 0 a max(1, mayor suma de pesos positivos) y, con cortos o préstamo, hasta la mayor suma de negativos
+  const positivos = (fila: Record<string, number>) => capas.reduce((s, c) => s + Math.max(fila[c], 0), 0)
+  const negativos = (fila: Record<string, number>) => capas.reduce((s, c) => s + Math.min(fila[c], 0), 0)
+  const techo = Math.max(1, ...tabla.map(positivos))
+  const suelo = Math.min(0, ...tabla.map(negativos))
+  const y = (v: number) => H * ((techo - v) / (techo - suelo))
 
-  // Área escalonada (el peso objetivo se mantiene hasta el siguiente rebalanceo)
+  // Área escalonada (el peso objetivo se mantiene hasta el siguiente rebalanceo): positivos apilados hacia arriba desde
+  // 0 y negativos (cortos, préstamo) hacia abajo
   const poligonos = capas.map((capa, k) => {
-    const base = (fila: Record<string, number>) => capas.slice(0, k).reduce((s, c) => s + fila[c], 0)
+    const base = (fila: Record<string, number>, positivo: boolean) =>
+      capas.slice(0, k).reduce((s, c) => s + (positivo ? Math.max(fila[c], 0) : Math.min(fila[c], 0)), 0)
     const arriba: string[] = []
     const abajo: string[] = []
     fechas.forEach((f, i) => {
       const xi = x(f)
       const xs = i + 1 < fechas.length ? x(fechas[i + 1]) : W
-      const b = base(tabla[i])
-      const t = b + tabla[i][capa]
+      const valor = tabla[i][capa]
+      const b = base(tabla[i], valor >= 0)
+      const t = b + valor
       arriba.push(`${xi},${y(t)}`, `${xs},${y(t)}`)
       abajo.unshift(`${xi},${y(b)}`)
       abajo.unshift(`${xs},${y(b)}`)
     })
-    return { capa, puntos: [...arriba, ...abajo].join(' '), color: PALETA_SERIES[k % PALETA_SERIES.length] }
+    const minimo = Math.min(...tabla.map((fila) => fila[capa]))
+    return { capa, minimo, puntos: [...arriba, ...abajo].join(' '), color: PALETA_SERIES[k % PALETA_SERIES.length] }
   })
 
   const alMover = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -199,7 +208,7 @@ export function GraficoPesos({ pesos }: { pesos: PesoFila[] }) {
         {poligonos.map((p) => (
           <span key={p.capa} className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded-sm" style={{ background: p.color }} aria-hidden />
-            {nombreCapa(p.capa)}
+            {nombreCapa(p.capa, p.minimo)}
           </span>
         ))}
       </figcaption>
@@ -208,12 +217,13 @@ export function GraficoPesos({ pesos }: { pesos: PesoFila[] }) {
         {poligonos.map((p) => (
           <polygon key={p.capa} points={p.puntos} fill={p.color} fillOpacity={0.85} stroke="rgb(var(--panel))" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
         ))}
+        {suelo < 0 && <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="rgb(var(--texto))" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
         <line x1={x(fechas[sel])} x2={x(fechas[sel])} y1={0} y2={H} stroke="rgb(var(--texto))" strokeWidth={1} vectorEffect="non-scaling-stroke" strokeDasharray="4 3" />
       </svg>
       <p className="num mt-2 text-xs text-suave" aria-live="polite">
         <span className="text-texto">{fechas[sel]}</span>
         {' — '}
-        {capas.filter((c) => tabla[sel][c] > 0.0005).map((c) => `${nombreCapa(c)} ${porcentaje(tabla[sel][c], 1)}`).join(' · ')}
+        {capas.filter((c) => Math.abs(tabla[sel][c]) > 0.0005).map((c) => `${nombreCapa(c, tabla[sel][c])} ${porcentaje(tabla[sel][c], 1)}`).join(' · ')}
       </p>
     </figure>
   )

@@ -88,9 +88,13 @@ def matriz_volumen(datos: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(series).sort_index()
 
 
-def sanear_pesos(pesos: dict[str, float]) -> dict[str, float]:
+def sanear_pesos(pesos: dict[str, float], permite_cortos: bool = False) -> dict[str, float]:
     """
-    Deja solo pesos finitos y positivos (el motor es long-only) y normaliza a suma 1.
+    Deja solo pesos finitos y positivos (por defecto el motor es long-only) y normaliza a suma 1.
+
+    Con `permite_cortos=True` (estrategias largo-corto, ver `Estrategia.admite_cortos`) los pesos son EXPOSICIONES
+    explícitas: se conservan los finitos y distintos de cero, con su signo (negativo = corto), sin normalizar; el
+    motor tampoco normaliza (`PoliticaEjecucion.permite_cortos`). Un `CASH` negativo sigue siendo el préstamo de margen.
 
     Si la suma es 0 devuelve `{}` (el motor liquida y queda en efectivo). El motor ya
     normaliza a 1 cuando la suma se desvía más de 1 %, así que no existe efectivo parcial.
@@ -99,6 +103,8 @@ def sanear_pesos(pesos: dict[str, float]) -> dict[str, float]:
     posiciones se escalan a sumar `1 - CASH` (p. ej. CASH = -0,5 -> posiciones suman 1,5), de modo que la suma
     total sigue siendo 1 y el motor no la normaliza. Sin `CASH` negativo el comportamiento no cambia.
     """
+    if permite_cortos:
+        return {t: float(w) for t, w in pesos.items() if w is not None and math.isfinite(w) and w != 0}
     prestamo = pesos.get(TICKER_EFECTIVO)
     if prestamo is not None and math.isfinite(prestamo) and prestamo < 0:
         largas = sanear_pesos({t: w for t, w in pesos.items() if t != TICKER_EFECTIVO})
@@ -211,6 +217,16 @@ class Estrategia(ABC):
             estado: dict persistente entre llamadas (memoria de la estrategia).
         """
 
+    def admite_cortos(self) -> bool:
+        """
+        True si esta ejecución de la estrategia puede devolver pesos NEGATIVOS (cortos). Por defecto False: se descartan.
+
+        Las estrategias largo-corto lo sobrescriben según sus parámetros (p. ej. `exposicion_corta` > 0). Con True los
+        pesos se sanean sin normalizar (`sanear_pesos(permite_cortos=True)`) y el motor, el paper interno y el bot
+        aplican las reglas de margen de `ypyquant.execution.margen`.
+        """
+        return False
+
     def sesiones_necesarias(self) -> int:
         """
         Sesiones diarias de historia que necesita la estrategia para no caer en su caso de reserva
@@ -240,7 +256,7 @@ class Estrategia(ABC):
                 recortados = recortar_hasta(datos, fecha)
                 if filtro_universo is not None:
                     recortados = filtro_universo(fecha, recortados)
-                pesos = sanear_pesos(self.generar_pesos(fecha, recortados, self.estado))
+                pesos = sanear_pesos(self.generar_pesos(fecha, recortados, self.estado), self.admite_cortos())
             except Exception as error:  # el motor la traga; la dejamos anotada para el experimento
                 self.errores.append(f"{fecha:%Y-%m-%d}: {type(error).__name__}: {error}")
                 raise

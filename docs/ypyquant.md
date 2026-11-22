@@ -60,6 +60,31 @@ apalancamiento escala la tangente long-only (sin cortos, peso <= 2). `LedoitWolf
 > `ypyquant.quantlib` está deprecated y existe solo como shim de retrocompatibilidad.
 > Importar directamente desde `ypyquant.optimization`, `ypyquant.portfolio` o `ypyquant.data`.
 
+## Margen y cortos
+
+`ypyquant.execution.margen` (módulo puro) reúne las reglas que comparten el motor, el paper interno y el bot de Alpaca:
+
+- `ReglasMargen`: `apalancamiento_maximo` (exposición bruta / equity, tope 2x = Reg T), requisito inicial 50 %, mantenimiento
+  25 % (largos) y 30 % (cortos), `tasa_financiacion` y `coste_prestamo_titulos` (anuales, base 360 días como Alpaca) y
+  `permite_cortos`. Por defecto (L = 1, sin cortos) está inactiva y nada cambia: huellas, resultados guardados y tests de
+  paridad quedan intactos.
+- Definiciones: equity = efectivo + largos - cortos; bruta = largos + |cortos|; mantenimiento = 0,25 x largos + 0,30 x |cortos|.
+  Comprobación DIARIA tras valorar: si `equity < mantenimiento` hay llamada de margen y se liquida TODA la cartera en
+  proporción (con comisión y slippage) hasta el requisito inicial (`factor_de_conservacion`); queda un aviso con la fecha
+  (`Llamada de margen AAAA-MM-DD: ...`). Los pesos objetivo no cambian: el siguiente rebalanceo reconstruye la cartera.
+- Ejecutor: `PoliticaEjecucion.permite_cortos` hace que un peso negativo sea una posición corta (venta sin posición larga; compra
+  para cubrir; un cambio de signo son DOS órdenes, cierre y apertura). Con cortos no se normaliza la suma de pesos.
+  `BrokerSimulado(reglas_margen=...)` rechaza lo que pase del límite o cruce por cero.
+- Estrategias: `momentum` es largo-corto con `exposicion_larga` / `exposicion_corta` / `top_k_cortos` /
+  `coste_prestamo_titulos` (130/30 = 1,3 y 0,3; dólar-neutral = 1 y 1). `Estrategia.admite_cortos()` decide si `sanear_pesos`
+  conserva los negativos. Los parámetros nuevos van fuera de la huella en su defecto y el formulario de la web los genera.
+- Evaluación: con cortos o préstamo las métricas incluyen `exposicion_bruta_media/maxima`, `exposicion_neta_media`,
+  `exposicion_corta_media` y `llamadas_margen`; la ficha del experimento los muestra y rotula `CASH` negativo como
+  «Préstamo (margen)» y los pesos negativos como «(corto)».
+- Alpaca: `ALPACA_<PERFIL>_MARGEN=1` (`ALPACA_MARGEN` en `DEFECTO`) declara la cuenta de margen; las recetas apalancadas o con
+  cortos solo se vinculan así (hasta 2x overnight) y el bot comprueba al arrancar la cuenta real (`multiplier`,
+  `shorting_enabled`). Detalle y decisiones: `docs/planes/2026-11-22-apalancamiento-y-cortos.md`.
+
 ## Paper interno
 
 `ypyquant.paper` simula **hacia delante** (forward, con precios reales y sin broker) la receta congelada de un experimento
@@ -107,6 +132,14 @@ servicio.listar()            # una fila por sesión: retorno, Sharpe, drawdown, 
 - **Universo `sp500_pit`**: se admite; se resuelve en cada fecha procesada con los miembros vigentes (ver `docs/ui.md`,
   «Universo `sp500_pit` en vivo»). `proximo_rebalanceo` (calendario) estima la fecha del siguiente rebalanceo.
 - **Limitaciones**: solo largo, cantidades fraccionarias (política del motor),
+
+  `YPYQUANT_PRECIOS=sintetico` usa precios sin red. Tarea diaria de Windows: `scripts/instalar_tarea_paper.ps1` (ver `docs/ui.md`).
+- **Margen y cortos**: el paper acepta recetas apalancadas (`apalancamiento_maximo` > 1) y largo-corto (`exposicion_corta` > 0)
+  con las MISMAS reglas que el motor, de una sola implementación (`ypyquant.execution.margen`): intereses del préstamo y
+  préstamo de títulos al empezar el día, capacidad de compra/venta en corto por el límite de exposición bruta,
+  comprobación diaria del mantenimiento con liquidación forzosa y un evento `llamada_margen` (aparece en los avisos de la
+  sesión). La paridad cubre 130/30, dólar-neutral, apalancamiento y una llamada de margen.
+- **Limitaciones**: universo fijo (`sp500_pit` no se admite), cantidades fraccionarias (política del motor),
   barras diarias (sin intradía), y el estado de la estrategia (p. ej. precios de entrada de las de señales) no se re-basa por ajustes.
 
 ## Uso rápido

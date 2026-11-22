@@ -12,6 +12,11 @@ Responsabilidad:
       por órdenes abiertas y los fills diferidos.
     - Rechaza (estado `rejected`) compras sin efectivo suficiente, ventas por encima de la posición y
       órdenes sobre tickers sin precio. `fallar_consulta_abiertas` simula una caída de red.
+    - Margen y cortos (opcional, `reglas_margen` de `ypyquant.execution.margen`): con reglas activas una compra puede
+      superar el efectivo hasta el límite de exposición bruta (el efectivo queda negativo = préstamo), una venta sin
+      posición larga abre un corto (el producto entra en efectivo) y una compra sobre un corto lo cubre. Las mismas
+      reglas que el motor; sin reglas (por defecto) el broker es solo largo y sin apalancamiento, como siempre.
+      Una orden no cruza por cero: vender más que la posición larga (o cubrir más que el corto) se rechaza.
 
 Se relaciona con:
     - ypyquant.execution.broker: el puerto que implementa; ejecutor.py: `EstadoCuenta`.
@@ -23,7 +28,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from ypyquant.execution.broker import EstadoOrden
-from ypyquant.execution.ejecutor import COMPRA, VENTA, EstadoCuenta
+from ypyquant.execution.ejecutor import COMPRA, EstadoCuenta
+from ypyquant.execution.margen import ReglasMargen, capacidad_bruta, capacidad_de_compra, valores_largo_corto
 
 
 class BrokerSimulado:
@@ -31,7 +37,11 @@ class BrokerSimulado:
 
     def __init__(self, efectivo_inicial: float = 100_000.0, comision: float = 0.0, slippage: float = 0.0,
                  precios: Mapping[str, float] | None = None, mercado_abierto: bool = True,
-                 ejecucion_inmediata: bool = True):
+                 ejecucion_inmediata: bool = True, reglas_margen: ReglasMargen | None = None):
+        self.reglas = reglas_margen or ReglasMargen()
+        # Equity con el que se mide la capacidad de margen (None = el actual de la cuenta). El simulador del paper lo fija
+        # a la foto previa al rebalanceo, como el motor, para que ambos recorten igual las órdenes que rozan el límite.
+        self.equity_referencia: float | None = None
         self.efectivo = float(efectivo_inicial)
         self.posiciones: dict[str, float] = {}
         self.comision = comision
@@ -97,24 +107,57 @@ class BrokerSimulado:
         if precio is None or precio <= 0 or cantidad <= 0:
             self.ordenes[id_orden] = EstadoOrden(id_orden, orden.ticker, orden.lado, "rejected")
             return
+        posicion = self.posiciones.get(orden.ticker, 0.0)
         if orden.lado == COMPRA:
             precio_ejecucion = precio * (1 + self.slippage)
             coste = cantidad * precio_ejecucion * (1 + self.comision)
-            if coste > self.efectivo + 1e-9:
-                self.ordenes[id_orden] = EstadoOrden(id_orden, orden.ticker, orden.lado, "rejected")
+            if posicion < 0:  # cubrir un corto (sin pasar de la posición: no se cruza por cero)
+                if cantidad > -posicion + 1e-9:
+                    self._rechazar(id_orden, orden)
+                    return
+            elif coste > self._capacidad_de_compra() + 1e-9:
+                self._rechazar(id_orden, orden)
                 return
             self.efectivo -= coste
-            self.posiciones[orden.ticker] = self.posiciones.get(orden.ticker, 0.0) + cantidad
-        else:
-            if cantidad > self.posiciones.get(orden.ticker, 0.0) + 1e-9:
-                self.ordenes[id_orden] = EstadoOrden(id_orden, orden.ticker, VENTA, "rejected")
-                return
-            precio_ejecucion = precio * (1 - self.slippage)
-            self.efectivo += cantidad * precio_ejecucion * (1 - self.comision)
-            restante = self.posiciones[orden.ticker] - cantidad
-            if restante > 1e-9:
-                self.posiciones[orden.ticker] = restante
+            nueva = posicion + cantidad
+            if abs(nueva) > 1e-9:
+                self.posiciones[orden.ticker] = nueva
             else:
-                del self.posiciones[orden.ticker]
+                self.posiciones.pop(orden.ticker, None)
+        else:
+            precio_ejecucion = precio * (1 - self.slippage)
+            if posicion > 0:  # vender largo (sin pasar de la posición)
+                if cantidad > posicion + 1e-9:
+                    self._rechazar(id_orden, orden)
+                    return
+            elif not self.reglas.permite_cortos or cantidad * precio_ejecucion > self._capacidad_bruta() + 1e-9:
+                self._rechazar(id_orden, orden)  # sin posición larga solo se vende en corto, con margen y dentro del límite
+                return
+            self.efectivo += cantidad * precio_ejecucion * (1 - self.comision)
+            nueva = posicion - cantidad
+            if abs(nueva) > 1e-9:
+                self.posiciones[orden.ticker] = nueva
+            else:
+                self.posiciones.pop(orden.ticker, None)
         self.ordenes[id_orden] = EstadoOrden(id_orden, orden.ticker, orden.lado, "filled", cantidad,
                                              precio_ejecucion, datetime.now(UTC))
+
+    # --- margen ---
+
+    def _valores(self) -> tuple[float, float, float]:
+        """`(equity, valor de largos, valor de cortos)` con los precios actuales."""
+        largo, corto = valores_largo_corto(self.posiciones, self.precios)
+        equity = self.equity_referencia if self.equity_referencia is not None else self.efectivo + largo - corto
+        return equity, largo, corto
+
+    def _capacidad_de_compra(self) -> float:
+        """Importe que se puede gastar en una compra (el efectivo si no hay reglas de margen activas)."""
+        equity, largo, corto = self._valores()
+        return capacidad_de_compra(self.efectivo, equity, largo, corto, self.reglas)
+
+    def _capacidad_bruta(self) -> float:
+        equity, largo, corto = self._valores()
+        return capacidad_bruta(equity, largo, corto, self.reglas)
+
+    def _rechazar(self, id_orden: str, orden: EstadoOrden) -> None:
+        self.ordenes[id_orden] = EstadoOrden(id_orden, orden.ticker, orden.lado, "rejected")

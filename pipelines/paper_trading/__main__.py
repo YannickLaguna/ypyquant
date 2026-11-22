@@ -37,7 +37,7 @@ from pipelines.paper_trading.config import (
     cargar_env,
 )
 from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS
-from ypyquant.perfiles_alpaca.perfiles import nombre_valido
+from ypyquant.perfiles_alpaca.perfiles import capacidad_declarada, nombre_valido
 from ypyquant.perfiles_alpaca.redaccion import instalar_en_raiz
 from ypyquant.raiz_datos import RaizDatos
 
@@ -106,7 +106,7 @@ def preparar_perfil(args: argparse.Namespace) -> tuple[ConfiguracionServicio, Co
         try:
             receta = receta_de_origen(tipo, id_origen, AlmacenExperimentos(raiz.experimentos),
                                       AlmacenConfiguraciones(raiz.configuraciones))
-            vinculo, cambio = vincular(almacen, perfil, receta, tipo, id_origen, None)
+            vinculo, cambio = vincular(almacen, perfil, receta, tipo, id_origen, None, capacidad=capacidad_declarada(perfil))
         except (KeyError, ValueError, UniversoNoSoportado, ValidationError) as error:
             raise SystemExit(f"No se puede vincular el perfil {perfil} a {tipo} '{id_origen}': {error}") from error
         logging.getLogger(__name__).info("Perfil %s %s a %s '%s' (estrategia %s, %d tickers)", perfil,

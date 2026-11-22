@@ -12,6 +12,10 @@ Responsabilidad:
          ajustado), se escala `cantidad /= f` y `precio_medio *= f` para que el valor no salte;
       3. ejecución: planifica con el Ejecutor (`planificar_rebalanceo` + `POLITICA_MOTOR`) y ejecuta con el
          `BrokerSimulado` aplicando la MISMA comisión y slippage que el motor (`_buy`/`_sell`);
+         margen y cortos (recetas apalancadas o largo-corto): las MISMAS reglas que el motor, de una sola implementación
+         (`ypyquant.execution.margen`): cargos diarios (interés del préstamo y préstamo de títulos) al empezar el día,
+         capacidad de compra/venta en corto por el límite de exposición bruta, y comprobación diaria del mantenimiento
+         con liquidación forzosa proporcional y un evento `llamada_margen`. Sin apalancamiento ni cortos nada de esto actúa;
       4. valoración al cierre de D -> una fila de equity; 5. decisión si toca (`toca_rebalancear`): en modo
          `cierre` se ejecuta ya al cierre de D (equivale a `run_backtest`: la fila de equity es la de antes del
          rebalanceo salvo en la asignación inicial); en `apertura_siguiente` queda como `pesos_pendientes` y se
@@ -61,7 +65,18 @@ from ypyquant.estrategias.universo_dinamico import FiltroUniverso, UniversoPunto
 from ypyquant.estrategias.registro import obtener_estrategia
 from ypyquant.execution.broker_simulado import BrokerSimulado
 from ypyquant.execution.calendario import toca_rebalancear
-from ypyquant.execution.ejecutor import COMPRA, POLITICA_MOTOR, VENTA, planificar_rebalanceo
+from ypyquant.execution.ejecutor import COMPRA, VENTA, planificar_rebalanceo
+from ypyquant.execution.margen import (
+    ReglasMargen,
+    capacidad_bruta,
+    capacidad_de_compra,
+    cargos_diarios,
+    evaluar_margen,
+    factor_de_conservacion,
+    politica_para,
+    reglas_desde_parametros,
+    valores_largo_corto,
+)
 from ypyquant.paper.almacen import (
     COLUMNAS_EQUITY,
     COLUMNAS_OPERACIONES,
@@ -147,6 +162,7 @@ class _Decisor:
             generador.bit_generator.state = estado.estado_rng
         self.estrategia.rng = generador
         self.funcion = self.estrategia.como_funcion(filtro_universo=filtro_universo)
+        self.reglas = reglas_desde_parametros(self.estrategia.parametros)  # margen y cortos de la receta (inactivas por defecto)
 
     def pesos(self, fecha: pd.Timestamp, datos: dict[str, pd.DataFrame]) -> dict[str, float]:
         return self.funcion(fecha, datos)
@@ -365,6 +381,8 @@ class SimuladorPaper:
         self._liquidar_desaparecidos(sesion, estado, tablas, dia, universo, cierres)
         modo_cierre = sesion.modo_ejecucion == "cierre"
         frecuencia = sesion.receta.frecuencia_rebalanceo
+        if decisor.reglas.activo and estado.asignacion_inicial_hecha:
+            self._cobrar_cargos(estado, decisor.reglas, dia, cierres)  # como el motor: a partir del día siguiente a la asignación
 
         if modo_cierre:
             if not estado.asignacion_inicial_hecha:
@@ -372,14 +390,18 @@ class SimuladorPaper:
                 fila_equity = self._valor(estado, cierres)  # la asignación inicial cuenta en la equity del primer día
             else:
                 fila_equity = self._valor(estado, cierres)  # la equity de D es la de ANTES de rebalancear a su cierre
+                if decisor.reglas.activo:
+                    self._comprobar_margen(sesion, estado, tablas, decisor.reglas, dia, cierres, fila_equity)
                 ultimo = date.fromisoformat(estado.ultimo_rebalanceo) if estado.ultimo_rebalanceo else None
                 if toca_rebalancear(frecuencia, ultimo, dia.date()):
                     self._decidir_y_ejecutar(sesion, estado, tablas, decisor, dia, universo, cierres)
         else:
             if estado.pesos_pendientes is not None:
-                self._ejecutar(sesion, estado, tablas, estado.pesos_pendientes, aperturas, dia)
+                self._ejecutar(sesion, estado, tablas, estado.pesos_pendientes, aperturas, dia, decisor.reglas)
                 estado.pesos_pendientes, estado.fecha_decision_pendiente = None, None
             fila_equity = self._valor(estado, cierres)
+            if decisor.reglas.activo and estado.posiciones:
+                self._comprobar_margen(sesion, estado, tablas, decisor.reglas, dia, cierres, fila_equity)
             ultimo = date.fromisoformat(estado.ultimo_rebalanceo) if estado.ultimo_rebalanceo else None
             if not estado.asignacion_inicial_hecha or toca_rebalancear(frecuencia, ultimo, dia.date()):
                 pesos = self._decidir(sesion, estado, tablas, decisor, dia, universo)
@@ -429,58 +451,143 @@ class SimuladorPaper:
         pesos = self._decidir(sesion, estado, tablas, decisor, dia, universo)
         if pesos is None:
             return
-        self._ejecutar(sesion, estado, tablas, pesos, precios, dia)
+        self._ejecutar(sesion, estado, tablas, pesos, precios, dia, decisor.reglas)
         estado.asignacion_inicial_hecha, estado.ultimo_rebalanceo = True, f"{dia:%Y-%m-%d}"
 
     def _ejecutar(self, sesion: SesionPaper, estado: EstadoCartera, tablas: TablasSesion, pesos: Mapping[str, float],
-                  precios: Mapping[str, float], dia: pd.Timestamp) -> None:
+                  precios: Mapping[str, float], dia: pd.Timestamp, reglas: ReglasMargen | None = None) -> None:
         """
-        Planifica con el Ejecutor (política del motor) y ejecuta con el broker simulado a `precios`.
+        Planifica con el Ejecutor (política del motor; con cortos, `politica_para`) y ejecuta con el broker simulado a `precios`.
 
-        Traduce cada `Orden` a la cantidad exacta que calculan `_buy`/`_sell` del motor: la compra se recorta al
-        efectivo disponible (`efectivo / (1 + comisión)`) y no opera menos de 1; la venta vende `importe` al precio con
-        slippage, limitada a la posición. El broker aplica comisión y slippage.
+        Traduce cada `Orden` a la cantidad exacta que calculan `_buy`/`_sell` del motor: la compra se recorta a la capacidad
+        de compra (el efectivo, o el margen disponible con `reglas` activas) y no opera menos de 1; la venta vende `importe`
+        al precio con slippage, limitada a la posición; una venta sin posición larga abre un corto (recortada al límite
+        de exposición bruta) y una compra sobre un corto lo cubre (el cierre, entero). El broker aplica comisión y slippage.
         """
+        reglas = reglas or ReglasMargen()
         comision, slippage = sesion.receta.comision, sesion.receta.slippage
-        broker = BrokerSimulado(efectivo_inicial=estado.efectivo, comision=comision, slippage=slippage, precios=precios)
+        broker = BrokerSimulado(efectivo_inicial=estado.efectivo, comision=comision, slippage=slippage, precios=precios,
+                                reglas_margen=reglas)
         broker.posiciones = {t: p.cantidad for t, p in estado.posiciones.items()}
         cuenta = broker.estado_cuenta()
-        plan = planificar_rebalanceo(pesos, precios, cuenta, POLITICA_MOTOR)
+        broker.equity_referencia = cuenta.equity  # como el motor: la capacidad se mide con el equity previo al rebalanceo
+        plan = planificar_rebalanceo(pesos, precios, cuenta, politica_para(reglas))
         if cuenta.equity > 0:
             tablas.rotaciones = _anadir(tablas.rotaciones, [{"fecha": dia, "rotacion": plan.rotacion}], COLUMNAS_ROTACIONES)
         filas = []
         for orden in plan.ordenes:
-            precio = precios[orden.ticker]
-            if orden.lado == VENTA:
-                if orden.ticker not in broker.posiciones:
-                    continue
-                cantidad = min(orden.importe / (precio * (1 - slippage)), broker.posiciones[orden.ticker])
-            else:
-                importe = min(orden.importe, broker.efectivo / (1 + comision))
-                if importe < 1.0:
-                    continue
-                cantidad = importe / (precio * (1 + slippage))
-            relleno = broker.consultar_orden(broker.enviar_orden(orden.ticker, orden.lado, cantidad))
-            if relleno.estado != "filled":
-                tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "orden_rechazada",
-                                       "mensaje": f"{dia:%Y-%m-%d}: orden de {orden.lado} de {orden.ticker} rechazada"})
+            cantidad = self._cantidad_de_orden(broker, orden, precios[orden.ticker], reglas, comision, slippage)
+            if cantidad is None:
                 continue
-            filas.append(self._registrar_relleno(estado, broker, relleno, precio, comision, dia))
+            fila = self._enviar(estado, tablas, broker, orden.ticker, orden.lado, cantidad, precios[orden.ticker], comision, dia)
+            if fila is not None:
+                filas.append(fila)
         estado.efectivo = broker.efectivo
         tablas.operaciones = _anadir(tablas.operaciones, filas, COLUMNAS_OPERACIONES)
+
+    @staticmethod
+    def _cantidad_de_orden(broker: BrokerSimulado, orden, precio: float, reglas: ReglasMargen, comision: float,
+                           slippage: float) -> float | None:
+        """Cantidad a enviar de una `Orden` con las reglas del motor (None si no se opera: sin efectivo o sin capacidad)."""
+        posicion = broker.posiciones.get(orden.ticker, 0.0)
+        equity = broker.equity_referencia if broker.equity_referencia is not None else broker.estado_cuenta().equity
+        largo, corto = valores_largo_corto(broker.posiciones, broker.precios)
+        if orden.lado == VENTA:
+            if posicion > 0:
+                return min(orden.importe / (precio * (1 - slippage)), posicion)
+            if not reglas.permite_cortos:
+                return None
+            importe = min(orden.importe, capacidad_bruta(equity, largo, corto, reglas))  # abrir o ampliar un corto
+            return importe / (precio * (1 - slippage)) if importe >= 1.0 else None
+        if posicion < 0:  # cubrir un corto: el cierre entero; si no, lo pedido (como mucho el corto)
+            return -posicion if orden.motivo == "cierre" else min(orden.importe / (precio * (1 + slippage)), -posicion)
+        importe = min(orden.importe, capacidad_de_compra(broker.efectivo, equity, largo, corto, reglas) / (1 + comision))
+        return importe / (precio * (1 + slippage)) if importe >= 1.0 else None
+
+    def _enviar(self, estado, tablas, broker: BrokerSimulado, ticker: str, lado: str, cantidad: float,
+                precio_referencia: float, comision: float, dia: pd.Timestamp) -> dict | None:
+        """Envía la orden al broker simulado y devuelve la fila de `operaciones` (None si se rechaza, con un evento)."""
+        relleno = broker.consultar_orden(broker.enviar_orden(ticker, lado, cantidad))
+        if relleno.estado != "filled":
+            tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "orden_rechazada",
+                                   "mensaje": f"{dia:%Y-%m-%d}: orden de {lado} de {ticker} rechazada"})
+            return None
+        return self._registrar_relleno(estado, broker, relleno, precio_referencia, comision, dia)
+
+    @staticmethod
+    def _cobrar_cargos(estado: EstadoCartera, reglas: ReglasMargen, dia: pd.Timestamp, cierres: Mapping[str, float]) -> None:
+        """
+        Cargos del margen desde la última fecha procesada: interés del efectivo negativo y préstamo de títulos de los cortos
+        (`cargos_diarios`: saldo x tasa x días / 360; el fin de semana cuenta 3). Se descuentan del efectivo.
+        """
+        dias = (dia.date() - date.fromisoformat(estado.ultima_fecha_procesada)).days
+        _, corto = valores_largo_corto({t: p.cantidad for t, p in estado.posiciones.items()}, cierres)
+        interes, prestamo = cargos_diarios(estado.efectivo, corto, dias, reglas)
+        estado.efectivo -= interes + prestamo
+
+    def _comprobar_margen(self, sesion: SesionPaper, estado: EstadoCartera, tablas: TablasSesion, reglas: ReglasMargen,
+                          dia: pd.Timestamp, cierres: Mapping[str, float], equity: float) -> None:
+        """
+        Comprobación diaria del mantenimiento (las mismas reglas que `BacktestEngine._comprobar_margen`): si el equity cae
+        bajo `mantenimiento_largo x largos + mantenimiento_corto x cortos` se reducen TODAS las posiciones proporcionalmente
+        hasta el requisito inicial (con comisión y slippage) y se anota un evento `llamada_margen` con la fecha.
+        """
+        largo, corto = valores_largo_corto({t: p.cantidad for t, p in estado.posiciones.items()}, cierres)
+        estado_margen = evaluar_margen(equity, largo, corto, reglas)
+        if not estado_margen.en_llamada:
+            return
+        comision, slippage = sesion.receta.comision, sesion.receta.slippage
+        factor = factor_de_conservacion(estado_margen.equity, estado_margen.bruta, reglas, comision + slippage)
+        broker = BrokerSimulado(efectivo_inicial=estado.efectivo, comision=comision, slippage=slippage, precios=cierres,
+                                reglas_margen=reglas)
+        broker.posiciones = {t: p.cantidad for t, p in estado.posiciones.items()}
+        filas = []
+        for ticker, posicion in sorted(estado.posiciones.items()):
+            precio = cierres.get(ticker)
+            if precio is None:
+                continue
+            cantidad = posicion.cantidad
+            if cantidad > 0:
+                a_vender = cantidad if factor <= 0.0 else min(cantidad * precio * (1.0 - factor) / (precio * (1 - slippage)), cantidad)
+                fila = self._enviar(estado, tablas, broker, ticker, VENTA, a_vender, precio, comision, dia)
+            else:
+                a_cubrir = -cantidad if factor <= 0.0 else min(-cantidad * precio * (1.0 - factor) / (precio * (1 + slippage)), -cantidad)
+                fila = self._enviar(estado, tablas, broker, ticker, COMPRA, a_cubrir, precio, comision, dia)
+            if fila is not None:
+                filas.append(fila)
+        estado.efectivo = broker.efectivo
+        tablas.operaciones = _anadir(tablas.operaciones, filas, COLUMNAS_OPERACIONES)
+        tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "llamada_margen", "mensaje": (
+            f"Llamada de margen {dia:%Y-%m-%d}: equity {estado_margen.equity:,.0f} por debajo del mantenimiento "
+            f"{estado_margen.requisito_mantenimiento:,.0f} (exposición bruta {estado_margen.bruta:,.0f}); "
+            f"liquidación forzosa: se conserva el {factor:.0%} de las posiciones.")})
 
     @staticmethod
     def _registrar_relleno(estado: EstadoCartera, broker: BrokerSimulado, relleno, precio_referencia: float,
                            comision: float, dia: pd.Timestamp) -> dict:
         """Actualiza la posición (con su precio medio, como el motor) y devuelve la fila de `operaciones`."""
         ticker, cantidad, precio = relleno.ticker, relleno.cantidad_ejecutada, relleno.precio_medio
-        if relleno.lado == COMPRA:
-            previa = estado.posiciones.get(ticker)
+        previa = estado.posiciones.get(ticker)
+        if relleno.lado == COMPRA and previa is not None and previa.cantidad < 0:  # cubrir un corto
+            comision_pagada = cantidad * precio * comision
+            pnl = (previa.precio_medio - precio) * cantidad - comision_pagada
+            slippage = cantidad * (precio - precio_referencia)
+            resto = broker.posiciones.get(ticker, 0.0)
+            if abs(resto) < UMBRAL_POSICION_MINIMA:  # como el motor: lo que queda por debajo se descarta
+                broker.posiciones.pop(ticker, None)
+                del estado.posiciones[ticker]
+            else:
+                previa.cantidad = resto
+        elif relleno.lado == COMPRA:
             medio = precio if previa is None else (previa.cantidad * previa.precio_medio + cantidad * precio) / (previa.cantidad + cantidad)
             estado.posiciones[ticker] = PosicionPaper(cantidad=broker.posiciones[ticker], precio_medio=medio)
             comision_pagada, pnl, slippage = cantidad * precio * comision, float("nan"), cantidad * (precio - precio_referencia)
+        elif previa is None or previa.cantidad <= 0:  # abrir o ampliar un corto: el resultado llega al cubrirlo
+            medio = precio if previa is None else (-previa.cantidad * previa.precio_medio + cantidad * precio) / (-previa.cantidad + cantidad)
+            estado.posiciones[ticker] = PosicionPaper(cantidad=broker.posiciones[ticker], precio_medio=medio)
+            comision_pagada, pnl, slippage = cantidad * precio * comision, float("nan"), cantidad * (precio_referencia - precio)
         else:
-            posicion = estado.posiciones[ticker]
+            posicion = previa
             ingreso = cantidad * precio
             comision_pagada = ingreso * comision
             pnl = (precio - posicion.precio_medio) * cantidad - comision_pagada
@@ -505,7 +612,8 @@ class SimuladorPaper:
             broker = BrokerSimulado(efectivo_inicial=estado.efectivo, comision=sesion.receta.comision,
                                     slippage=sesion.receta.slippage, precios=cierres)
             broker.posiciones = {t: p.cantidad for t, p in estado.posiciones.items()}
-            relleno = broker.consultar_orden(broker.enviar_orden(ticker, VENTA, posicion.cantidad))
+            lado = VENTA if posicion.cantidad > 0 else COMPRA  # un corto se cubre
+            relleno = broker.consultar_orden(broker.enviar_orden(ticker, lado, abs(posicion.cantidad)))
             fila = self._registrar_relleno(estado, broker, relleno, cierres[ticker], sesion.receta.comision, dia)
             estado.efectivo = broker.efectivo
             tablas.operaciones = _anadir(tablas.operaciones, [fila], COLUMNAS_OPERACIONES)
