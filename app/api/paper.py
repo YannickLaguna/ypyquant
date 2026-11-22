@@ -2,19 +2,23 @@
 Servicios de paper trading para la API: cliente Alpaca (cuenta paper) y control del bot como subproceso.
 
 Responsabilidad:
-- `ServicioAlpaca`: lee cuenta, posiciones, órdenes e historial de equity con alpaca-py. Las claves
-  vienen de `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (siempre `paper=True`). Sin claves lanza
-  `SinClavesAlpaca` (la API responde 503 con un mensaje claro). Admite un `fabrica_cliente`
-  inyectable para los tests. Importa alpaca-py una sola vez bajo cerrojo (`_importar_alpaca`) para
+- `ServicioAlpaca(perfil)`: lee cuenta, posiciones, órdenes e historial de equity de UNA cuenta paper con alpaca-py.
+  Las claves del perfil vienen de `ALPACA_<PERFIL>_API_KEY` / `ALPACA_<PERFIL>_SECRET_KEY` (el perfil `DEFECTO` usa
+  `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`; ver ypyquant.perfiles_alpaca.perfiles; siempre `paper=True`). Sin claves lanza
+  `SinClavesAlpaca` con el nombre del perfil y las variables que faltan (la API responde 503). `comprobar_conexion`
+  resume el estado (configurada, conectada, equity) sin exponer claves y con los errores redactados. Admite un
+  `fabrica_cliente` inyectable para los tests. Importa alpaca-py una sola vez bajo cerrojo (`_importar_alpaca`) para
   evitar el bloqueo de importación entre hilos de la API.
-- `leer_fills`: fills registrados por el bot en `data/paper_trading/fills.jsonl`
-  (`ypyquant.execution.nautilus.registro_fills`), si existe.
-- `BotControl`: arranca y para `python -m pipelines.paper_trading` con una estrategia del
-  registro, guarda su salida en `data/paper_trading/bot.log` y la sirve por offset de línea
-  (polling). El subproceso es hijo de la API: si la API muere en Windows, el bot puede seguir vivo.
+- `leer_fills`: fills registrados por el bot en un JSONL (`data/paper_trading/<PERFIL>/fills.jsonl`; el perfil
+  `DEFECTO` cae al antiguo `data/paper_trading/fills.jsonl` si no tiene el suyo), en el formato de
+  `ypyquant.execution.nautilus.registro_fills` (las filas antiguas, sin `perfil`, se leen igual).
+- `BotControl`: bot ÚNICO heredado (`/api/paper/bot/*`, estrategia suelta por petición). La UI multi-perfil usa
+  `GestorBots` (app/api/gestor_bots.py), un bot por perfil vinculado a un experimento. El subproceso es hijo de la API:
+  si la API muere en Windows, el bot puede seguir vivo.
 
 Se relaciona con:
 - pipelines/paper_trading (CLI que se lanza; acepta `--estrategia`, `--parametros`, `--tickers`).
+- ypyquant.perfiles_alpaca (perfiles de claves y redacción de secretos).
 - ypyquant.execution.nautilus.registro_fills (formato de los fills).
 - app/api/rutas_paper.py (expone todo esto) y app/api/contexto.py (lo agrupa).
 """
@@ -26,17 +30,21 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from ypyquant.perfiles_alpaca.perfiles import NOMBRE_DEFECTO, claves_de, variables_de
+from ypyquant.perfiles_alpaca.redaccion import redactar
 
 RAIZ_REPO = Path(__file__).resolve().parents[2]
 CARPETA_PAPER = RAIZ_REPO / "data" / "paper_trading"
 
 
 class SinClavesAlpaca(RuntimeError):
-    """No hay ALPACA_API_KEY / ALPACA_SECRET_KEY en el entorno."""
+    """Faltan las claves del perfil en el entorno (`ALPACA_<PERFIL>_API_KEY` / `ALPACA_<PERFIL>_SECRET_KEY`)."""
 
 
 def _numero(valor: Any) -> float | None:
@@ -72,30 +80,35 @@ def _importar_alpaca() -> None:
 
 class ServicioAlpaca:
     """
-    Lectura de la cuenta paper de Alpaca.
+    Lectura de UNA cuenta paper de Alpaca (un perfil).
 
     Args:
         fabrica_cliente: callable sin argumentos que devuelve un `TradingClient`-compatible (por defecto,
-            crea el real con las claves del entorno). Se cachea tras la primera llamada.
+            crea el real con las claves del perfil). Se cachea tras la primera llamada.
+        perfil: nombre del perfil (`DEFECTO` por defecto: variables `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`).
     """
 
-    def __init__(self, fabrica_cliente: Callable[[], Any] | None = None):
+    TTL_CONEXION_S = 15.0
+
+    def __init__(self, fabrica_cliente: Callable[[], Any] | None = None, perfil: str = NOMBRE_DEFECTO):
+        self.perfil = perfil
         self._fabrica = fabrica_cliente
         self._cliente: Any = None
         self._cerrojo = threading.Lock()
+        self._conexion: tuple[float, dict[str, Any]] | None = None
 
-    @staticmethod
-    def claves_disponibles() -> bool:
-        return bool(os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY"))
+    def claves_disponibles(self) -> bool:
+        return claves_de(self.perfil) is not None
 
     def _cliente_real(self):
-        if not self.claves_disponibles():
+        claves = claves_de(self.perfil)
+        if claves is None:
+            api, secreto = variables_de(self.perfil)
             raise SinClavesAlpaca(
-                "Faltan ALPACA_API_KEY y ALPACA_SECRET_KEY en el entorno (copia .env.example a .env y reinicia la API)."
-            )
+                f"Perfil {self.perfil} sin configurar: define {api} y {secreto} en el .env de la raíz del repo y reinicia la API.")
         from alpaca.trading.client import TradingClient
 
-        return TradingClient(api_key=os.environ["ALPACA_API_KEY"], secret_key=os.environ["ALPACA_SECRET_KEY"], paper=True)
+        return TradingClient(api_key=claves[0], secret_key=claves[1], paper=True)
 
     @property
     def disponible(self) -> bool:
@@ -107,6 +120,26 @@ class ServicioAlpaca:
                 _importar_alpaca()
                 self._cliente = self._fabrica() if self._fabrica else self._cliente_real()
             return self._cliente
+
+    def comprobar_conexion(self, forzar: bool = False) -> dict[str, Any]:
+        """
+        Estado de la cuenta sin exponer claves: `{configurada, conectada, equity, error}`.
+
+        Consulta la cuenta a Alpaca como mucho una vez cada `TTL_CONEXION_S` (la lista de perfiles se refresca a menudo).
+        El error se redacta por si el mensaje de Alpaca citara una clave.
+        """
+        ahora = time.monotonic()
+        if not forzar and self._conexion and ahora - self._conexion[0] < self.TTL_CONEXION_S:
+            return self._conexion[1]
+        if not self.disponible:
+            resultado = {"configurada": False, "conectada": False, "equity": None, "error": None}
+        else:
+            try:
+                resultado = {"configurada": True, "conectada": True, "equity": self.cuenta()["equity"], "error": None}
+            except Exception as error:  # noqa: BLE001 - cualquier fallo de red o de Alpaca se resume
+                resultado = {"configurada": True, "conectada": False, "equity": None, "error": redactar(str(error))}
+        self._conexion = (ahora, resultado)
+        return resultado
 
     def cuenta(self) -> dict[str, Any]:
         c = self.cliente().get_account()
@@ -150,12 +183,29 @@ class ServicioAlpaca:
                 "pnl": [_numero(v) for v in (h.profit_loss or [])], "base": _numero(getattr(h, "base_value", None))}
 
 
-def leer_fills(ruta: Path | None = None, limite: int = 200) -> list[dict[str, Any]]:
-    """Últimos `limite` fills del JSONL del bot (más recientes primero); vacío si no existe."""
-    ruta = ruta or CARPETA_PAPER / "fills.jsonl"
+def leer_fills(ruta: Path | None = None, limite: int = 200, perfil: str | None = None,
+               carpeta: Path | None = None) -> list[dict[str, Any]]:
+    """
+    Últimos `limite` fills del JSONL del bot (más recientes primero); vacío si no existe.
+
+    Con `perfil` se lee `<carpeta>/<perfil>/fills.jsonl` (`carpeta` por defecto `data/paper_trading`); el perfil `DEFECTO`
+    cae al fichero antiguo `<carpeta>/fills.jsonl` si no tiene el suyo. Las líneas corruptas se saltan. Las filas
+    antiguas (sin `perfil`) se devuelven tal cual: los campos nuevos son opcionales.
+    """
+    carpeta = carpeta or CARPETA_PAPER
+    if ruta is None and perfil:
+        ruta = carpeta / perfil / "fills.jsonl"
+        if perfil == NOMBRE_DEFECTO and not ruta.exists():
+            ruta = carpeta / "fills.jsonl"
+    ruta = ruta or carpeta / "fills.jsonl"
     if not ruta.exists():
         return []
-    filas = [json.loads(linea) for linea in ruta.read_text(encoding="utf-8").splitlines() if linea.strip()]
+    filas = []
+    for linea in ruta.read_text(encoding="utf-8").splitlines():
+        try:
+            filas.append(json.loads(linea))
+        except json.JSONDecodeError:
+            continue
     return filas[-limite:][::-1]
 
 
