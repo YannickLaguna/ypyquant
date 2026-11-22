@@ -1,7 +1,7 @@
 /**
  * Raíz de la aplicación: proveedor de TanStack Query y rutas (react-router).
  * Responsabilidad: mapear URL -> página dentro del Layout; redirige `/` a Estrategias.
- * Se relaciona con: main.tsx (monta), componentes/Layout.tsx y paginas/* (incluye Barridos, Configuraciones y Marcos).
+ * Se relaciona con: main.tsx (monta), componentes/Layout.tsx y paginas/* (incluye Barridos, Configuraciones, Marcos y Paper interno).
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
@@ -17,6 +17,8 @@ import ExperimentoDetalle from './paginas/ExperimentoDetalle'
 import Experimentos from './paginas/Experimentos'
 import MarcoDetalle from './paginas/MarcoDetalle'
 import Marcos from './paginas/Marcos'
+import PaperInterno from './paginas/PaperInterno'
+import PaperInternoDetalle from './paginas/PaperInternoDetalle'
 import PaperTrading from './paginas/PaperTrading'
 
 export const clienteConsultas = new QueryClient({
@@ -41,6 +43,8 @@ export default function App() {
           <Route path="marcos/:id" element={<MarcoDetalle />} />
           <Route path="comparar" element={<Comparar />} />
           <Route path="paper" element={<PaperTrading />} />
+          <Route path="paper-interno" element={<PaperInterno />} />
+          <Route path="paper-interno/:id" element={<PaperInternoDetalle />} />
           <Route path="*" element={<p className="p-6 text-suave">Página no encontrada.</p>} />
         </Route>
       </Routes>

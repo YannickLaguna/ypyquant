@@ -344,17 +344,17 @@ Riesgos: look-ahead al precalcular en `preparar` (mitigado con el verificador y 
 **Alternativas descartadas:** guardar cada sesión en una sola base SQLite (más piezas, y el resto del sistema ya vive en Parquet/JSON); un proceso por sesión (N procesos residentes); calcular el equity a partir de Alpaca (no hay Alpaca para las N configuraciones).
 
 ### 3.2 Tareas (TDD, cada una con su commit)
-- [ ] **3.1 Calendario.** Test `tests/test_paper_calendario.py`: para frecuencias `daily/weekly/monthly/quarterly` y un calendario con festivos sintéticos, el conjunto de días donde `es_dia_de_rebalanceo` es True coincide con `BacktestEngine._alinear_a_dias_de_trading(_get_rebalance_dates(...), dias)` (propiedad con Hypothesis, skill `property-based-testing`). Caso "PC apagado": llamar con varios días pendientes en bloque da el mismo resultado que día a día.
-- [ ] **3.2 Ejecutor.** Test: `EjecutorCartera` con estado vacío + pesos + precios produce las mismas operaciones (cantidad, precio, comisión) que `BacktestEngine._execute_rebalance` del motor puro; con el estado guardado/restaurado a mitad produce el mismo resultado que sin interrupción.
-- [ ] **3.3 Paridad incremental (test clave).** `tests/test_paper_paridad.py`: con `FuenteSintetica`, estrategias `pesos_iguales`, `momentum` y `cruce_medias` (modo `cierre`), avanzar día a día durante 250 sesiones da una curva de equity y una lista de operaciones **iguales** (tolerancia 1e-9) a `ejecutar_con_datos` del mismo rango. Variante: partir el avance en dos procesos (guardar/cargar `estado.json` en medio) y obtener lo mismo. Este test protege contra cambios futuros del motor (GrowSave).
-- [ ] **3.4 Modo `apertura_siguiente`.** Test con barras de apertura/cierre fabricadas: decisión en `D`, fill en `apertura(D+1)` con slippage; el equity de `D` aún refleja la cartera anterior; la última decisión queda pendiente al terminar los datos.
-- [ ] **3.5 Re-base por ajuste.** Test: serie con un "dividendo" (el histórico ajustado se reescala 2 % entre dos descargas); el equity no tiene salto y las cantidades se re-basan; sin cambio de histórico no ocurre nada.
-- [ ] **3.6 Almacén y reanudación.** Test de crash: simular excepción tras escribir `equity.parquet` y antes de `estado.json`; al reanudar se trunca y se repite el día sin duplicar filas. Test de bloqueo: dos avances concurrentes (hilos) no corrompen; bloqueo huérfano con pid inexistente se recupera.
-- [ ] **3.7 Día no cerrado y datos parciales.** Test: con "ahora" a las 12:00 NY no se procesa el día en curso; barra del benchmark ausente → se pospone; ticker que desaparece 5 sesiones → liquidación con aviso.
-- [ ] **3.8 Varias sesiones, una descarga.** Test: `avanzar_todas` con 3 sesiones sobre universos solapados llama al cargador una vez por ticker (cargador espía) y cada sesión conserva su cartera independiente.
-- [ ] **3.9 Estado de estrategias incluidas.** Test: cada estrategia registrada (`listar_estrategias()`) soporta `json.dumps(estado)` tras un rebalanceo; las que usan arrays NumPy (`_EstimadorRobusto`: `pesos_previos`) se corrigen guardando listas (cambio en `incluidas.py`) o el almacén convierte con un codificador (`numpy -> list`, con test de ida y vuelta).
-- [ ] **3.10 CLI.** Test de `python -m ypyquant.paper avanzar` con `YPYQUANT_PRECIOS=sintetico` y carpeta temporal (variable `YPYQUANT_PAPER_RAIZ`); salida con resumen por sesión y código de salida ≠ 0 si alguna falló (para el programador).
-- [ ] **3.11** `docs/ypyquant.md`: sección "Paper interno"; commit `fase 3: paper interno (núcleo)`.
+- [x] **3.1 Calendario.** Test `tests/test_paper_calendario.py`: para frecuencias `daily/weekly/monthly/quarterly` y un calendario con festivos sintéticos, el conjunto de días donde `es_dia_de_rebalanceo` es True coincide con `BacktestEngine._alinear_a_dias_de_trading(_get_rebalance_dates(...), dias)` (propiedad con Hypothesis, skill `property-based-testing`). Caso "PC apagado": llamar con varios días pendientes en bloque da el mismo resultado que día a día.
+- [x] **3.2 Ejecutor.** Test: `EjecutorCartera` con estado vacío + pesos + precios produce las mismas operaciones (cantidad, precio, comisión) que `BacktestEngine._execute_rebalance` del motor puro; con el estado guardado/restaurado a mitad produce el mismo resultado que sin interrupción.
+- [x] **3.3 Paridad incremental (test clave).** `tests/test_paper_paridad.py`: con `FuenteSintetica`, estrategias `pesos_iguales`, `momentum` y `cruce_medias` (modo `cierre`), avanzar día a día durante 250 sesiones da una curva de equity y una lista de operaciones **iguales** (tolerancia 1e-9) a `ejecutar_con_datos` del mismo rango. Variante: partir el avance en dos procesos (guardar/cargar `estado.json` en medio) y obtener lo mismo. Este test protege contra cambios futuros del motor (GrowSave).
+- [x] **3.4 Modo `apertura_siguiente`.** Test con barras de apertura/cierre fabricadas: decisión en `D`, fill en `apertura(D+1)` con slippage; el equity de `D` aún refleja la cartera anterior; la última decisión queda pendiente al terminar los datos.
+- [x] **3.5 Re-base por ajuste.** Test: serie con un "dividendo" (el histórico ajustado se reescala 2 % entre dos descargas); el equity no tiene salto y las cantidades se re-basan; sin cambio de histórico no ocurre nada.
+- [x] **3.6 Almacén y reanudación.** Test de crash: simular excepción tras escribir `equity.parquet` y antes de `estado.json`; al reanudar se trunca y se repite el día sin duplicar filas. Test de bloqueo: dos avances concurrentes (hilos) no corrompen; bloqueo huérfano con pid inexistente se recupera.
+- [x] **3.7 Día no cerrado y datos parciales.** Test: con "ahora" a las 12:00 NY no se procesa el día en curso; barra del benchmark ausente → se pospone; ticker que desaparece 5 sesiones → liquidación con aviso.
+- [x] **3.8 Varias sesiones, una descarga.** Test: `avanzar_todas` con 3 sesiones sobre universos solapados llama al cargador una vez por ticker (cargador espía) y cada sesión conserva su cartera independiente.
+- [x] **3.9 Estado de estrategias incluidas.** Test: cada estrategia registrada (`listar_estrategias()`) soporta `json.dumps(estado)` tras un rebalanceo; las que usan arrays NumPy (`_EstimadorRobusto`: `pesos_previos`) se corrigen guardando listas (cambio en `incluidas.py`) o el almacén convierte con un codificador (`numpy -> list`, con test de ida y vuelta).
+- [x] **3.10 CLI.** Test de `python -m ypyquant.paper avanzar` con `YPYQUANT_PRECIOS=sintetico` y carpeta temporal (variable `YPYQUANT_PAPER_RAIZ`); salida con resumen por sesión y código de salida ≠ 0 si alguna falló (para el programador).
+- [x] **3.11** `docs/ypyquant.md`: sección "Paper interno"; commit `fase 3: paper interno (núcleo)`.
 
 Tamaño estimado: 900-1300 líneas de código + 700-900 de tests.
 
@@ -387,12 +387,12 @@ El arranque de la API (`crear_app`) ejecuta el catch-up en segundo plano si hay 
 `scripts/instalar_tarea_paper.ps1` (lo ejecuta el usuario; no se registra nada sin su OK) crea una tarea diaria con `schtasks`/`Register-ScheduledTask`: a las 23:30 hora local (cierre de EE. UU. = 22:00 en Madrid con calendarios sincronizados; margen para datos de yfinance), `StartWhenAvailable` (si el PC estaba apagado, se ejecuta al encender), `WakeToRun` opcional, `RunOnlyIfNetworkAvailable`, ejecutando `uv run python -m ypyquant.paper avanzar` con directorio de trabajo en el repo, log en `data/paper_interno/avance.log`. Dos disparadores: 23:30 diario y "al iniciar sesión" (catch-up).
 
 ### 4.4 Tareas
-- [ ] **4.1** Tests de API con `FuenteSintetica`, raíz temporal y reloj inyectable (`ahora` fijo): crear sesión desde configuración, avanzar, listar, equity coincide con la del simulador, pausar/reanudar, 409 al avanzar dos veces a la vez, 404/422.
-- [ ] **4.2** Implementar rutas, `Contexto.almacen_paper`, `reloj` inyectable, catch-up al arrancar.
-- [ ] **4.3** Backtest espejo: test de que reutiliza el experimento si existe (misma huella) y que las curvas coinciden en modo `cierre` (continuación del test de paridad 3.3 a nivel API).
-- [ ] **4.4** Frontend (tipos, hooks con polling mientras `avanzar` está en curso, pestañas, tabla, gráfico). Tests Vitest de la tabla (estados vacíos, "n días pendientes") y de la selección múltiple.
-- [ ] **4.5** Script PowerShell + sección en `docs/ui.md` y README (cómo instalar la tarea, qué hace si el PC está apagado, cómo ver el log).
-- [ ] **4.6** Commit `fase 4: paper interno en API/UI`.
+- [x] **4.1** Tests de API con `FuenteSintetica`, raíz temporal y reloj inyectable (`ahora` fijo): crear sesión desde configuración, avanzar, listar, equity coincide con la del simulador, pausar/reanudar, 409 al avanzar dos veces a la vez, 404/422.
+- [x] **4.2** Implementar rutas, `Contexto.almacen_paper`, `reloj` inyectable, catch-up al arrancar.
+- [x] **4.3** Backtest espejo: test de que reutiliza el experimento si existe (misma huella) y que las curvas coinciden en modo `cierre` (continuación del test de paridad 3.3 a nivel API).
+- [x] **4.4** Frontend (tipos, hooks con polling mientras `avanzar` está en curso, pestañas, tabla, gráfico). Tests Vitest de la tabla (estados vacíos, "n días pendientes") y de la selección múltiple.
+- [x] **4.5** Script PowerShell + sección en `docs/ui.md` y README (cómo instalar la tarea, qué hace si el PC está apagado, cómo ver el log).
+- [x] **4.6** Commit `fase 4: paper interno en API/UI`.
 
 ---
 
@@ -527,3 +527,35 @@ Sin tocar en fases 1-6: `portfolio/backtest_engine.py`.
 - Código nuevo: ≈ 3 500-4 500 líneas Python (≈ 40 % tests por encima de ese rango) y ≈ 1 500 líneas TS/TSX.
 - Tiempo de trabajo con tests: fases 0-2 ≈ 4-5 días, fase 3 ≈ 4-5 días, fase 4 ≈ 2-3 días, fase 5 ≈ 3 días, fase 6 ≈ 3 días; total ≈ 3-4 semanas de dedicación parcial. Hito útil mínimo (guardar configuraciones + señales + paper interno por CLI y programador): fases 0-3 + el script de la 4.3.
 - Verificación al cerrar cada fase: `uv run pytest -q`, `uv run ruff check .`, `cd app/web && npm test -- --run && npm run build`, y una pasada manual con `YPYQUANT_PRECIOS=sintetico`.
+
+
+---
+
+## Estado 2026-11-22 (fases 3 y 4: paper interno, núcleo + API + web)
+
+Hecho en la rama `fase3/paper-interno` (tareas 3.1-3.11 y 4.1-4.6 marcadas arriba). Lo implementado se aparta del plan original en lo siguiente.
+
+**Arquitectura (usa lo que ya existía en lugar de lo que el plan proponía)**
+- No hay `EjecutorCartera` que envuelva el motor. El simulador **planifica con el Ejecutor** (`planificar_rebalanceo` + `POLITICA_MOTOR`) y **ejecuta con el `BrokerSimulado`** aplicando la misma comisión y slippage que el motor. Para igualar `_buy`/`_sell` al céntimo traduce cada `Orden` a la cantidad que calculan (compra recortada a `efectivo / (1 + comisión)` y sin operar menos de 1; venta de `importe` al precio con slippage, limitada a la posición; lo que queda por debajo de 0,001 acciones se descarta). Ningún método privado del motor se toca.
+- Calendario: `toca_rebalancear` / `fechas_de_rebalanceo` de `execution/calendario.py`; `paper/calendario.py` solo añade las sesiones cerradas y los días pendientes (la tarea 3.1 se redujo a esto). Los tests del calendario viven en `tests/test_paper_simulador.py`, no en un `test_paper_calendario.py` propio.
+- Persistencia con `AlmacenDocumentos` (`AlmacenPaper`), sin helpers JSON propios; `RaizDatos.paper_interno`. `eventos` es `eventos.json` (lista), no `eventos.jsonl`.
+- Métricas forward con `evaluar(simulacion_desde_tablas(...), validar=False)`, la misma función que el backtest.
+- Paquete `ypyquant.paper` = `sesion`, `almacen`, `simulador`, `calendario`, `servicio` (`ServicioPaper`, `ControlAvance`) y `__main__`; no hay `comparacion.py` (fase 6).
+
+**Cambio de producto: la sesión nace de un experimento terminado, no de una configuración**
+- `POST /api/paper/interno/sesiones` con `{id_experimento, capital_inicial?, modo_ejecucion, comision?, slippage?, nombre?, fecha_alta?}`; admite además `id_configuracion` (+`version`) opcional. La receta se congela con el universo resuelto a lista de tickers (`sp500_pit` se rechaza con 422: una sesión forward necesita un universo fijo). Los costes por sesión sustituyen a los de la receta solo en la sesión.
+- El botón «Paper interno» está en `ExperimentoDetalle` (no en `ConfiguracionDetalle`). Capital por defecto 100 000; el modo por defecto es `apertura_siguiente`.
+
+**Otras desviaciones**
+- Sesiones en el menú: página nueva `/paper-interno` y `/paper-interno/:id` (la de Alpaca sigue en `/paper`; el plan la dividía en pestañas).
+- `FuentePrecios.refrescar_reciente(simbolos, hasta)` (no-op por defecto) y su versión en `FuenteYFinanceCache`: añade solo las sesiones nuevas; si el solape con lo cacheado difiere (> 1e-6: dividendo o split) vuelve a descargar ese símbolo entero. Los precios cacheados no cambian salvo en ese caso. El re-base de cantidades (3.5) compara el cierre guardado de cada posición con el recién descargado y es independiente de la fuente.
+- Cobertura mínima del 80 % de los tickers del universo para dar por buena la barra de un día: con universos muy pequeños, un ticker que desaparece deja los días como «incompletos»; la liquidación tras 5 sesiones sin barra solo se alcanza en universos de >= 5-10 tickers.
+- `RNG`: el estado del generador de la estrategia se persiste (`estado_rng`) para que reanudar equivalga a no parar (también con estrategias aleatorias como Michaud). Las claves de caché del estado de una estrategia no serializables (`modelo` de `preset_ypyquant`) no se persisten (`CLAVES_CACHE_ESTADO`); el test 3.9 recorre todas las estrategias registradas. No hizo falta tocar `incluidas.py`.
+- Bloqueo (3.6): `sesion.lock` con pid; en Windows la comprobación de «proceso vivo» usa `OpenProcess` (con `os.kill(pid, 0)` Windows TERMINA el proceso). Un bloqueo de un hilo del propio proceso cuenta como activo (`SesionBloqueada`, la sesión se omite y la API responde 409 si es el avance completo).
+- API (4.2): `Contexto.almacen_paper_interno`, `servicio_paper_interno`, `control_avance_paper` y `reloj_paper` inyectable; `crear_app(catchup_paper_al_arrancar=True, reloj_paper=None)`. No se «marca como interrumpido» un avance en curso al arrancar: el estado del avance vive en memoria (se pierde con el proceso) y el avance es idempotente. Endpoint `/espejo` implementado (GET que lanza o reutiliza por huella el backtest de la misma receta; la web lo sondea).
+- El estado de la estrategia de señales (precios de entrada, máximos) no se re-basa por ajustes: solo las posiciones.
+- `scripts/instalar_tarea_paper.ps1` creado y NO ejecutado (`-SoloMostrar` enseña lo que haría).
+
+**Verificación**: `tests/test_paper_paridad.py` (paridad con `simular` a 1e-9: día a día, en bloque y partido en dos procesos, con `pesos_iguales`, `momentum` y `cruce_medias`), `test_paper_simulador.py`, `test_paper_cli.py`, `test_api_paper_interno.py`, `test_fuente_refresco.py` y los tests Vitest de la tabla, el avance, la selección, el panel de alta y el detalle.
+
+**Pendiente**: vincular una sesión con una cuenta Alpaca (fase 5) y la comparación interno vs Alpaca (fase 6); intradía y acciones enteras en el paper interno (fase 7).

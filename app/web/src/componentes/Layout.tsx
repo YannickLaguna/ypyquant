@@ -15,6 +15,7 @@ const ENLACES = [
   { a: '/marcos', texto: 'Marcos' },
   { a: '/comparar', texto: 'Comparar' },
   { a: '/paper', texto: 'Paper trading' },
+  { a: '/paper-interno', texto: 'Paper interno' },
 ]
 
 export default function Layout() {
