@@ -224,7 +224,8 @@ def reglas_desde_parametros(parametros: object, tasa_libre_riesgo: float | None 
     Claves: `apalancamiento_maximo`, `diferencial_financiacion` (la tasa de financiación es `tasa_libre_riesgo` +
     diferencial, solo con apalancamiento), `exposicion_larga` y `exposicion_corta` (con `exposicion_corta` > 0 se permiten
     cortos y el límite de exposición bruta sube a `exposicion_larga + exposicion_corta` si es mayor) y
-    `coste_prestamo_titulos`. Sin ninguna de ellas devuelve las reglas inactivas por defecto.
+    `coste_prestamo_titulos`. Las estrategias de señales aportan `lados` (corto o largo_corto = cortos) y
+    `exposicion_bruta_max` / `exposicion_neta_max` (el límite de exposición). Sin ninguna de ellas devuelve las reglas inactivas por defecto.
     """
     def obtener(nombre: str, defecto: float) -> float:
         valor = parametros.get(nombre) if isinstance(parametros, Mapping) else getattr(parametros, nombre, None)
@@ -235,6 +236,12 @@ def reglas_desde_parametros(parametros: object, tasa_libre_riesgo: float | None 
     cortos = exposicion_corta > 0.0
     if cortos:
         apalancamiento = max(apalancamiento, obtener("exposicion_larga", 1.0) + exposicion_corta)
+    lados = parametros.get("lados") if isinstance(parametros, Mapping) else getattr(parametros, "lados", None)
+    if lados is not None:  # estrategias de señales: `lados` y los límites de exposición bruta y neta
+        corto_senales = lados in ("corto", "largo_corto")
+        cortos = cortos or corto_senales
+        apalancamiento = max(apalancamiento, obtener("exposicion_neta_max", 1.0),
+                             obtener("exposicion_bruta_max", 1.0) if corto_senales else 1.0)
     libre = obtener("tasa_libre_riesgo", 0.0) if tasa_libre_riesgo is None else tasa_libre_riesgo
     financiacion = libre + obtener("diferencial_financiacion", 0.0) if apalancamiento > 1.0 else 0.0
     return ReglasMargen(apalancamiento_maximo=apalancamiento, tasa_financiacion=financiacion,

@@ -43,6 +43,7 @@ from ypyquant.estrategias.base import recortar_hasta
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, DatosExperimento
 from ypyquant.estrategias.procedencia import obtener_procedencia
 from ypyquant.estrategias.registro import obtener_estrategia
+from ypyquant.estrategias.senales_modelo import AJUSTE, LLAMADA_MARGEN
 from ypyquant.estrategias.universo_dinamico import UniversoPuntoEnElTiempo
 from ypyquant.execution.margen import reglas_desde_parametros
 from ypyquant.portfolio.backtest_engine import BacktestConfig, BacktestEngine
@@ -76,15 +77,30 @@ class Simulacion:
     procedencia: dict[str, Any] = field(default_factory=dict)
 
 
-def _motivos_de_operaciones(operaciones: pd.DataFrame, eventos: list[dict[str, Any]]) -> list[str]:
+def _motivos_de_operaciones(operaciones: pd.DataFrame, eventos: list[dict[str, Any]],
+                            fechas_llamada_margen: set[str] | frozenset[str] = frozenset()) -> list[str]:
     """
-    Motivo de cada operación de un backtest de una `EstrategiaSenales`, cruzando `(fecha, ticker, lado)` con sus eventos
-    (`senal`, `stop_perdida`, `stop_trailing`, `take_profit`, `tiempo`, `fuera_universo`, `regla_propia`). Una operación
-    sin evento (compra o venta parcial que solo recoloca los pesos por la deriva o los costes) es `ajuste`.
+    Motivo de cada operación de un backtest de una `EstrategiaSenales`, cruzando `(fecha, ticker, lado, cierra)` con sus
+    eventos (ver `senales_modelo`: `entrada_larga`, `entrada_corta`, `stop_loss`, `take_profit`, `trailing`, `tiempo`,
+    `senal_salida`, `senal_contraria`, `salida_universo`, `regla_propia`).
+
+    Una compra o venta abre una posición larga (compra) o corta (venta) o la cierra: las que cierran llevan `pnl` (ventas de un
+    largo y compras que cubren un corto). Eso distingue, el día de un giro, el cierre de la posición vieja y la apertura de la
+    nueva sobre el mismo ticker y lado. Una operación sin evento es `llamada_margen` si el motor liquidó por falta de margen ese día
+    y `ajuste` si solo recoloca los pesos por la deriva o los costes.
     """
-    por_clave = {(e["fecha"], e["ticker"], "compra" if e["tipo"] == "entrada" else "venta"): e["motivo"] for e in eventos}
-    return [por_clave.get((f"{fecha:%Y-%m-%d}", ticker, lado), "ajuste")
-            for fecha, ticker, lado in zip(operaciones["fecha"], operaciones["ticker"], operaciones["lado"], strict=True)]
+    por_clave = {}
+    for e in eventos:
+        largo = e.get("lado", "largo") == "largo"
+        cierra = e["tipo"] == "salida"
+        por_clave[(e["fecha"], e["ticker"], "venta" if largo == cierra else "compra", cierra)] = e["motivo"]
+    motivos = []
+    for fecha, ticker, lado, pnl in zip(operaciones["fecha"], operaciones["ticker"], operaciones["lado"], operaciones["pnl"],
+                                       strict=True):
+        dia = f"{fecha:%Y-%m-%d}"
+        motivo = por_clave.get((dia, ticker, lado, pd.notna(pnl)))
+        motivos.append(motivo or (LLAMADA_MARGEN if dia in fechas_llamada_margen else AJUSTE))
+    return motivos
 
 
 def _deslistados_de_la_simulacion(datos: DatosExperimento, precios: dict[str, pd.DataFrame],
@@ -208,7 +224,8 @@ def simular(config: ConfiguracionExperimento, datos: DatosExperimento, rng: np.r
         "comision": t.commission, "pnl": t.pnl,
     } for t in motor.trades], columns=["fecha", "ticker", "lado", "cantidad", "precio", "comision", "pnl"])
     if getattr(estrategia, "eventos", None):  # estrategias de señales: cada operación lleva su motivo
-        operaciones["motivo"] = _motivos_de_operaciones(operaciones, estrategia.eventos)
+        fechas_llamada = {f"{pd.Timestamp(llamada['fecha']):%Y-%m-%d}" for llamada in motor.llamadas_margen}
+        operaciones["motivo"] = _motivos_de_operaciones(operaciones, estrategia.eventos, fechas_llamada)
     rotaciones = pd.DataFrame([(pd.Timestamp(f), float(r)) for f, r in resultado_bt.rotaciones],
                               columns=COLUMNAS_ROTACIONES)
     procedencia = obtener_procedencia(precios, benchmark_usado) if completo else {}

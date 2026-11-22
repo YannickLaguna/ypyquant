@@ -9,7 +9,8 @@ barridos, marcos y paper interno) y puede darse por obsoleto.
 
 Diferencias con el modo heredado (`decidir_orden`):
 - El tamaño pasa de proporcional a |señal| a peso fijo `1/max_posiciones` (o por volatilidad si se pide).
-- No hay short: una señal por debajo de `-umbral` solo cierra la posición.
+- Por defecto no hay short: una señal por debajo de `-umbral` solo cierra la posición. Con `lados="largo_corto"` esa misma
+  señal abre un corto y una señal por encima de `umbral` lo cubre.
 - La señal es un ranking transversal por fecha: depende de los tickers presentes en cada fecha (con el
   universo `sp500_pit` el ranking se calcula sobre todos los cargados; no mira al futuro).
 - Se usa solo el generador técnico (los de factores, ML y régimen necesitan datos externos).
@@ -64,6 +65,18 @@ class SenalesTecnicas(EstrategiaSenales):
     def puntuacion(self, cierres, indicadores):
         """Entre candidatos, la señal más fuerte."""
         return indicadores["senal"]
+
+    def senal_entrada_corta(self, cierres, indicadores):
+        """Lado corto: señal técnica por debajo de -umbral."""
+        return indicadores["senal"] < -self.parametros.umbral
+
+    def senal_salida_corta(self, cierres, indicadores):
+        """Recompra: señal técnica por encima del umbral."""
+        return indicadores["senal"] > self.parametros.umbral
+
+    def puntuacion_corta(self, cierres, indicadores):
+        """Entre candidatos a corto, la señal más negativa."""
+        return -indicadores["senal"]
 
     def sesiones_necesarias(self) -> int:
         """Historia mínima del generador técnico más el margen estándar."""

@@ -76,8 +76,10 @@ Se siguió la propuesta priorizada de la sección 4 (puntos 2, 3 y 4, y parte de
    exposición bruta; la evaluación añade exposición bruta/neta y `llamadas_margen`.
    - Estrategias con cortos: **`momentum`** largo-corto por ranking (`exposicion_larga`, `exposicion_corta`, `top_k_cortos`,
      `coste_prestamo_titulos`; 130/30 = 1,3/0,3; dólar-neutral = 1/1). Fuera de huella en su defecto.
-   - **No hecho**: `senales_tecnicas` (la máquina de estados de `EstrategiaSenales` es solo largo; abrir cortos con una señal
-     < -umbral exige rediseñar stops, trailing y tamaños), mínima varianza y volatilidad objetivo con cortos acotados
+   - **Hecho después** (rama `fase2b/senales-largo-corto`): `EstrategiaSenales` es ahora largo-corto (máquina de estados por ticker
+     con stops, take profit y trailing simétricos, señal contraria y giro, límites de exposición bruta y neta); `senales_tecnicas`,
+     `cruce_medias` y `canal_rsi_volatilidad` tienen el modo `lados="largo_corto"`. Ver `docs/estrategias_senales.md`.
+   - **No hecho**: mínima varianza y volatilidad objetivo con cortos acotados
      (cambian `optimizar_min_varianza`/`optimizar_volatilidad_objetivo` y el `_apalancar` de las cinco estrategias robustas;
      la exposición bruta máxima y la interacción con el préstamo de margen necesitan una decisión), max-Sharpe con cortos
      y paridad de riesgo con cortos (se mantiene la decisión de NO hacerla).

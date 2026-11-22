@@ -10,6 +10,9 @@ Responsabilidad:
   de dónde viene la simulación (backtest hoy; paper interno o Alpaca mañana, construidas con
   `simulacion_desde_tablas` a partir de lo que realmente pasó).
 - `Evaluacion` (dataclass): `metricas`, `equity` (con la columna `benchmark`) y `procedencia`.
+- `desglose_por_motivo(operaciones)`: en estrategias de señales (operaciones con columna `motivo`), agrupa las SALIDAS por motivo
+  y lado de la posición con nº, PnL, tasa de acierto y duración media; sale en `metricas['motivos_salida']` y sirve para ver
+  qué regla (stop, take profit, trailing, tiempo, señal...) gana o pierde dinero.
 - `reevaluar(config, equity, pesos, operaciones, ...)`: recalcula las métricas de un experimento ya guardado
   solo con sus tablas Parquet, sin repetir el backtest (la usa `AlmacenExperimentos.reevaluar` y el script
   `scripts/reevaluar_experimentos.py`). Si el experimento no guardó `rotaciones.parquet` (guardados antes de
@@ -38,6 +41,7 @@ from ypyquant.estrategias.experimentos import (
     ResultadoExperimento,
     _limpiar,
 )
+from ypyquant.estrategias.senales_modelo import AJUSTE, LLAMADA_MARGEN, MOTIVOS, MOTIVOS_ENTRADA, a_motivo_actual
 from ypyquant.estrategias.simulacion import Simulacion, simulacion_desde_tablas
 from ypyquant.execution.ejecutor import TICKER_EFECTIVO
 from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
@@ -152,8 +156,45 @@ def _calcular_metricas(simulacion: Simulacion, equity: pd.DataFrame, benchmark_r
     llamadas = sum(1 for aviso in simulacion.avisos if aviso.startswith("Llamada de margen"))
     if metricas.get("exposicion_bruta_maxima") is not None or llamadas:
         metricas["llamadas_margen"] = llamadas
+    if "motivo" in operaciones.columns:  # estrategias de señales: qué regla de salida gana o pierde dinero
+        metricas["motivos_salida"] = desglose_por_motivo(operaciones)
     metricas["validacion"] = {}  # los validadores registrados (CPCV/DSR/PBO...) escriben aquí
     return _limpiar(metricas)
+
+
+def desglose_por_motivo(operaciones: pd.DataFrame) -> list[dict[str, Any]]:
+    """
+    Desglose de las SALIDAS de una estrategia de señales por `(motivo, lado de la posición)`.
+
+    Cada fila: `{motivo, lado, n, pnl_total, pnl_medio, tasa_acierto, duracion_media_dias}`, ordenadas por el orden de
+    `MOTIVOS` y largo antes que corto. Una salida es una operación con `pnl` (venta que cierra un largo, compra que cubre un corto)
+    cuyo motivo no es `ajuste` (venta parcial por deriva). El PnL es el de la operación de cierre, neto de su comisión pero NO de
+    la de apertura. La duración (días naturales) va de la última entrada del ticker a la salida. Lee también el vocabulario
+    anterior (`senal`, `stop_perdida`...). Sin columna `motivo` (estrategias sin señales) devuelve `[]`.
+    """
+    if "motivo" not in operaciones.columns or operaciones.empty:
+        return []
+    entradas: dict[str, pd.Timestamp] = {}
+    salidas: dict[tuple[str, str], list[tuple[float, float | None]]] = {}
+    for fecha, ticker, lado, pnl, motivo in zip(operaciones["fecha"], operaciones["ticker"], operaciones["lado"],
+                                                operaciones["pnl"], operaciones["motivo"], strict=True):
+        cierra = pd.notna(pnl)
+        motivo = a_motivo_actual(motivo, es_entrada=not cierra)
+        if motivo in MOTIVOS_ENTRADA:
+            entradas[ticker] = pd.Timestamp(fecha)
+        elif cierra and motivo != AJUSTE:
+            entrada = entradas.get(ticker) if motivo == LLAMADA_MARGEN else entradas.pop(ticker, None)
+            duracion = (pd.Timestamp(fecha) - entrada).days if entrada is not None else None
+            salidas.setdefault((motivo, "largo" if lado == "venta" else "corto"), []).append((float(pnl), duracion))
+    orden = {m: i for i, m in enumerate(MOTIVOS)}
+    filas = []
+    for (motivo, lado), registros in sorted(salidas.items(), key=lambda kv: (orden.get(kv[0][0], len(orden)), kv[0][1] != "largo")):
+        pnls = [p for p, _ in registros]
+        duraciones = [d for _, d in registros if d is not None]
+        filas.append({"motivo": motivo, "lado": lado, "n": len(registros), "pnl_total": float(sum(pnls)),
+                      "pnl_medio": float(sum(pnls) / len(pnls)), "tasa_acierto": sum(p > 0 for p in pnls) / len(pnls),
+                      "duracion_media_dias": float(sum(duraciones) / len(duraciones)) if duraciones else None})
+    return filas
 
 
 def evaluar(simulacion: Simulacion, benchmark: pd.Series | None = None, validar: bool = True) -> Evaluacion:

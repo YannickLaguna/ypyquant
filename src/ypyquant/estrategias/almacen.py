@@ -38,6 +38,7 @@ import duckdb
 import pandas as pd
 
 from ypyquant.almacen_documentos import AlmacenDocumentos, id_sin_separadores, limpiar_para_json
+from ypyquant.estrategias.evaluacion import desglose_por_motivo
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
     ResultadoExperimento,
@@ -256,6 +257,11 @@ class AlmacenExperimentos:
             # Las series solo son definitivas cuando el experimento está `hecho` (se escriben antes)
             if resumen["estado"] == "hecho" and self.documentos.tiene_parquet(id_experimento, clave):
                 detalle[clave] = _a_registros(self.documentos.leer_parquet(id_experimento, clave))
+        metricas = detalle["metricas_completas"]
+        if isinstance(metricas, dict) and "motivos_salida" not in metricas and detalle["operaciones"]                 and "motivo" in detalle["operaciones"][0]:
+            # Estrategia de señales guardada antes de esta métrica: se calcula desde sus operaciones (no se reescribe el archivo)
+            metricas["motivos_salida"] = desglose_por_motivo(pd.DataFrame(detalle["operaciones"]).assign(
+                fecha=lambda t: pd.to_datetime(t["fecha"])))
         return detalle
 
     # ---- DuckDB --------------------------------------------------------------

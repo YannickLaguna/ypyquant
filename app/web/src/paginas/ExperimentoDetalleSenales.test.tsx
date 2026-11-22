@@ -52,10 +52,18 @@ describe('ExperimentoDetalle de una estrategia de señales', () => {
     expect(screen.queryByText('CASH')).not.toBeInTheDocument()
   })
 
+  it('muestra el desglose de salidas por motivo cuando las métricas lo traen', async () => {
+    const cuerpo = detalle([operacion('compra', 'entrada_larga'), operacion('venta', 'take_profit', '2020-03-02')])
+    cuerpo.metricas_completas = { motivos_salida: [{ motivo: 'take_profit', lado: 'largo', n: 1, pnl_total: 90, pnl_medio: 90, tasa_acierto: 1, duracion_media_dias: 28 }] as never }
+    montar(cuerpo)
+    expect(await screen.findByRole('table', { name: 'Salidas por motivo' })).toBeInTheDocument()
+  })
+
   it('una estrategia sin motivos no añade la columna ni el resumen', async () => {
     montar(detalle([operacion('compra', undefined), operacion('venta', undefined, '2020-03-02')]))
     await screen.findByText(/Operaciones \(2\)/)
     expect(screen.queryByRole('columnheader', { name: /Motivo/ })).not.toBeInTheDocument()
     expect(screen.queryByTestId('resumen-senales')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Salidas por motivo' })).not.toBeInTheDocument()
   })
 })

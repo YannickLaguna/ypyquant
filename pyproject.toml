@@ -76,6 +76,7 @@ entorno = [
 ]
 dev = [
     "pytest>=8",
+    "hypothesis>=6",
     "ruff",
 ]
 

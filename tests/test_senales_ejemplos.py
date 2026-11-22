@@ -15,11 +15,11 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias import registro
 from ypyquant.estrategias.causalidad import verificar_sin_lookahead
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, cargar_datos_experimento, ejecutar_con_datos
 from ypyquant.estrategias.marcos import MarcoComparacion, aplicar_marco
-from ypyquant.data.fuentes import FuenteSintetica
 from ypyquant.estrategias.senales import TICKER_EFECTIVO, EstrategiaSenales
 
 # ---- 2.4 integración con el motor y el registro -------------------------------------------------------
@@ -41,8 +41,8 @@ def test_cruce_medias_corre_con_el_motor_y_devuelve_metricas_y_pesos_con_efectiv
     assert not resultado.equity.empty and resultado.equity["equity"].iloc[-1] > 0
     assert set(resultado.pesos["ticker"]) <= set(UNIVERSO) | {TICKER_EFECTIVO}
     assert "motivo" in resultado.operaciones.columns and resultado.operaciones["motivo"].notna().all()
-    assert set(resultado.operaciones["motivo"]) <= {"entrada", "senal", "stop_perdida", "ajuste", "stop_trailing",
-                                                    "take_profit", "tiempo", "fuera_universo"}
+    assert set(resultado.operaciones["motivo"]) <= {"entrada_larga", "senal_salida", "stop_loss", "ajuste", "trailing",
+                                                    "take_profit", "tiempo", "salida_universo"}
 
 
 def test_las_estrategias_sin_senales_no_ganan_columna_motivo():
@@ -136,7 +136,7 @@ def test_senales_tecnicas_devuelve_pesos_validos_con_el_generador_tecnico_por_de
     # Diferencia documentada: el tamaño de entrada es fijo (1/max_posiciones); luego solo deriva con el precio
     assert all(w <= 0.40 for p in pesos for t, w in p.items() if t != TICKER_EFECTIVO)
     entradas = [e for e in estrategia.eventos if e['tipo'] == 'entrada']
-    assert entradas and all(e['motivo'] == 'senal' for e in entradas)
+    assert entradas and all(e['motivo'] == 'entrada_larga' for e in entradas)
 
 
 # ---- marcos de comparación -----------------------------------------------------------------------------
@@ -176,3 +176,47 @@ def test_el_almacen_mezcla_operaciones_con_motivo_y_sin_el_en_las_consultas_sql(
     tabla = almacen.ejecutar_sql("SELECT id, motivo, COUNT(*) AS n FROM operaciones GROUP BY id, motivo")
     assert set(tabla["id"]) == set(ids)                                      # ambos experimentos aparecen
     assert tabla["motivo"].notna().any() and tabla["motivo"].isna().any()   # los sin señales llevan motivo nulo
+
+
+# ---- modo largo-corto de las estrategias migradas ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("nombre, parametros", [
+    ("cruce_medias", {"rapida": 5, "lenta": 20, "stop_perdida": 0.1, "stop_trailing": 0.1, "max_posiciones": 2}),
+    ("canal_rsi_volatilidad", {"ventana_canal": 20, "ventana_salida": 8, "ventana_rsi": 7, "max_posiciones": 2}),
+    ("senales_tecnicas", {"max_posiciones": 2, "umbral": 0.2}),
+])
+def test_el_modo_largo_corto_de_las_estrategias_incluidas_tampoco_mira_al_futuro(nombre, parametros):
+    clase = registro.obtener_estrategia(nombre)
+    parametros = {**parametros, "lados": "largo_corto", "exposicion_bruta_max": 1.5, "permitir_giro": True}
+    assert verificar_sin_lookahead(clase, parametros, _datos_aleatorios(), FECHAS_MUESTRA) == []
+
+
+@pytest.mark.parametrize("nombre, parametros", [
+    ("cruce_medias", {"rapida": 10, "lenta": 40}),
+    ("canal_rsi_volatilidad", {"ventana_canal": 20, "ventana_salida": 8, "ventana_rsi": 7}),
+    ("senales_tecnicas", {"max_posiciones": 3, "umbral": 0.2}),
+])
+def test_las_estrategias_migradas_abren_cortos_con_lados_largo_corto_y_el_modo_cambia_la_huella(nombre, parametros):
+    base = _config(nombre, parametros=parametros)
+    largo_corto = _config(nombre, parametros={**parametros, "lados": "largo_corto", "exposicion_bruta_max": 1.5})
+    assert base.normalizada().identificador() != largo_corto.normalizada().identificador()
+    assert base.normalizada().identificador() == _config(nombre, parametros={**parametros, "lados": "largo"}).normalizada().identificador()
+    resultado = ejecutar_con_datos(largo_corto, cargar_datos_experimento(largo_corto, FuenteSintetica()))
+    assert (resultado.pesos["peso"] < 0).any()
+    assert "entrada_corta" in set(resultado.operaciones["motivo"])
+    assert resultado.metricas["exposicion_bruta_maxima"] < 1.8   # el límite de 1,5 rige al entrar; la deriva puede superarlo algo
+
+
+# ---- plantilla largo-corto de estrategias_usuario/ -------------------------------------------------------------
+
+
+def test_la_plantilla_de_reversion_zscore_no_mira_al_futuro_y_opera_en_los_dos_lados():
+    clase = registro.obtener_estrategia("reversion_zscore_largo_corto")
+    assert verificar_sin_lookahead(clase, {"ventana": 10, "z_entrada": 1.0, "max_posiciones": 3}, _datos_aleatorios(), FECHAS_MUESTRA) == []
+    config = _config("reversion_zscore_largo_corto", parametros={"ventana": 20, "z_entrada": 1.2, "max_posiciones": 4})
+    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica()))
+    assert {"entrada_larga", "entrada_corta"} <= set(resultado.operaciones["motivo"])
+    assert (resultado.pesos["peso"] < 0).any() and resultado.metricas["motivos_salida"]
+    neta = resultado.pesos[resultado.pesos["ticker"] != TICKER_EFECTIVO].groupby("fecha")["peso"].sum()
+    assert neta.min() > -0.8 and neta.max() < 0.8        # neta acotada a ±0,5 al entrar (la deriva puede moverla algo)

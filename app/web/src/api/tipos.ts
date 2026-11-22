@@ -121,8 +121,21 @@ export interface OperacionFila {
   precio: number
   comision: number
   pnl: number | null
-  /** Solo en estrategias de señales: por qué se operó (`senal`, `stop_perdida`... o `ajuste`). */
+  /** Solo en estrategias de señales: por qué se operó (`entrada_larga`, `stop_loss`, `senal_contraria`... o `ajuste`). */
   motivo?: string | null
+}
+
+/** Salidas de una estrategia de señales agrupadas por motivo y lado de la posición (`metricas_completas.motivos_salida`). */
+export interface MotivoSalida {
+  motivo: string
+  lado: 'largo' | 'corto'
+  n: number
+  pnl_total: number
+  pnl_medio: number
+  /** Fracción de salidas con PnL positivo (0-1). */
+  tasa_acierto: number
+  /** Días naturales medios entre la entrada y la salida (null si no se conoce la entrada). */
+  duracion_media_dias: number | null
 }
 
 export interface ConfiguracionExperimento {
