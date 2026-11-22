@@ -40,7 +40,7 @@ def test_ultima_fecha_de_las_membresias_mira_altas_y_bajas():
 def test_aviso_de_antiguedad_a_partir_de_30_dias():
     assert not [a for a in avisos_membresias(MEMBRESIAS, "2020-08-14", esperados=None) if "antigüedad" in a]  # 30 días justos
     avisos = avisos_membresias(MEMBRESIAS, "2020-08-15", esperados=None)  # 31 días
-    assert len(avisos) == 1 and "31 días" in avisos[0] and "exportar_membresias_sp500.py" in avisos[0]
+    assert len(avisos) == 1 and "31 días" in avisos[0] and "membresias_sp500 actualizar" in avisos[0]
 
 
 def test_una_fecha_anterior_a_la_ultima_membresia_no_avisa_de_antiguedad():
@@ -50,6 +50,6 @@ def test_una_fecha_anterior_a_la_ultima_membresia_no_avisa_de_antiguedad():
 def test_aviso_de_numero_de_miembros_lejos_de_lo_esperado():
     muchas = {f"T{i}": _m("2000-01-03") for i in range(MIEMBROS_ESPERADOS + 25)}
     avisos = avisos_membresias(muchas, "2000-02-01")
-    assert len(avisos) == 1 and "525" in avisos[0] and "bajas" in avisos[0]
+    assert len(avisos) == 1 and str(MIEMBROS_ESPERADOS + 25) in avisos[0] and "bajas" in avisos[0]
     normales = {f"T{i}": _m("2000-01-03") for i in range(MIEMBROS_ESPERADOS + 3)}
     assert avisos_membresias(normales, "2000-02-01") == []

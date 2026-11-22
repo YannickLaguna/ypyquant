@@ -15,8 +15,12 @@ Responsabilidad:
     - `iniciar()` / `detener()`: hilo daemon con espera interrumpible; `detener` es limpio (no deja el hilo vivo).
     - `estado()`: `{activo, intervalo_min, proxima_comprobacion, ultima}` para la web.
     La primera comprobación ocurre pasado un intervalo: el arranque ya hace su propio catch-up.
+    - Membresías del S&P 500: si se le da un `ServicioMembresias`, cada comprobación mira además si toca refrescarlas
+      (como máximo una vez al día, tras el cierre de NY) y, de tocar, lo hace en un hilo aparte para no bloquear el avance
+      del paper; un fallo no afecta al paper. Desactivable con `YPYQUANT_MEMBRESIAS_AUTO=0` (ver `membresias_sp500`).
 
 Se relaciona con:
+    - ypyquant.data.membresias_sp500 (`ServicioMembresias`: cuándo toca y la comprobación en sí).
     - ypyquant.paper.servicio (`ServicioPaper.hay_dias_pendientes`, `avanzar`, `ControlAvance`) y .calendario
       (`ultima_sesion_cerrada`).
     - app/api/main.py (lo arranca y lo para en el lifespan; `YPYQUANT_PAPER_INTERVALO_MIN`), app/api/contexto.py y
@@ -31,6 +35,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from ypyquant.data.membresias_sp500 import ServicioMembresias
 from ypyquant.paper.calendario import ultima_sesion_cerrada
 from ypyquant.paper.servicio import ControlAvance, ServicioPaper
 
@@ -47,7 +52,10 @@ class PlanificadorPaper:
     """Comprueba periódicamente si hay días pendientes y avanza las sesiones activas (ver cabecera del módulo)."""
 
     def __init__(self, servicio: ServicioPaper, control: ControlAvance, intervalo_s: float,
-                 reloj: Callable[[], datetime] = _reloj_local, max_intentos_sin_novedad: int = MAX_INTENTOS_SIN_NOVEDAD):
+                 reloj: Callable[[], datetime] = _reloj_local, max_intentos_sin_novedad: int = MAX_INTENTOS_SIN_NOVEDAD,
+                 membresias: ServicioMembresias | None = None):
+        self.membresias = membresias
+        self._hilo_membresias: threading.Thread | None = None
         self.servicio = servicio
         self.control = control
         self.intervalo_s = intervalo_s
@@ -73,7 +81,19 @@ class PlanificadorPaper:
             ejecucion.update(resultado="error", error=f"{type(fallo).__name__}: {fallo}")
         with self._cerrojo:
             self._ultima = ejecucion
+        self._lanzar_membresias()
         return ejecucion
+
+    def _lanzar_membresias(self) -> None:
+        """Si toca (una vez al día tras el cierre de NY) refresca las membresías en un hilo daemon; nunca propaga errores."""
+        try:
+            if self.membresias is None or (self._hilo_membresias is not None and self._hilo_membresias.is_alive()):
+                return
+            if self.membresias.toca_comprobar(self.servicio.ahora()):
+                self._hilo_membresias = threading.Thread(target=self.membresias.comprobar, name="membresias-sp500", daemon=True)
+                self._hilo_membresias.start()
+        except Exception:  # noqa: BLE001 - las membresías no deben romper el avance del paper
+            logger.exception("Falló el lanzamiento de la comprobación de membresías")
 
     def _comprobar_en(self, ejecucion: dict[str, Any]) -> None:
         if not self.servicio.hay_dias_pendientes():

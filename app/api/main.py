@@ -40,10 +40,12 @@ from app.api import (
     rutas_marcos,
     rutas_paper,
     rutas_paper_interno,
+    rutas_universos,
 )
 from app.api import rutas_alpaca
 from app.api.contexto import Contexto
 from app.api.paper import BotControl, ServicioAlpaca
+from ypyquant.data.membresias_sp500 import ServicioMembresias, comprobacion_automatica_activa
 from ypyquant.paper.planificador import PlanificadorPaper
 from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.estrategias.almacen import AlmacenExperimentos
@@ -84,6 +86,7 @@ def crear_app(
     catchup_paper_al_arrancar: bool = True,
     reloj_paper=None,
     intervalo_paper_min: float | None = None,
+    servicio_membresias: ServicioMembresias | None = None,
 ) -> FastAPI:
     """
     Construye la aplicación con sus dependencias (todas inyectables para los tests).
@@ -143,9 +146,12 @@ def crear_app(
         **({"reloj_paper": reloj_paper} if reloj_paper else {}),
     )
 
+    # membresías del S&P 500: el planificador las refresca una vez al día; YPYQUANT_MEMBRESIAS_AUTO=0 lo desactiva
+    api.state.ctx.servicio_membresias = servicio_membresias or ServicioMembresias(
+        activo=comprobacion_automatica_activa(os.environ))
     api.state.ctx.planificador_paper = PlanificadorPaper(
         api.state.ctx.servicio_paper_interno, api.state.ctx.control_avance_paper,
-        intervalo_s=_intervalo_paper_s(intervalo_paper_min))
+        intervalo_s=_intervalo_paper_s(intervalo_paper_min), membresias=api.state.ctx.servicio_membresias)
 
     api.state.ctx.gestor_bots.rehidratar()  # bots de Alpaca que siguieron vivos tras reiniciar la API
     almacen.indexar()  # índice receta -> experimentos (backtests de una configuración sin recorrer el disco)
@@ -163,6 +169,7 @@ def crear_app(
     api.include_router(rutas_paper.router)
     api.include_router(rutas_alpaca.router)
     api.include_router(rutas_paper_interno.router)
+    api.include_router(rutas_universos.router)
 
     # Paper interno: catch-up de los días perdidos (PC apagado) sin bloquear el arranque
     servicio_paper = api.state.ctx.servicio_paper_interno

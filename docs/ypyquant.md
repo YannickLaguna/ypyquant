@@ -85,6 +85,23 @@ apalancamiento escala la tangente long-only (sin cortos, peso <= 2). `LedoitWolf
   cortos solo se vinculan así (hasta 2x overnight) y el bot comprueba al arrancar la cuenta real (`multiplier`,
   `shorting_enabled`). Detalle y decisiones: `docs/planes/2026-11-22-apalancamiento-y-cortos.md`.
 
+## Membresías del S&P 500
+
+El universo point-in-time `sp500_pit` lee `universos/sp500_membresias.json`. `ypyquant.data.membresias_sp500` lo mantiene al día
+y verificado: lista actual + tabla de cambios de Wikipedia como fuente primaria y holdings de SPDR SPY como verificación cruzada
+(un cambio solo se aplica si ambas coinciden; si no, queda «pendiente de revisar»). Escritura atómica con copia anterior e historial
+en `universos/sp500_membresias_cambios.jsonl`.
+
+```bash
+uv run python -m ypyquant.data.membresias_sp500 actualizar --simular   # ver qué cambiaría
+uv run python -m ypyquant.data.membresias_sp500 actualizar             # aplicar lo confirmado
+uv run python -m ypyquant.data.membresias_sp500 estado
+```
+
+La API lo ejecuta sola una vez al día tras el cierre de NY (planificador del paper interno; `YPYQUANT_MEMBRESIAS_AUTO=0` lo desactiva)
+y expone `GET /api/universos/membresias/estado`. La fuente de verdad ya no es `TFM.db`. Detalle y decisiones:
+`docs/planes/2026-11-22-membresias-sp500.md`.
+
 ## Paper interno
 
 `ypyquant.paper` simula **hacia delante** (forward, con precios reales y sin broker) la receta congelada de un experimento

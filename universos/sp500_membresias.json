@@ -1,7 +1,7 @@
 {
  "indice": "SP500",
- "fuente": "TFM.db, tabla tickers, columna index_memberships (solo entradas del índice SP500)",
- "extraido": "2026-11-20",
+ "fuente": "TFM.db (tickers.index_memberships) hasta 2026-11-04; reconstruido el 2026-11-22 con Wikipedia (Historical components of the S&P 500 + List of S&P 500 companies) y SPDR SPY; desde entonces se mantiene con `python -m ypyquant.data.membresias_sp500 actualizar`. La fuente de verdad ya NO es TFM.db.",
+ "extraido": "2026-11-22",
  "nota": "Cobertura fiable desde ~2000 (480-520 miembros por fecha); antes de 1999 las membresías son incompletas. Tickers en formato yfinance (BRK-B). Una empresa que cambió de ticker figura con el vigente.",
  "n_tickers": 1214,
  "miembros": {
@@ -632,7 +632,9 @@
   "AVB": [
    {
     "date_added": "2007-01-10",
-    "date_removed": null
+    "date_removed": "2026-08-18",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Equity Residential (now Vivmark Residential) acquired AvalonBay Communities."
    }
   ],
   "AVGO": [
@@ -902,7 +904,10 @@
   "BK": [
    {
     "date_added": "1995-03-31",
-    "date_removed": null
+    "date_removed": "2026-05-21",
+    "fuente_baja": "https://www.bny.com/corporate/global/en/about-us/newsroom/press-release/bny-announces-planned-change-of-stock-ticker-symbol-to-bny-130465.html",
+    "motivo_baja": "cambio de ticker BK -> BNY (la membresía continúa como BNY)",
+    "fecha_baja_aproximada": false
    }
   ],
   "BKB": [
@@ -926,7 +931,9 @@
   "BLDR": [
    {
     "date_added": "2023-12-18",
-    "date_removed": null
+    "date_removed": "2026-09-21",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "BLK": [
@@ -1118,7 +1125,9 @@
   "CAG": [
    {
     "date_added": "1983-08-31",
-    "date_removed": null
+    "date_removed": "2026-06-30",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "CAH": [
@@ -1634,7 +1643,9 @@
   "CPB": [
    {
     "date_added": "1957-03-04",
-    "date_removed": null
+    "date_removed": "2026-06-22",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "CPGX": [
@@ -1778,7 +1789,9 @@
   "CTRA": [
    {
     "date_added": "2008-06-23",
-    "date_removed": null
+    "date_removed": "2026-05-07",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Devon Energy acquired Coterra Energy."
    }
   ],
   "CTSH": [
@@ -1790,7 +1803,9 @@
   "CTVA": [
    {
     "date_added": "2019-06-03",
-    "date_removed": null
+    "date_removed": "2026-10-06",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "CTX": [
@@ -1892,7 +1907,9 @@
   "DAY": [
    {
     "date_added": "2024-02-01",
-    "date_removed": null
+    "date_removed": "2026-02-09",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Thoma Bravo L.P. acquired Dayforce."
    }
   ],
   "DCNAQ": [
@@ -2174,7 +2191,9 @@
   "EA": [
    {
     "date_added": "2002-07-22",
-    "date_removed": null
+    "date_removed": "2026-08-05",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "An investor consortium comprising Saudi Arabia's Public Investment Fund (PIF), Silver Lake, and Affinity Partners acquired Electronic Arts."
    }
   ],
   "EBAY": [
@@ -2342,7 +2361,9 @@
   "EPAM": [
    {
     "date_added": "2021-12-14",
-    "date_removed": null
+    "date_removed": "2026-06-02",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "EQ": [
@@ -2360,7 +2381,10 @@
   "EQR": [
    {
     "date_added": "2001-12-03",
-    "date_removed": null
+    "date_removed": "2026-08-18",
+    "fuente_baja": "https://www.sec.gov/Archives/edgar/data/0000906107/000114036126033377/ef20080318_8k.htm",
+    "motivo_baja": "cambio de ticker EQR -> VMRK (la membresía continúa como VMRK)",
+    "fecha_baja_aproximada": false
    }
   ],
   "EQT": [
@@ -3254,7 +3278,9 @@
   "HOLX": [
    {
     "date_added": "2016-03-30",
-    "date_removed": null
+    "date_removed": "2026-04-09",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Blackstone Inc. and TPG Inc. acquired Hologic."
    }
   ],
   "HON": [
@@ -3440,7 +3466,13 @@
   "ILMN": [
    {
     "date_added": "2015-11-19",
-    "date_removed": null
+    "date_removed": "2024-06-24",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)"
+   },
+   {
+    "date_added": "2026-09-21",
+    "date_removed": null,
+    "fuente_alta": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)"
    }
   ],
   "IMNX": [
@@ -3830,7 +3862,9 @@
   "KVUE": [
    {
     "date_added": "2023-08-25",
-    "date_removed": null
+    "date_removed": "2026-11-04",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes); efectivo según S&P DJI (press.spglobal.com 2026-10-30)",
+    "motivo_baja": "S&P 500 constituent Kimberly-Clark acquired Kenvue."
    }
   ],
   "KWP": [
@@ -4058,7 +4092,9 @@
   "LW": [
    {
     "date_added": "2018-12-03",
-    "date_removed": null
+    "date_removed": "2026-03-23",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "LXK": [
@@ -4370,7 +4406,9 @@
   "MOH": [
    {
     "date_added": "2022-03-02",
-    "date_removed": null
+    "date_removed": "2026-03-23",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "MOLX": [
@@ -4472,7 +4510,9 @@
   "MTCH": [
    {
     "date_added": "2021-09-20",
-    "date_removed": null
+    "date_removed": "2026-03-23",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "MTD": [
@@ -4910,7 +4950,8 @@
   "OKTA": [
    {
     "date_added": "2026-11-04",
-    "date_removed": null
+    "date_removed": null,
+    "fuente_alta": "https://press.spglobal.com/2026-10-30-Okta-Set-to-Join-S-P-500-Others-to-Join-S-P-MidCap-400-and-S-P-SmallCap-600"
    }
   ],
   "OM": [
@@ -5018,7 +5059,9 @@
   "PAYC": [
    {
     "date_added": "2020-01-28",
-    "date_removed": null
+    "date_removed": "2026-03-23",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "PAYX": [
@@ -5294,7 +5337,9 @@
   "POOL": [
    {
     "date_added": "2020-10-07",
-    "date_removed": null
+    "date_removed": "2026-06-22",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "PPG": [
@@ -5348,7 +5393,10 @@
   "PSKY": [
    {
     "date_added": "1994-09-30",
-    "date_removed": null
+    "date_removed": "2026-10-06",
+    "fuente_baja": "https://ir.paramount.com/news-releases/news-release-details/paramount-and-skydance-announce-anticipated-closing-date",
+    "motivo_baja": "cambio de ticker PSKY -> SKYD (la membresía continúa como SKYD)",
+    "fecha_baja_aproximada": false
    }
   ],
   "PSX": [
@@ -6206,7 +6254,9 @@
   "TAP": [
    {
     "date_added": "1976-06-30",
-    "date_removed": null
+    "date_removed": "2026-09-21",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "TCOMA": [
@@ -6506,7 +6556,9 @@
   "TTD": [
    {
     "date_added": "2025-07-18",
-    "date_removed": null
+    "date_removed": "2026-09-21",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Market capitalization changes."
    }
   ],
   "TTWO": [
@@ -6974,7 +7026,9 @@
   "WBD": [
    {
     "date_added": "2022-04-11",
-    "date_removed": null
+    "date_removed": "2026-10-06",
+    "fuente_baja": "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500 (tabla changes)",
+    "motivo_baja": "Paramount Skydance acquired Warner Bros. Discovery"
    }
   ],
   "WCG": [
@@ -7289,5 +7343,7 @@
     "date_removed": null
    }
   ]
- }
+ },
+ "comprobado": "2026-11-22",
+ "n_vigentes": 503
 }

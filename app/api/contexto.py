@@ -40,6 +40,7 @@ from ypyquant.perfiles_alpaca.almacen import AlmacenPerfiles
 from ypyquant.perfiles_alpaca.perfiles import nombre_valido
 from ypyquant.paper.almacen import AlmacenPaper
 from ypyquant.paper.calendario import ahora_nueva_york
+from ypyquant.data.membresias_sp500 import ServicioMembresias
 from ypyquant.paper.planificador import PlanificadorPaper
 from ypyquant.paper.servicio import ControlAvance, ServicioPaper
 from ypyquant.raiz_datos import RaizDatos
@@ -78,6 +79,7 @@ class Contexto:
     reloj_paper: Callable[[], datetime] = ahora_nueva_york
     servicio_paper_interno: ServicioPaper | None = None
     control_avance_paper: ControlAvance = field(default_factory=ControlAvance)
+    servicio_membresias: ServicioMembresias | None = None  # estado de las membresías del S&P 500 (lo pone main.py)
     planificador_paper: PlanificadorPaper | None = None  # temporizador que avanza el paper mientras la API vive (lo pone main.py)
 
     def __post_init__(self) -> None:

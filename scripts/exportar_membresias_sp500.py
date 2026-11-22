@@ -5,6 +5,10 @@ Responsabilidad: leer en SOLO LECTURA `tickers.index_memberships` de `TFM.db` (l
 prueba de paridad del motor de rejilla) y volcar los intervalos de pertenencia al S&P 500 de cada ticker
 a un JSON versionado en el repo, para que el universo point-in-time `sp500_pit` no dependa de la ruta del TFM.
 
+AVISO (2026-11-22): la fuente de verdad ya NO es TFM.db sino el propio JSON, mantenido con
+`python -m ypyquant.data.membresias_sp500 actualizar` (ver docs/planes/2026-11-22-membresias-sp500.md). Ejecutar este script
+SOBRESCRIBE las correcciones; solo úsalo para regenerar desde cero y después reaplica la actualización.
+
 Uso:
     uv run python scripts/exportar_membresias_sp500.py                  # TFM_DIR o la ruta por defecto
     uv run python scripts/exportar_membresias_sp500.py --db RUTA/TFM.db --salida universos/sp500_membresias.json

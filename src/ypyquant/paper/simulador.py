@@ -54,6 +54,7 @@ import pandas as pd
 
 from ypyquant.almacen_documentos import limpiar_para_json
 from ypyquant.data.fuente_precios import FuentePrecios, como_fuente
+from ypyquant.data.membresias_sp500 import fecha_ultima_comprobacion
 from ypyquant.data.universos import (
     Membresias,
     avisos_membresias,
@@ -189,6 +190,7 @@ class SimuladorPaper:
         self.fuente = como_fuente(fuente)
         self.ahora = ahora
         self._membresias = membresias
+        self._membresias_del_fichero = membresias is None  # solo las del fichero oficial cuentan con su fecha de comprobación
         self.meses_historia_pit = meses_historia_pit
         self._vigentes: dict[pd.Timestamp, frozenset[str]] = {}
 
@@ -199,6 +201,10 @@ class SimuladorPaper:
         if self._membresias is None:
             self._membresias = cargar_membresias_sp500()
         return self._membresias
+
+    def comprobado_membresias(self) -> date | None:
+        """Fecha de la última comprobación contra las fuentes si las membresías son las del fichero oficial (si no, None)."""
+        return fecha_ultima_comprobacion() if self._membresias_del_fichero else None
 
     def _vigentes_en(self, dia: pd.Timestamp) -> frozenset[str]:
         """Miembros vigentes de `dia` (con caché: se consulta varias veces por día y sesión)."""
@@ -429,7 +435,7 @@ class SimuladorPaper:
                     f"{ticker}: sale del S&P 500 el {dia:%Y-%m-%d}; se mantiene hasta el próximo rebalanceo "
                     f"({frecuencia}) y entonces se liquida")})
         ya_avisados = {e.get("tipo") for e in tablas.eventos}
-        for mensaje in avisos_membresias(self.membresias(), dia):
+        for mensaje in avisos_membresias(self.membresias(), dia, comprobado=self.comprobado_membresias()):
             tipo = "membresia_antigua" if "antigüedad" in mensaje else "membresia_numero"
             if tipo not in ya_avisados:
                 tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": tipo, "mensaje": mensaje})

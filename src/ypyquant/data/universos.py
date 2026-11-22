@@ -5,7 +5,7 @@ Responsabilidad:
 - Resolver un universo a una lista de símbolos: `resolver_universo` (lista explícita, nombre de archivo de
   `universos/*.txt` con límite opcional `'sp500:30'`, o el dinámico `'sp500_pit'`) y `listar_universos`.
 - Membresías point-in-time del S&P 500: fuente `universos/sp500_membresias.json` (símbolo -> intervalos
-  `date_added/date_removed`), generada desde `TFM.db` con `scripts/exportar_membresias_sp500.py`.
+  `date_added/date_removed`), mantenida con `ypyquant.data.membresias_sp500` (Wikipedia + SPDR SPY; antes exportada de `TFM.db`).
   `extraer_membresias_desde_sqlite` la extrae, `cargar_membresias_sp500` la lee, `miembros_en_ventana` lista los
   miembros de un rango y `cobertura_membresias` / `aviso_cobertura_pit` miden cuántos tienen precios en la fuente
   (sesgo de supervivencia residual). El criterio de ELEGIBILIDAD por fecha (historia mínima, máscara) vive en
@@ -48,8 +48,8 @@ RUTA_MEMBRESIAS = CARPETA_UNIVERSOS / "sp500_membresias.json"
 NOMBRE_UNIVERSO_PIT = "sp500_pit"
 INDICE = "SP500"
 DIAS_MAXIMOS_ANTIGUEDAD = 30  # a partir de aquí se avisa de que las membresías están desactualizadas
-MIEMBROS_ESPERADOS = 500  # el índice real ronda los 503 símbolos (500 empresas, algunas con dos clases de acciones)
-TOLERANCIA_MIEMBROS = 15
+MIEMBROS_ESPERADOS = 503  # el índice son 500 empresas pero 503 símbolos (algunas con dos clases de acciones)
+TOLERANCIA_MIEMBROS = 10
 
 Membresias = Mapping[str, Sequence[Mapping[str, Any]]]
 # (nombre_indice, fecha_inicio, fecha_fin, solo_supervivientes) -> lista de símbolos
@@ -112,8 +112,8 @@ def cargar_membresias_sp500(ruta: str | Path | None = None) -> dict[str, list[di
     ruta = Path(ruta) if ruta else RUTA_MEMBRESIAS
     if not ruta.is_file():
         raise FileNotFoundError(
-            f"No existe {ruta}. Genéralo con `uv run python scripts/exportar_membresias_sp500.py` "
-            "(necesita TFM.db; ver la cabecera de ypyquant/data/universos.py).")
+            f"No existe {ruta}. Regénerala con `uv run python -m ypyquant.data.membresias_sp500 actualizar` "
+            "(o `scripts/exportar_membresias_sp500.py` desde TFM.db; ver la cabecera de ypyquant/data/universos.py).")
     crudo = json.loads(ruta.read_text(encoding="utf-8"))["miembros"]
     return {t: [{"index": INDICE, **m} for m in intervalos] for t, intervalos in crudo.items()}
 
@@ -150,22 +150,27 @@ def ultima_fecha_membresias(membresias: Membresias) -> pd.Timestamp | None:
 
 
 def avisos_membresias(membresias: Membresias, fecha: str | pd.Timestamp,
-                      esperados: int | None = MIEMBROS_ESPERADOS) -> list[str]:
+                      esperados: int | None = MIEMBROS_ESPERADOS,
+                      comprobado: str | pd.Timestamp | None = None) -> list[str]:
     """
     Avisos de calidad de las membresías para operar/simular en `fecha` (lista vacía si todo cuadra):
     - antigüedad: la última fecha registrada es más de `DIAS_MAXIMOS_ANTIGUEDAD` días anterior a `fecha`, así que
-      las altas y bajas recientes del índice pueden faltar; indica cómo refrescarlas;
+      las altas y bajas recientes del índice pueden faltar; indica cómo refrescarlas. `comprobado` es la fecha de la
+      última comprobación satisfactoria contra las fuentes (`membresias_sp500.fecha_ultima_comprobacion`): sin cambios
+      en el índice la última fecha registrada envejece aunque el fichero esté al día, así que cuenta la más reciente;
     - número de miembros: los vigentes en `fecha` se alejan de `esperados` (+/- `TOLERANCIA_MIEMBROS`), señal de
       bajas sin registrar o de datos incompletos. `esperados=None` desactiva este aviso.
     """
     fecha = pd.Timestamp(fecha)
     avisos = []
     ultima = ultima_fecha_membresias(membresias)
+    if ultima is not None and comprobado is not None:
+        ultima = max(ultima, pd.Timestamp(comprobado))
     if ultima is not None and (fecha - ultima).days > DIAS_MAXIMOS_ANTIGUEDAD:
         avisos.append(
             f"Membresías del S&P 500 con antigüedad de {(fecha - ultima).days} días (último dato {ultima:%Y-%m-%d}, "
-            f"fecha {fecha:%Y-%m-%d}): pueden faltar altas y bajas recientes. Refréscalas actualizando TFM.db y "
-            "ejecutando `uv run python scripts/exportar_membresias_sp500.py`.")
+            f"fecha {fecha:%Y-%m-%d}): pueden faltar altas y bajas recientes. Refréscalas con "
+            "`uv run python -m ypyquant.data.membresias_sp500 actualizar`.")
     if esperados is not None:
         n = len(miembros_vigentes_en(membresias, fecha))
         if abs(n - esperados) > TOLERANCIA_MIEMBROS:
