@@ -15,11 +15,19 @@ Responsabilidad:
   comprobación) y deja el estado de la última comprobación en `sp500_membresias_estado.json` (lo consulta
   `GET /api/universos/membresias/estado`). `ServicioMembresias` es la fachada con reloj y descarga inyectables que
   usa el planificador de la API (como máximo una vez al día, tras el cierre de Nueva York).
+- CONTRASTE CON LA FECHA DEL DATO DE SPY (`ObservacionSpy`, `_resolver_con_spy`): la fecha de la tabla de Wikipedia puede ser
+  la del anuncio. Cada comprobación guarda la observación de SPY (fecha de holdings + símbolos) en
+  `sp500_membresias_observaciones_spy.json` (últimas `MAX_OBSERVACIONES_SPY`). Un cambio solo se aplica cuando SPY lo
+  refleja y su fecha efectiva es la PRIMERA fecha de holdings de SPY que lo refleja (con aviso y `fecha_wikipedia` si
+  difiere de la tabla). Si SPY aún no lo refleja, queda pendiente aunque la fecha de Wikipedia ya haya pasado (posible
+  anuncio) y se reintenta en las siguientes comprobaciones. Sin transición observada (primera observación ya lo refleja)
+  se acepta la fecha de Wikipedia si no es posterior al dato de SPY, con aviso de que no se pudo contrastar.
 - CLI: `python -m ypyquant.data.membresias_sp500 actualizar [--simular]` y `... estado`.
 
 Límites conocidos: un cambio de ticker (BK -> BNY) aparece como baja + alta del símbolo nuevo; si el valor ya figura
 con el símbolo nuevo (convención del fichero) solo se cierra el antiguo. La fecha de la tabla de Wikipedia puede ser la
-del anuncio y no la efectiva (caso OKTA, 2026-10-30 frente a 2026-11-04): corrige a mano el intervalo si lo detectas.
+del anuncio y no la efectiva (caso OKTA, 2026-10-30 frente a 2026-11-04): lo contrasta la regla de SPY descrita arriba. Límite:
+la fecha de holdings de SPY puede ir un día hábil antes de la efectiva si el índice rebalancea al cierre previo.
 
 Se relaciona con: ypyquant.data.universos (lee el fichero; `avisos_membresias` usa la fecha de comprobación de aquí),
 ypyquant.almacen_documentos (`escribir_json_atomico`), ypyquant.paper.planificador (lo invoca a diario),
@@ -56,6 +64,8 @@ logger = logging.getLogger(__name__)
 RUTA_HISTORIAL = CARPETA_UNIVERSOS / "sp500_membresias_cambios.jsonl"
 RUTA_ESTADO = CARPETA_UNIVERSOS / "sp500_membresias_estado.json"
 RUTA_PENDIENTES = CARPETA_UNIVERSOS / "sp500_membresias_pendientes.json"
+RUTA_OBSERVACIONES_SPY = CARPETA_UNIVERSOS / "sp500_membresias_observaciones_spy.json"
+MAX_OBSERVACIONES_SPY = 40  # holdings diarios guardados para fijar la primera fecha en que SPY refleja un cambio
 CARPETA_CACHE = CARPETA_UNIVERSOS / ".cache_fuentes"
 URL_WIKIPEDIA_ACTUAL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 URL_WIKIPEDIA_CAMBIOS = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"
@@ -104,6 +114,14 @@ class CambioPublicado:
     motivo: str = ""
 
 
+@dataclass(frozen=True)
+class ObservacionSpy:
+    """Holdings de SPY en una fecha de dato: símbolos canónicos que figuraban ese día (sirve para fijar fechas efectivas)."""
+
+    fecha: str
+    simbolos: frozenset[str]
+
+
 @dataclass
 class CambioPropuesto:
     """Un alta o una baja que sale de comparar la fuente primaria con el fichero, con su confirmación y su fecha."""
@@ -116,6 +134,7 @@ class CambioPropuesto:
     motivo: str = ""
     confirmado_por: str | None = None
     motivo_pendiente: str | None = None
+    fecha_wikipedia: str | None = None  # fecha de la tabla de Wikipedia si se descartó a favor de la de SPY
 
     def a_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v not in (None, "")}
@@ -343,18 +362,56 @@ def _fecha_publicada(tipo: str, simbolo: str, cambios: Iterable[CambioPublicado]
     return max(fechas) if fechas else None
 
 
+def _resolver_con_spy(c: CambioPropuesto, verificacion: ListaVigente, observaciones: list[ObservacionSpy],
+                      avisos: list[str]) -> None:
+    """
+    Contrasta la fecha de Wikipedia con la fecha del dato de SPY (ver cabecera). Modifica `c`: lo deja pendiente
+    (`motivo_pendiente`) o fija su fecha efectiva; las notas van a `avisos`. `observaciones` ya incluye la actual y
+    llega ordenada, con fechas <= la del dato de SPY.
+    """
+    fs, fw = verificacion.fecha_dato, (None if c.fecha_aproximada else c.fecha)
+    refleja = [(c.simbolo in o.simbolos) == (c.tipo == "alta") for o in observaciones]
+    if not refleja[-1]:
+        c.motivo_pendiente = f"{verificacion.fuente} discrepa: {'no incluye' if c.tipo == 'alta' else 'todavía incluye'} {c.simbolo}"
+        if fw and fw <= fs:
+            c.motivo_pendiente += (f" (Wikipedia da {fw} y el dato de SPY es {fs}: posible fecha de anuncio, "
+                                   "se reintenta en la próxima comprobación)")
+        return
+    inicio = len(refleja) - 1
+    while inicio > 0 and refleja[inicio - 1]:
+        inicio -= 1
+    if inicio > 0:  # transición observada: la primera fecha de SPY que lo refleja es la efectiva
+        primera = observaciones[inicio].fecha
+        if fw and fw != primera:
+            c.fecha_wikipedia = fw
+            avisos.append(f"{c.tipo} de {c.simbolo}: Wikipedia da {fw} pero SPY lo refleja por primera vez el {primera}; "
+                          f"se usa {primera}.")
+        c.fecha, c.fecha_aproximada = primera, False
+    elif fw and fw > fs:
+        c.motivo_pendiente = (f"{verificacion.fuente} ya lo refleja (dato de {fs}) antes de la fecha de Wikipedia ({fw}); "
+                              "se reintenta cuando el dato de SPY alcance esa fecha")
+    elif fw:
+        avisos.append(f"{c.tipo} de {c.simbolo}: sin observación previa de SPY, la fecha de Wikipedia ({fw}) no se pudo contrastar.")
+
+
 def reconciliar(documento: Mapping[str, Any], primaria: ListaVigente, verificacion: ListaVigente | None,
                 cambios: Iterable[CambioPublicado], hoy: str,
-                tope_cambios: int = TOPE_CAMBIOS_POR_COMPROBACION) -> Reconciliacion:
+                tope_cambios: int = TOPE_CAMBIOS_POR_COMPROBACION,
+                observaciones_spy: Iterable[ObservacionSpy] = ()) -> Reconciliacion:
     """
     Compara la lista de la fuente primaria con los vigentes del fichero y separa lo aplicable de lo pendiente.
 
     Aplicable = confirmado por la fuente de verificación (alta: también figura en ella; baja: ya no figura). Todo pasa a
     pendiente si la lista primaria es implausible (fuera de 480-520) o hay demasiados cambios a la vez (fuente rota).
+    Si la verificación trae fecha de dato, la fecha efectiva se contrasta con `observaciones_spy` (`_resolver_con_spy`).
     """
     cambios = list(cambios)
     resultado = Reconciliacion()
     vigentes = simbolos_vigentes(documento)
+    observaciones = []
+    if verificacion is not None and verificacion.fecha_dato:
+        actual = ObservacionSpy(verificacion.fecha_dato, verificacion.simbolos)
+        observaciones = sorted([o for o in observaciones_spy if o.fecha < actual.fecha] + [actual], key=lambda o: o.fecha)
     propuestos = []
     for tipo, simbolos in (("baja", sorted(vigentes - primaria.simbolos)), ("alta", sorted(primaria.simbolos - vigentes))):
         for simbolo in simbolos:
@@ -376,7 +433,11 @@ def reconciliar(documento: Mapping[str, Any], primaria: ListaVigente, verificaci
             c.motivo_pendiente = "sin fuente de verificación disponible"
         else:
             confirma = (c.simbolo in verificacion.simbolos) == (c.tipo == "alta")
-            if confirma:
+            if observaciones:
+                _resolver_con_spy(c, verificacion, observaciones, resultado.avisos)
+                if not c.motivo_pendiente:
+                    c.confirmado_por = verificacion.fuente
+            elif confirma:
                 c.confirmado_por = verificacion.fuente
             else:
                 c.motivo_pendiente = (f"{verificacion.fuente} discrepa: "
@@ -437,6 +498,23 @@ def fecha_ultima_comprobacion(ruta_estado: Path = RUTA_ESTADO, ruta: Path = RUTA
     return date.fromisoformat(max(candidatas)) if candidatas else None
 
 
+def leer_observaciones_spy(ruta: Path = RUTA_OBSERVACIONES_SPY) -> list[ObservacionSpy]:
+    """Observaciones de SPY guardadas, de la más antigua a la más reciente (lista vacía si no hay o el fichero es ilegible)."""
+    try:
+        crudo = (_leer_json(ruta) or {}).get("observaciones", [])
+        return sorted((ObservacionSpy(o["fecha"], frozenset(o["simbolos"])) for o in crudo), key=lambda o: o.fecha)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        logger.warning("Observaciones de SPY ilegibles en %s: se ignoran", ruta)
+        return []
+
+
+def guardar_observaciones_spy(ruta: Path, observaciones: Iterable[ObservacionSpy]) -> None:
+    """Guarda las últimas `MAX_OBSERVACIONES_SPY` observaciones (sin repetir fecha), escritura atómica."""
+    por_fecha = {o.fecha: o for o in observaciones}
+    ultimas = [por_fecha[f] for f in sorted(por_fecha)][-MAX_OBSERVACIONES_SPY:]
+    escribir_json_atomico(ruta, {"observaciones": [{"fecha": o.fecha, "simbolos": sorted(o.simbolos)} for o in ultimas]})
+
+
 def _cambios_aplicados(ruta_historial: Path) -> list[dict[str, Any]]:
     if not ruta_historial.is_file():
         return []
@@ -446,7 +524,7 @@ def _cambios_aplicados(ruta_historial: Path) -> list[dict[str, Any]]:
 def actualizar(primaria: FuenteLista, verificacion: FuenteLista | None, fuente_cambios: FuenteCambios | None,
                ruta: Path = RUTA_MEMBRESIAS, ruta_historial: Path = RUTA_HISTORIAL, ruta_estado: Path = RUTA_ESTADO,
                ruta_pendientes: Path = RUTA_PENDIENTES, simular: bool = False,
-               hoy: str | None = None, ahora: Callable[[], datetime] = lambda: datetime.now().astimezone()) -> dict[str, Any]:
+               ruta_observaciones: Path | None = None, hoy: str | None = None, ahora: Callable[[], datetime] = lambda: datetime.now().astimezone()) -> dict[str, Any]:
     """
     Una comprobación completa: descarga, reconcilia y (si no es `simular`) aplica lo confirmado.
 
@@ -454,6 +532,7 @@ def actualizar(primaria: FuenteLista, verificacion: FuenteLista | None, fuente_c
     y lo guarda como estado. Un fallo de la fuente primaria o de la de cambios deja el fichero intacto (`error`); si
     falla solo la de verificación, todo cambio queda pendiente.
     """
+    ruta_observaciones = ruta_observaciones or ruta.with_name(RUTA_OBSERVACIONES_SPY.name)
     momento = ahora()
     hoy = hoy or momento.date().isoformat()
     resumen: dict[str, Any] = {"hora": momento.isoformat(timespec="seconds"), "simulacion": simular, "aplicados": [],
@@ -471,7 +550,8 @@ def actualizar(primaria: FuenteLista, verificacion: FuenteLista | None, fuente_c
         except ErrorFuente as fallo:
             tabla = []
             resumen["avisos"].append(f"tabla de cambios no disponible: {fallo}")
-        reconciliacion = reconciliar(documento, lista, lista_verificacion, tabla, hoy)
+        previas = leer_observaciones_spy(ruta_observaciones)
+        reconciliacion = reconciliar(documento, lista, lista_verificacion, tabla, hoy, observaciones_spy=previas)
     except ErrorFuente as fallo:
         resumen.update(resultado="error", error=str(fallo), n_vigentes=len(simbolos_vigentes(documento)))
         _guardar_estado(resumen, documento, ruta_estado, ruta_historial, simular, correcta=False)
@@ -482,6 +562,9 @@ def actualizar(primaria: FuenteLista, verificacion: FuenteLista | None, fuente_c
     resumen["fuente_primaria"] = lista.fuente
     resumen["fuente_verificacion"] = lista_verificacion.fuente if lista_verificacion else None
     resumen["fecha_dato_verificacion"] = lista_verificacion.fecha_dato if lista_verificacion else None
+    if lista_verificacion is not None and lista_verificacion.fecha_dato and not simular:
+        guardar_observaciones_spy(ruta_observaciones, [*previas, ObservacionSpy(lista_verificacion.fecha_dato,
+                                                                               lista_verificacion.simbolos)])
     if reconciliacion.aplicables and not simular:
         ruta_anterior = ruta.with_name(ruta.name + ".anterior")
         shutil.copyfile(ruta, ruta_anterior)
@@ -491,7 +574,9 @@ def actualizar(primaria: FuenteLista, verificacion: FuenteLista | None, fuente_c
             for c in reconciliacion.aplicables:
                 f.write(json.dumps({"tipo": c.tipo, "simbolo": c.simbolo, "fecha": c.fecha,
                                     "fecha_aproximada": c.fecha_aproximada, "fuente": c.fuente,
-                                    "verificado_por": c.confirmado_por, "comprobado": hoy}, ensure_ascii=False) + "\n")
+                                    "verificado_por": c.confirmado_por, "comprobado": hoy,
+                                    **({"fecha_wikipedia": c.fecha_wikipedia} if c.fecha_wikipedia else {})},
+                                   ensure_ascii=False) + "\n")
     resumen["n_vigentes"] = len(simbolos_vigentes(documento))
     resumen["resultado"] = ("pendiente" if reconciliacion.pendientes else
                             "actualizado" if reconciliacion.aplicables else "al_dia")

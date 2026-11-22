@@ -135,6 +135,91 @@ def test_aplicar_cierra_el_intervalo_abierto_y_reabre_con_procedencia():
     assert doc["n_vigentes"] == 1 and doc["comprobado"] == "2026-11-22"
 
 
+# ---- contraste con la fecha del dato de SPY ----------------------------------------------------
+
+
+def _obs(fecha, simbolos):
+    return m.ObservacionSpy(fecha, frozenset(simbolos))
+
+
+def _okta(spy_fecha, spy_simbolos, previas=(), fecha_tabla="2026-10-30", hoy="2026-11-06"):
+    """Reproduce el caso Okta: la lista de Wikipedia ya la incluye y la tabla da la fecha del anuncio."""
+    con = BASE | {"OKTA"}
+    spy = m.ListaVigente("spy", frozenset(spy_simbolos), spy_fecha)
+    tabla = [m.CambioPublicado(fecha_tabla, "OKTA", None, "alta")]
+    return m.reconciliar(_doc_base(), _lista("wiki", con), spy, tabla, hoy, observaciones_spy=previas)
+
+
+def test_okta_spy_aun_no_la_refleja_con_fecha_de_wikipedia_ya_pasada_queda_pendiente_por_posible_anuncio():
+    r = _okta("2026-11-03", BASE)
+    assert not r.aplicables and len(r.pendientes) == 1
+    assert "anuncio" in r.pendientes[0].motivo_pendiente and "2026-11-03" in r.pendientes[0].motivo_pendiente
+
+
+def test_okta_cuando_spy_la_refleja_la_fecha_efectiva_es_la_primera_de_spy_y_avisa():
+    previas = [_obs("2026-10-30", BASE), _obs("2026-11-03", BASE)]
+    r = _okta("2026-11-04", BASE | {"OKTA"}, previas)
+    assert [(c.simbolo, c.fecha, c.fecha_wikipedia) for c in r.aplicables] == [("OKTA", "2026-11-04", "2026-10-30")]
+    assert not r.aplicables[0].fecha_aproximada
+    assert any("2026-10-30" in a and "2026-11-04" in a for a in r.avisos)
+
+
+def test_si_la_primera_fecha_de_spy_coincide_con_wikipedia_no_hay_aviso():
+    previas = [_obs("2026-11-02", BASE)]
+    r = _okta("2026-11-03", BASE | {"OKTA"}, previas, fecha_tabla="2026-11-03")
+    assert [(c.fecha, c.fecha_wikipedia) for c in r.aplicables] == [("2026-11-03", None)] and not r.avisos
+
+
+def test_spy_ya_lo_refleja_antes_de_la_fecha_de_wikipedia_sin_transicion_conocida_queda_pendiente():
+    r = _okta("2026-11-03", BASE | {"OKTA"}, fecha_tabla="2026-11-05")
+    assert not r.aplicables and "antes de la fecha de Wikipedia" in r.pendientes[0].motivo_pendiente
+
+
+def test_sin_transicion_observada_y_fecha_de_wikipedia_dentro_del_dato_de_spy_se_acepta_avisando():
+    r = _okta("2026-11-05", BASE | {"OKTA"})
+    assert [c.fecha for c in r.aplicables] == ["2026-10-30"]
+    assert any("sin observación previa" in a for a in r.avisos)
+
+
+def test_la_regla_vale_tambien_para_bajas():
+    doc = _doc_base()
+    primaria, tabla = _lista("wiki", BASE - {"S000"}), [m.CambioPublicado("2026-10-30", None, "S000", "x")]
+    previas = [_obs("2026-11-02", BASE)]
+    spy = m.ListaVigente("spy", frozenset(BASE - {"S000"}), "2026-11-03")
+    r = m.reconciliar(doc, primaria, spy, tabla, "2026-11-06", observaciones_spy=previas)
+    assert [(c.tipo, c.fecha, c.fecha_wikipedia) for c in r.aplicables] == [("baja", "2026-11-03", "2026-10-30")]
+
+
+def test_actualizar_okta_en_tres_comprobaciones_guarda_observaciones_y_fija_la_fecha_de_spy(tmp_path):
+    rutas = _rutas(tmp_path)
+    con = BASE | {"OKTA"}
+    tabla = m.SinteticoCambios([m.CambioPublicado("2026-10-30", "OKTA", None, "alta")])
+    ahora = lambda: datetime(2026, 11, 6, 17, 0, tzinfo=NY)  # noqa: E731
+    for fecha in ("2026-11-02", "2026-11-03"):
+        r = m.actualizar(m.SinteticoLista("wiki", con), m.SinteticoLista("spy", BASE, fecha), tabla, ahora=ahora, **rutas)
+        assert r["resultado"] == "pendiente" and "anuncio" in r["pendientes"][0]["motivo_pendiente"]
+    r = m.actualizar(m.SinteticoLista("wiki", con), m.SinteticoLista("spy", con, "2026-11-04"), tabla, ahora=ahora, **rutas)
+    assert r["resultado"] == "actualizado" and r["aplicados"][0]["fecha"] == "2026-11-04"
+    doc = json.loads(rutas["ruta"].read_text(encoding="utf-8"))
+    assert doc["miembros"]["OKTA"][0]["date_added"] == "2026-11-04"
+    linea = json.loads(rutas["ruta_historial"].read_text(encoding="utf-8").splitlines()[0])
+    assert linea["fecha"] == "2026-11-04" and linea["fecha_wikipedia"] == "2026-10-30"
+    observaciones = json.loads((tmp_path / "sp500_membresias_observaciones_spy.json").read_text(encoding="utf-8"))
+    assert [o["fecha"] for o in observaciones["observaciones"]] == ["2026-11-02", "2026-11-03", "2026-11-04"]
+
+
+def test_las_observaciones_no_se_guardan_en_simulacion_y_se_recortan(tmp_path):
+    rutas = _rutas(tmp_path)
+    ruta_obs = tmp_path / "obs.json"
+    m.actualizar(m.SinteticoLista("w", BASE), m.SinteticoLista("s", BASE, "2026-11-02"), None, simular=True,
+                 ahora=AHORA, ruta_observaciones=ruta_obs, **rutas)
+    assert not ruta_obs.exists()
+    viejas = [_obs(f"2026-09-{d:02d}", BASE) for d in range(1, 31)] + [_obs(f"2026-10-{d:02d}", BASE) for d in range(1, 21)]
+    m.guardar_observaciones_spy(ruta_obs, viejas)
+    leidas = m.leer_observaciones_spy(ruta_obs)
+    assert len(leidas) == m.MAX_OBSERVACIONES_SPY and leidas[-1].fecha == "2026-10-20"
+
+
 # ---- actualizar (E/S) --------------------------------------------------------------------------
 
 
