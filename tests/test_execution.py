@@ -2,8 +2,9 @@
 Tests de smoke para ypyquant.execution (M0, Fase 3+4).
 
 Responsabilidad:
-    Verificar la migración de TFM a ypyquant.execution: interfaz de broker, PaperBroker,
-    ProtectionManager, WalletManager, TradeAnalytics, BotExecutor y API pública. Usa un
+    Verificar la migración de TFM a ypyquant.execution: ProtectionManager,
+    TradeAnalytics y API pública. (BrokerInterface, PaperBroker, WalletManager y BotExecutor se eliminaron: ver
+    docs/planes/2026-11-21-ejecutor.md; el Ejecutor y el puerto Broker se prueban en tests/test_ejecutor*.py.) Usa un
     almacenamiento simulado (MockStorage); no requiere BD ni broker real.
 
 Se relaciona con:
@@ -74,97 +75,6 @@ class MockStorage:
         return None
 
 
-class TestBrokerInterface(unittest.TestCase):
-    """Tests de BrokerInterface y enums."""
-
-    def test_import(self):
-        from ypyquant.execution import BrokerInterface, OrderSide, OrderStatus, OrderType  # noqa: F401
-        self.assertEqual(OrderSide.BUY.value, "compra")
-        self.assertEqual(OrderSide.SELL.value, "venta")
-        self.assertEqual(OrderType.MARKET.value, "market")
-        self.assertEqual(OrderStatus.FILLED.value, "filled")
-
-    def test_broker_interface_is_abstract(self):
-        from ypyquant.execution import BrokerInterface
-        with self.assertRaises(TypeError):
-            BrokerInterface({})  # No se puede instanciar directamente
-
-
-class TestPaperBroker(unittest.TestCase):
-    """Tests del PaperBroker (simulación)."""
-
-    def setUp(self):
-        from ypyquant.execution import PaperBroker
-        self.broker = PaperBroker({
-            "initial_cash": 10000.0,
-            "currency": "USD",
-            "commission": 0.001,
-        })
-        self.broker.connect()
-
-    def test_connect(self):
-        self.assertTrue(self.broker.connected)
-
-    def test_account_info(self):
-        info = self.broker.get_account_info()
-        self.assertEqual(info["cash"], 10000.0)
-        self.assertEqual(info["currency"], "USD")
-        self.assertEqual(info["positions_count"], 0)
-
-    def test_buy_increases_position(self):
-        from ypyquant.execution import OrderSide, OrderStatus, OrderType  # noqa: F401
-        # Simular precio inyectando directamente
-        original_price = self.broker.get_current_price
-        self.broker.get_current_price = lambda ticker: 100.0
-
-        result = self.broker.place_order("AAPL", 10, OrderSide.BUY)
-        self.assertEqual(result["status"], OrderStatus.FILLED)
-        self.assertIn("AAPL", self.broker.positions)
-        self.assertEqual(self.broker.positions["AAPL"]["quantity"], 10.0)
-
-        self.broker.get_current_price = original_price
-
-    def test_sell_reduces_position(self):
-        from ypyquant.execution import OrderSide, OrderStatus
-        self.broker.get_current_price = lambda ticker: 100.0
-
-        self.broker.place_order("AAPL", 10, OrderSide.BUY)
-        result = self.broker.place_order("AAPL", 5, OrderSide.SELL)
-
-        self.assertEqual(result["status"], OrderStatus.FILLED)
-        self.assertIn("AAPL", self.broker.positions)
-        self.assertAlmostEqual(self.broker.positions["AAPL"]["quantity"], 5.0, places=4)
-
-    def test_sell_all_closes_position(self):
-        from ypyquant.execution import OrderSide
-        self.broker.get_current_price = lambda ticker: 100.0
-
-        self.broker.place_order("AAPL", 10, OrderSide.BUY)
-        self.broker.place_order("AAPL", 10, OrderSide.SELL)
-
-        self.assertNotIn("AAPL", self.broker.positions)
-
-    def test_insufficient_funds_raises(self):
-        from ypyquant.execution import OrderSide, OrderStatus
-        self.broker.get_current_price = lambda ticker: 10000.0
-
-        # Intentar comprar más de lo que hay
-        result = self.broker.place_order("AAPL", 2, OrderSide.BUY)
-        self.assertEqual(result["status"], OrderStatus.REJECTED)
-
-    def test_reset(self):
-        from ypyquant.execution import OrderSide
-        self.broker.get_current_price = lambda ticker: 100.0
-        self.broker.place_order("AAPL", 5, OrderSide.BUY)
-        self.broker.reset()
-        self.assertEqual(self.broker.cash, 10000.0)
-        self.assertEqual(len(self.broker.positions), 0)
-
-    def test_is_market_open_returns_bool(self):
-        result = self.broker.is_market_open()
-        self.assertIsInstance(result, bool)
-
-
 class TestProtectionManager(unittest.TestCase):
     """Tests del ProtectionManager."""
 
@@ -212,55 +122,6 @@ class TestProtectionManager(unittest.TestCase):
         self.assertIn("active_protections", status)
         self.assertIn("metrics", status)
         self.assertFalse(status["is_blocked"])
-
-
-class TestWalletManager(unittest.TestCase):
-    """Tests del WalletManager."""
-
-    def setUp(self):
-        from ypyquant.execution import WalletManager
-        self.wallet = WalletManager(
-            initial_capital=10000.0,
-            tradable_balance_ratio=0.99,
-            max_open_trades=5,
-            max_position_size=0.30,
-        )
-
-    def test_initial_balance(self):
-        balance = self.wallet.get_balance()
-        self.assertEqual(balance.total, 10000.0)
-        self.assertEqual(balance.free, 10000.0)
-        self.assertEqual(balance.used, 0.0)
-
-    def test_tradable_balance(self):
-        tradable = self.wallet.get_tradable_balance()
-        self.assertAlmostEqual(tradable, 9900.0, places=1)
-
-    def test_validate_stake_ok(self):
-        valid, _msg = self.wallet.validate_stake_amount(1000.0, min_stake=10.0)
-        self.assertTrue(valid)
-
-    def test_validate_stake_exceeds_max_position(self):
-        valid, msg = self.wallet.validate_stake_amount(4000.0, min_stake=10.0)
-        self.assertFalse(valid)
-        self.assertIn("máximo", msg)
-
-    def test_validate_stake_too_many_trades(self):
-        valid, msg = self.wallet.validate_stake_amount(100.0, min_stake=10.0, current_open_trades=5)
-        self.assertFalse(valid)
-        self.assertIn("trades", msg)
-
-    def test_calculate_position_size(self):
-        qty, cost = self.wallet.calculate_position_size(1000.0, price=100.0)
-        self.assertGreater(qty, 0)
-        self.assertEqual(cost, 1000.0)
-
-    def test_invalid_ratios_raise(self):
-        from ypyquant.execution import WalletManager
-        with self.assertRaises(ValueError):
-            WalletManager(10000.0, tradable_balance_ratio=1.5)
-        with self.assertRaises(ValueError):
-            WalletManager(10000.0, max_position_size=0.0)
 
 
 class TestTradeAnalytics(unittest.TestCase):
@@ -324,80 +185,21 @@ class TestTradeAnalytics(unittest.TestCase):
         self.assertIn("ABIERTO", summary)
 
 
-class TestBotExecutor(unittest.TestCase):
-    """Tests de BotExecutor con mock storage y PaperBroker."""
-
-    def setUp(self):
-        from ypyquant.execution import BotExecutor, PaperBroker
-        self.storage = MockStorage()
-        self.broker = PaperBroker({
-            "initial_cash": 10000.0,
-            "currency": "USD",
-            "commission": 0.001,
-        })
-        # Inyectar precio fijo para evitar llamadas a yfinance
-        self.broker.get_current_price = lambda ticker: 150.0
-
-        self.executor = BotExecutor(
-            storage=self.storage,
-            portafolio_id=1,
-            broker=self.broker,
-        )
-
-    def test_init(self):
-        self.assertEqual(self.executor.portafolio_id, 1)
-        self.assertEqual(self.executor.portafolio["nombre"], "Test Portfolio")
-
-    def test_get_portfolio_status(self):
-        status = self.executor.get_portfolio_status()
-        self.assertIn("portafolio_id", status)
-        self.assertIn("account_info", status)
-        self.assertIn("positions", status)
-
-    def test_execute_rebalance_dry_run(self):
-        # Usar pesos pequeños para no agotar el capital con comisiones
-        result = self.executor.execute_rebalance(
-            target_weights={"AAPL": 0.45, "MSFT": 0.45, "GOOGL": 0.10},
-            dry_run=True,
-        )
-        self.assertIn("success", result)
-        # Si es factible, debe estar marcado como dry_run
-        if result["success"]:
-            self.assertTrue(result.get("dry_run"))
-
-    def test_get_wallet_status(self):
-        status = self.executor.get_wallet_status()
-        self.assertIn("balance", status)
-        self.assertIn("limits", status)
-        self.assertIn("capacity", status)
-
-    def test_get_operation_history(self):
-        history = self.executor.get_operation_history()
-        self.assertIsInstance(history, list)
-
-    def test_close(self):
-        self.executor.close()
-        self.assertFalse(self.broker.connected)
-
-
 class TestPublicAPI(unittest.TestCase):
     """Verifica que los símbolos públicos son importables desde ypyquant directamente."""
 
     def test_top_level_imports(self):
         from ypyquant import (
-            BotExecutor,
-            BrokerInterface,  # noqa: F401
-            OrderSide,  # noqa: F401
-            OrderStatus,  # noqa: F401
-            OrderType,  # noqa: F401
-            PaperBroker,
+            Broker,
+            BrokerSimulado,
+            PoliticaEjecucion,
             ProtectionManager,
             StorageInterface,  # noqa: F401
             TradeAnalytics,  # noqa: F401
-            WalletManager,
+            planificar_rebalanceo,
         )
-        # Todos deben ser clases/enums
-        self.assertTrue(callable(PaperBroker))
+        self.assertTrue(callable(BrokerSimulado))
         self.assertTrue(callable(ProtectionManager))
-        self.assertTrue(callable(WalletManager))
-        self.assertTrue(callable(BotExecutor))
+        self.assertTrue(callable(PoliticaEjecucion))
+        self.assertTrue(callable(planificar_rebalanceo))
+        self.assertTrue(isinstance(BrokerSimulado(), Broker))  # el simulado cumple el puerto

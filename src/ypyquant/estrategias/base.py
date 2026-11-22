@@ -39,7 +39,6 @@ from ypyquant.data.matriz_precios import extraer_serie_precios
 from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS  # noqa: F401  (reexportada: única definición)
 from ypyquant.portfolio.backtest_engine import FuncionEstrategia
 
-
 # `(fecha, datos_recortados_a_fecha) -> {ticker: OHLCV}` solo con los tickers elegibles en esa fecha
 # (universo point-in-time; ver `ypyquant.estrategias.universo_dinamico`).
 FiltroUniverso = Callable[[datetime, dict[str, pd.DataFrame]], dict[str, pd.DataFrame]]
