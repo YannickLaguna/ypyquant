@@ -2,7 +2,8 @@
 broker_alpaca.py — Adaptador del puerto `Broker` para la cuenta paper de Alpaca (alpaca-py).
 
 Responsabilidad:
-    Traduce el puerto (broker.py) a llamadas de `TradingClient` (cuenta, posiciones, órdenes, reloj) y,
+    Traduce el puerto (broker.py) a llamadas de `TradingClient` (cuenta, posiciones, órdenes, reloj; también la
+    capacidad de margen de la cuenta: `multiplier` y `shorting_enabled`) y,
     opcionalmente, de `StockHistoricalDataClient` (última cotización). Toda la API de alpaca-py
     (enums, peticiones) queda aquí: el resto del sistema no la importa. alpaca-py (extra `trading`) se
     importa en el momento de usarse, así que importar este módulo no exige el extra.
@@ -20,6 +21,7 @@ from datetime import datetime
 
 from ypyquant.execution.broker import EstadoOrden
 from ypyquant.execution.ejecutor import COMPRA, EstadoCuenta
+from ypyquant.execution.margen import SIN_MARGEN, CapacidadMargen
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,19 @@ class BrokerAlpaca:
         cuenta = self.cliente.get_account()
         posiciones = {p.symbol: float(p.qty) for p in self.cliente.get_all_positions()}
         return EstadoCuenta(equity=float(cuenta.equity), efectivo=float(cuenta.cash), posiciones=posiciones)
+
+    def capacidad_margen(self) -> CapacidadMargen:
+        """
+        Lo que la cuenta admite según Alpaca: `multiplier` ('1' sin margen, '2' margen, '4' intradía) y `shorting_enabled`
+        del objeto cuenta de alpaca-py. Una cuenta sin `multiplier` informado se trata como sin margen.
+        """
+        cuenta = self.cliente.get_account()
+        try:
+            multiplicador = float(getattr(cuenta, "multiplier", None) or 1.0)
+        except (TypeError, ValueError):
+            return SIN_MARGEN
+        return CapacidadMargen(margen=multiplicador > 1.0, multiplicador=multiplicador,
+                               cortos=bool(getattr(cuenta, "shorting_enabled", False)))
 
     def tickers_con_orden_abierta(self) -> set[str]:
         """Tickers con alguna orden aún abierta (nueva, aceptada, parcial...). Propaga el error de red."""

@@ -11,6 +11,10 @@ Responsabilidad:
   variables faltan). Es lo ÚNICO que la API puede mostrar: nunca el secreto ni la API key completa.
 - `claves_de` es la única función que devuelve las claves completas; la usan el cliente de Alpaca y el bot, y no
   debe usarse para mostrar nada.
+- Margen: `ALPACA_<PERFIL>_MARGEN=1` (`ALPACA_MARGEN` para `DEFECTO`) DECLARA que la cuenta es de margen (apalancamiento hasta
+  2x overnight y ventas en corto); `capacidad_declarada` la traduce a `CapacidadMargen`. Sin la variable la cuenta se trata
+  como sin margen y las recetas apalancadas o con cortos se rechazan al vincular. El bot además lo comprueba contra la
+  cuenta real (`multiplier` y `shorting_enabled`, ver `BrokerAlpaca.capacidad_margen`).
 - `LIMITE_PERFILES_ACTIVOS` (3): límite blando de bots simultáneos (lo aplica el gestor de bots, no esto).
 
 Se relaciona con:
@@ -25,6 +29,8 @@ import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+
+from ypyquant.execution.margen import CAPACIDAD_REG_T, SIN_MARGEN, CapacidadMargen
 
 NOMBRE_DEFECTO = "DEFECTO"
 LIMITE_PERFILES_ACTIVOS = 3
@@ -44,6 +50,18 @@ def variables_de(perfil: str) -> tuple[str, str]:
     return f"ALPACA_{perfil}_API_KEY", f"ALPACA_{perfil}_SECRET_KEY"
 
 
+def variable_margen(perfil: str) -> str:
+    """Nombre de la variable que declara la cuenta de margen de un perfil (`DEFECTO` usa `ALPACA_MARGEN`)."""
+    return "ALPACA_MARGEN" if perfil == NOMBRE_DEFECTO else f"ALPACA_{perfil}_MARGEN"
+
+
+def capacidad_declarada(perfil: str, entorno: Mapping[str, str] | None = None) -> CapacidadMargen:
+    """Capacidad que el `.env` declara para el perfil: cuenta de margen estándar (2x, cortos) si la variable es verdadera."""
+    entorno = os.environ if entorno is None else entorno
+    valor = entorno.get(variable_margen(perfil), "").strip().lower()
+    return CAPACIDAD_REG_T if valor in ("1", "true", "si", "sí", "yes", "on") else SIN_MARGEN
+
+
 @dataclass(frozen=True)
 class PerfilAlpaca:
     """
@@ -57,11 +75,13 @@ class PerfilAlpaca:
     configurado: bool
     ultimos4: str | None = None
     faltan: tuple[str, ...] = field(default_factory=tuple)
+    margen: bool = False
 
     def a_dict(self) -> dict[str, object]:
         api, secreto = variables_de(self.nombre)
         return {"nombre": self.nombre, "configurado": self.configurado, "ultimos4": self.ultimos4,
-                "faltan": list(self.faltan), "variables": [api, secreto]}
+                "faltan": list(self.faltan), "variables": [api, secreto], "margen": self.margen,
+                "variable_margen": variable_margen(self.nombre)}
 
 
 def claves_de(perfil: str, entorno: Mapping[str, str] | None = None) -> tuple[str, str] | None:
@@ -75,9 +95,10 @@ def claves_de(perfil: str, entorno: Mapping[str, str] | None = None) -> tuple[st
 def _perfil(nombre: str, entorno: Mapping[str, str]) -> PerfilAlpaca:
     api, secreto = variables_de(nombre)
     faltan = tuple(v for v in (api, secreto) if not entorno.get(v, "").strip())
+    margen = capacidad_declarada(nombre, entorno).margen
     if faltan:
-        return PerfilAlpaca(nombre, False, None, faltan)
-    return PerfilAlpaca(nombre, True, entorno[api].strip()[-4:], ())
+        return PerfilAlpaca(nombre, False, None, faltan, margen)
+    return PerfilAlpaca(nombre, True, entorno[api].strip()[-4:], (), margen)
 
 
 def descubrir_perfiles(entorno: Mapping[str, str] | None = None) -> list[PerfilAlpaca]:

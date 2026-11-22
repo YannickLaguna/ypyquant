@@ -58,6 +58,7 @@ from ypyquant.execution.broker import Broker
 from ypyquant.execution.broker_alpaca import BrokerAlpaca
 from ypyquant.execution.calendario import FRECUENCIAS_VALIDAS, toca_rebalancear
 from ypyquant.execution.ejecutor import POLITICA_BOT, planificar_rebalanceo
+from ypyquant.execution.margen import incumplimientos, politica_para, reglas_desde_parametros
 from ypyquant.execution.nautilus.constructor_senales import construir_combinador
 from ypyquant.execution.nautilus.ordenes import decidir_orden
 from ypyquant.execution.nautilus.registro_fills import RegistroFills
@@ -241,7 +242,9 @@ def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, p
         logger.info("No se envían órdenes nuevas para %s: ya hay una orden abierta sobre cada uno", ", ".join(afectados))
 
     hubo_error = False
-    plan = planificar_rebalanceo(pesos, ultimos, cuenta, POLITICA_BOT, tickers_bloqueados=bloqueados)
+    # Con cortos (estrategia largo-corto en una cuenta de margen) la política del bot admite pesos negativos: vende en corto
+    politica = politica_para(reglas_desde_parametros(estrategia_registrada.parametros), POLITICA_BOT)
+    plan = planificar_rebalanceo(pesos, ultimos, cuenta, politica, tickers_bloqueados=bloqueados)
     for orden in plan.ordenes:
         try:
             id_orden = broker.enviar_orden(orden.ticker, orden.lado, int(orden.cantidad))
@@ -324,6 +327,12 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
             raise ValueError(f"Frecuencia de rebalanceo no válida: {frecuencia!r} (válidas: {', '.join(FRECUENCIAS_VALIDAS)})")
         if servicio.ruta_estado_estrategia is not None:
             restaurar_estado_estrategia(servicio.ruta_estado_estrategia, firma, estrategia_registrada)
+        reglas = reglas_desde_parametros(estrategia_registrada.parametros)
+        if reglas.activo:  # apalancamiento o cortos: la cuenta REAL debe ser de margen (aunque el .env lo declare)
+            problemas = incumplimientos(reglas, broker.capacidad_margen())
+            if problemas:
+                raise RuntimeError("La cuenta de Alpaca no admite esta estrategia: " + "; ".join(problemas))
+            logger.info("Margen: exposición bruta máxima %.2fx%s", reglas.limite_bruta, " con cortos" if reglas.permite_cortos else "")
         sesiones_necesarias = estrategia_registrada.sesiones_necesarias()
         dias_historico = resolver_dias_historico(sesiones_necesarias, servicio.dias_historico)
         logger.info("Modo registro: estrategia %s con parámetros %s, rebalanceo %s",

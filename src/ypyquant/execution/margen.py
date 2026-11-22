@@ -14,6 +14,8 @@ Responsabilidad:
       cortos (el efectivo incluye el producto de las ventas en corto). Requisito inicial: `equity >= requisito_inicial x
       bruta`, es decir bruta <= equity / 0,5 = 2x (límite Reg T overnight; `limite_bruta` = min(L, 1 / requisito_inicial)).
       Mantenimiento: `equity >= mantenimiento_largo x largos + mantenimiento_corto x cortos`.
+    - `CapacidadMargen` / `incumplimientos`: qué admite una cuenta de un broker (margen, multiplicador, cortos) y por qué
+      no puede operar una receta; lo usan el vínculo de Alpaca y el arranque del bot.
     - `evaluar_margen`: estado diario (bruta, neta, requisito, `en_llamada` si el equity cae bajo el mantenimiento).
     - `factor_de_conservacion`: qué fracción de las posiciones se conserva en una liquidación forzosa para volver al
       requisito inicial, descontando el coste (comisión + slippage) de lo vendido. Se reduce TODO proporcionalmente.
@@ -70,6 +72,46 @@ class ReglasMargen:
     def limite_bruta(self) -> float:
         """Exposición bruta máxima / equity: el apalancamiento pedido, acotado por el requisito inicial (Reg T: 2x)."""
         return min(self.apalancamiento_maximo, 1.0 / self.requisito_inicial)
+
+
+@dataclass(frozen=True)
+class CapacidadMargen:
+    """
+    Lo que permite una cuenta de un broker: si es de margen, su multiplicador (1, 2 o 4) y si admite ventas en corto.
+
+    `apalancamiento_permitido` es el que se puede mantener overnight: el multiplicador acotado a 2x (Reg T), porque el
+    4x de Alpaca es solo intradía. Una cuenta sin margen (por defecto) solo admite recetas largas sin apalancar.
+    """
+
+    margen: bool = False
+    multiplicador: float = 1.0
+    cortos: bool = False
+
+    @property
+    def apalancamiento_permitido(self) -> float:
+        return min(self.multiplicador, 2.0) if self.margen else 1.0
+
+
+SIN_MARGEN = CapacidadMargen()
+CAPACIDAD_REG_T = CapacidadMargen(margen=True, multiplicador=2.0, cortos=True)  # cuenta de margen estándar (2x, cortos)
+
+
+def incumplimientos(reglas: ReglasMargen, capacidad: CapacidadMargen) -> list[str]:
+    """
+    Por qué una cuenta con `capacidad` NO puede operar una receta con `reglas` (vacío = puede). Los textos son
+    mensajes de usuario, sin secretos.
+    """
+    problemas = []
+    if reglas.permite_cortos and not (capacidad.margen and capacidad.cortos):
+        problemas.append("La receta usa posiciones cortas: requiere cuenta de margen con ventas en corto habilitadas "
+                         "(declara ALPACA_<PERFIL>_MARGEN=1 en el .env si la cuenta lo es)")
+    elif reglas.apalancamiento_maximo > 1.0 and not capacidad.margen:
+        problemas.append("La receta usa apalancamiento_maximo > 1: requiere cuenta de margen "
+                         "(declara ALPACA_<PERFIL>_MARGEN=1 en el .env si la cuenta lo es)")
+    if capacidad.margen and reglas.apalancamiento_maximo > capacidad.apalancamiento_permitido + 1e-9:
+        problemas.append(f"La exposición bruta máxima de la receta ({reglas.apalancamiento_maximo:.2f}x) supera la que admite "
+                         f"la cuenta ({capacidad.apalancamiento_permitido:.2f}x overnight)")
+    return problemas
 
 
 @dataclass(frozen=True)

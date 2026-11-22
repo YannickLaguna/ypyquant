@@ -9,6 +9,7 @@ Responsabilidad:
 - `receta_de_origen`: obtiene la receta de un experimento (o, como extra barato, de una configuración guardada).
 - `resolver_tickers`: el universo de la receta como lista. El universo dinámico `sp500_pit` NO se soporta en vivo:
   decide la elegibilidad por fecha con la historia del índice, y el bot no la tiene; lanza `UniversoNoSoportado`.
+- `validar_operable`: además, el margen: las recetas apalancadas o con cortos exigen una cuenta de margen (`CapacidadMargen`).
 - `vincular`: escribe `vinculo.json`. Es idempotente: si la cuenta ya está vinculada a la misma receta y origen, no
   cambia nada (conserva fecha de alta y equity inicial). Si es otra receta, guarda la anterior en
   `vinculos_anteriores`, escribe el vínculo nuevo y borra el estado de la estrategia (es memoria de la anterior).
@@ -28,27 +29,32 @@ from typing import Any
 from ypyquant.data.universos import es_universo_pit, resolver_universo
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento
 from ypyquant.estrategias.receta import Receta
+from ypyquant.execution.margen import SIN_MARGEN, CapacidadMargen, incumplimientos, reglas_desde_parametros
 from ypyquant.perfiles_alpaca.almacen import AlmacenPerfiles
 
 TIPOS_ORIGEN = ("experimento", "configuracion")
 
 
 class RecetaNoOperable(ValueError):
-    """La receta no se puede operar en una cuenta de Alpaca (universo dinámico o apalancamiento)."""
+    """La receta no se puede operar en una cuenta de Alpaca (universo dinámico, o margen/cortos que la cuenta no admite)."""
 
 
 class UniversoNoSoportado(RecetaNoOperable):
     """El universo de la receta no se puede operar en vivo (p. ej. `sp500_pit`)."""
 
 
-def validar_operable(receta: Receta) -> list[str]:
+def validar_operable(receta: Receta, capacidad: CapacidadMargen = SIN_MARGEN) -> list[str]:
     """
     Comprueba que la receta se puede operar y devuelve sus tickers. `RecetaNoOperable` si no.
 
-    Rechaza `apalancamiento_maximo` > 1 (CASH negativo = préstamo): requiere cuenta de margen, no soportado aún.
+    Las recetas apalancadas (`apalancamiento_maximo` > 1, CASH negativo = préstamo) o con cortos (`exposicion_corta` > 0)
+    solo se admiten si la cuenta es de margen (`capacidad`, ver `ypyquant.perfiles_alpaca.perfiles.capacidad_declarada`):
+    el apalancamiento no puede pasar del multiplicador de la cuenta (2x overnight como máximo) y los cortos exigen
+    ventas en corto habilitadas. Con la capacidad por defecto (sin margen) se rechazan con un mensaje claro.
     """
-    if (receta.parametros.get("apalancamiento_maximo", 1) or 1) > 1:
-        raise RecetaNoOperable("La receta usa apalancamiento_maximo > 1: requiere cuenta de margen; no soportado aún")
+    problemas = incumplimientos(reglas_desde_parametros(receta.parametros), capacidad)
+    if problemas:
+        raise RecetaNoOperable("; ".join(problemas))
     return resolver_tickers(receta)
 
 
@@ -85,14 +91,16 @@ def receta_de_origen(tipo: str, id_origen: str, almacen_experimentos: Any,
 
 
 def vincular(almacen: AlmacenPerfiles, perfil: str, receta: Receta, tipo: str, id_origen: str,
-             equity_inicial: float | None, ahora: datetime | None = None) -> tuple[dict[str, Any], bool]:
+             equity_inicial: float | None, ahora: datetime | None = None,
+             capacidad: CapacidadMargen = SIN_MARGEN) -> tuple[dict[str, Any], bool]:
     """
     Vincula el perfil a la receta y devuelve `(vinculo, cambio)`; `cambio` es False si ya estaba vinculado a lo mismo.
 
-    La receta debe venir normalizada (ver `receta_de_origen`). El vínculo anterior, si lo había, pasa a
+    La receta debe venir normalizada (ver `receta_de_origen`). `capacidad` es la de margen de la cuenta (por defecto, sin
+    margen: se rechazan las recetas apalancadas o con cortos). El vínculo anterior, si lo había, pasa a
     `vinculos_anteriores` y se borra el estado persistido de la estrategia.
     """
-    validar_operable(receta)
+    validar_operable(receta, capacidad)
     huella = receta.huella()
     actual = almacen.leer_vinculo(perfil)
     if actual and actual.get("huella_receta") == huella and actual.get("origen") == {"tipo": tipo, "id": id_origen}:
