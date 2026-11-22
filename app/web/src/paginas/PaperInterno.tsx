@@ -11,6 +11,7 @@
  *   progreso); al terminar muestra qué hizo cada sesión (días procesados, avisos, errores) y la tabla se refresca.
  * - Selección múltiple -> equity a base 100 en la fecha común (lib/paperInterno.ts) con el benchmark de la primera,
  *   con el mismo gráfico que Comparar. Las sesiones se crean desde la ficha de un experimento terminado.
+ * - Tarjeta de membresías del S&P 500 (componentes/TarjetaMembresias.tsx): vigentes, última comprobación y pendientes.
  * Se relaciona con: api/paper_interno.ts (hooks), componentes/Graficos.tsx, TablaOrdenable.tsx, Estado.tsx,
  * InsigniaSesionPaper.tsx, lib/paperInterno.ts (textos de tiempo) y paginas/PaperInternoDetalle.tsx. NO es PaperTrading.tsx (Alpaca).
  */
@@ -27,6 +28,7 @@ import {
 import { CajaError, Cargando, Vacio } from '../componentes/Estado'
 import { GraficoSeries, type SerieGrafico } from '../componentes/Graficos'
 import InsigniaSesionPaper from '../componentes/InsigniaSesionPaper'
+import TarjetaMembresias from '../componentes/TarjetaMembresias'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, dinero, entero, fechaHora, porcentaje, ratio } from '../lib/formato'
 import { normalizarBase100, resumenTiempo, textoModo, textoResultadoComprobacion } from '../lib/paperInterno'
@@ -147,6 +149,7 @@ export default function PaperInterno() {
           )}
         </p>
       )}
+      <TarjetaMembresias />
       {avanzar.error && <CajaError error={avanzar.error} titulo="No se pudo avanzar" />}
       {enCurso && <Cargando texto="Avanzando las sesiones: descargando precios y procesando días…" />}
       {!enCurso && avance.data?.fin && (

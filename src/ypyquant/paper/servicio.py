@@ -259,7 +259,8 @@ class ServicioPaper:
         if not sesion.universo_dinamico:
             return []
         try:
-            return avisos_membresias(self.simulador.membresias(), estado.ultima_fecha_procesada)
+            return avisos_membresias(self.simulador.membresias(), estado.ultima_fecha_procesada,
+                                     comprobado=self.simulador.comprobado_membresias())
         except FileNotFoundError as error:
             return [str(error)]
 
