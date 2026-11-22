@@ -208,3 +208,45 @@ def test_comparativa_de_configuracion_crea_o_reutiliza_el_marco(tmp_path):
     assert primera["experimentos"][0]["id_experimento"] == _config().normalizada().identificador()
     segunda = servicio.lanzar_comparativa_de_configuracion(guardada, entradas, "2020-01-01", "2021-06-30")
     assert segunda["id"] == primera["id"] and len(servicio.almacen_marcos.listar()) == 1
+
+
+def test_comparativas_de_configuracion_usa_el_indice_y_se_mantiene_al_registrar(tmp_path):
+    servicio = _servicio(tmp_path)
+    guardada = _guardada(servicio)
+    entradas = [{"estrategia": "momentum", "parametros": {"top_k": 2}}, {"estrategia": "pesos_iguales", "parametros": {}}]
+    assert servicio.almacen_marcos.comparativas_de_configuracion(guardada.id) == []  # construye el índice (vacío)
+    comparativa = servicio.lanzar_comparativa_de_configuracion(guardada, entradas, "2020-01-01", "2021-06-30")
+    # el índice ya construido se actualiza solo: sin releer todas las comparativas
+    servicio.almacen_marcos.comparativas.listar = lambda: pytest.fail("no debe recorrer las comparativas")
+    assert [c["id"] for c in servicio.almacen_marcos.comparativas_de_configuracion(guardada.id)] == [comparativa["id"]]
+    assert servicio.almacen_marcos.comparativas_de_configuracion("otra") == []
+
+
+# ---- tareas largas: permutación -----------------------------------------------------------------
+
+
+def test_permutacion_se_lanza_termina_y_se_relanza(tmp_path):
+    servicio = _servicio(tmp_path)
+    servicio.ejecutor_barridos = EjecutorSincrono()
+    id_barrido, _, _ = servicio.lanzar_barrido(ConfiguracionBarrido(base=_config(), rejilla={"top_k": [1, 2]}))
+    parametros = {"n_permutaciones": 2, "modo": "in_sample", "procesos": 1}
+    assert servicio.nombre_tarea_permutacion("in_sample") == "permutacion_in_sample"
+    assert servicio.lanzar_permutacion(id_barrido, parametros) == "permutacion_in_sample"
+    tarea = servicio.almacen_barridos.tarea(id_barrido, "permutacion_in_sample")
+    assert tarea["estado"] == "hecho" and 0 < tarea["p_valor"] <= 1 and tarea["progreso"] == {"completadas": 2, "total": 2}
+    assert servicio.cancelar_permutacion(id_barrido, "permutacion_in_sample") is False  # ya terminó: nada que cancelar
+    assert servicio.lanzar_permutacion(id_barrido, parametros) == "permutacion_in_sample"  # relanzable
+
+
+def test_permutacion_en_curso_no_se_duplica_y_se_cancela(tmp_path):
+    servicio = _servicio(tmp_path)
+    servicio.ejecutor_barridos = EjecutorSincrono(retener=True)
+    id_barrido, _, _ = servicio.lanzar_barrido(ConfiguracionBarrido(base=_config(), rejilla={"top_k": [1, 2]}))
+    parametros = {"n_permutaciones": 2, "modo": "in_sample", "procesos": 1}
+    servicio.lanzar_permutacion(id_barrido, parametros)
+    assert servicio.almacen_barridos.tarea(id_barrido, "permutacion_in_sample")["estado"] == "pendiente"
+    with pytest.raises(RuntimeError, match="en curso"):
+        servicio.lanzar_permutacion(id_barrido, parametros)
+    assert servicio.cancelar_permutacion(id_barrido, "permutacion_in_sample") is True
+    servicio.ejecutor_barridos.soltar()
+    assert servicio.almacen_barridos.tarea(id_barrido, "permutacion_in_sample")["estado"] == "cancelado"

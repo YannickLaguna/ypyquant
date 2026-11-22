@@ -34,7 +34,6 @@ Se relaciona con:
 from __future__ import annotations
 
 import hashlib
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +43,7 @@ import numpy as np
 import pandas as pd
 
 from ypyquant.data.matriz_precios import CargadorPrecios, extraer_serie_precios
-from ypyquant.estrategias.almacen import AlmacenExperimentos, _escribir_json
+from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ResultadoExperimento
 from ypyquant.estrategias.procedencia import commit_git
 from ypyquant.portfolio.performance_metrics import PerformanceAnalyzer
@@ -390,13 +389,11 @@ def _procedencia_base(carpeta_tfm: Path, archivos: list[str]) -> dict[str, Any]:
 
 def _escribir(almacen: AlmacenExperimentos, id_experimento: str, resultado: ResultadoExperimento) -> None:
     """Crea la carpeta del experimento con su ficha y lo guarda como `hecho` (mismo formato que un backtest)."""
-    carpeta = almacen._carpeta(id_experimento)  # valida el id (sin separadores ni punto inicial)
-    if carpeta.exists():  # restos de una importación interrumpida
-        shutil.rmtree(carpeta)
-    carpeta.mkdir(parents=True)
-    _escribir_json(carpeta / "config.json", resultado.config.model_dump())
-    _escribir_json(carpeta / "estado.json", {"estado": "pendiente", "creado": datetime.now().isoformat(),
-                                             "actualizado": datetime.now().isoformat(), "error": None})
+    documentos = almacen.documentos
+    documentos.crear(id_experimento, reemplazar=True)  # valida el id; descarta restos de una importación interrumpida
+    documentos.escribir_json(id_experimento, "config", resultado.config.model_dump())
+    documentos.escribir_json(id_experimento, "estado", {"estado": "pendiente", "creado": datetime.now().isoformat(),
+                                                        "actualizado": datetime.now().isoformat(), "error": None})
     almacen.guardar(id_experimento, resultado)
 
 

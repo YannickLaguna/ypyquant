@@ -32,6 +32,8 @@ práctica de «elige el centro de una zona estable, no el pico».
 Se relaciona con:
 - ypyquant.estrategias.experimentos (`expandir_rejilla`, configuración base) y .almacen (lee
   métricas y `equity.parquet` de los experimentos).
+- ypyquant.almacen_documentos (`AlmacenDocumentos`: la persistencia por id sobre la que `AlmacenBarridos` es un adaptador) y
+  ypyquant.raiz_datos (rutas por defecto).
 - ypyquant.estrategias.validacion_barridos (DSR, PBO, permutación, walk-forward sobre la matriz) y
   .reservado (periodo reservado con contador).
 - app/api/rutas_barridos.py (los expone).
@@ -43,8 +45,6 @@ import hashlib
 import itertools
 import json
 import math
-import shutil
-import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -53,16 +53,15 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from ypyquant.estrategias.almacen import AlmacenExperimentos, _escribir_json, _escribir_parquet, _leer_json
+from ypyquant.almacen_documentos import AlmacenDocumentos, id_sin_separadores
+from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.experimentos import (
     MAX_COMBINACIONES_REJILLA,
     ConfiguracionExperimento,
     _limpiar,
     expandir_rejilla_con_omitidas,
 )
-
-RAIZ_REPO = Path(__file__).resolve().parents[3]
-RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "barridos"
+from ypyquant.raiz_datos import RaizDatos
 
 # Métricas por las que se puede elegir la «mejor» combinación: todas con la convención «mayor es mejor»
 # (max_drawdown es <= 0, así que el menos negativo gana). No se admiten volatilidad, turnover ni costes.
@@ -203,22 +202,20 @@ class AlmacenBarridos:
     Persistencia de barridos en `data/barridos/<id>/`.
 
     Args:
-        raiz: carpeta del almacén (por defecto `data/barridos/` del repo). Su carpeta padre guarda
-            `reservado.json` (contador de uso del periodo reservado, común a todos los barridos).
+        raiz: carpeta del almacén (por defecto `data/barridos/` del repo, según `RaizDatos`). Es un adaptador de dominio
+            sobre un `AlmacenDocumentos` (`self.documentos`, con `barrido.json` como marca del documento).
         experimentos: `AlmacenExperimentos` donde viven los backtests de las combinaciones.
+        ruta_reservado: `reservado.json` (contador de uso del periodo reservado, común a todos los barridos); por defecto
+            el hermano de `raiz`, que es donde lo pone `RaizDatos.reservado`.
     """
 
-    def __init__(self, raiz: Path | str | None = None, experimentos: AlmacenExperimentos | None = None):
-        self.raiz = Path(raiz) if raiz else RAIZ_POR_DEFECTO
-        self.raiz.mkdir(parents=True, exist_ok=True)
+    def __init__(self, raiz: Path | str | None = None, experimentos: AlmacenExperimentos | None = None,
+                 ruta_reservado: Path | str | None = None):
+        self.documentos = AlmacenDocumentos(raiz or RaizDatos().barridos, nombre="barrido",
+                                            validar_id=id_sin_separadores, marca="barrido")
+        self.raiz = self.documentos.raiz
         self.experimentos = experimentos or AlmacenExperimentos()
-        self.ruta_reservado = self.raiz.parent / "reservado.json"
-        self._cerrojo = threading.RLock()
-
-    def _carpeta(self, id_barrido: str) -> Path:
-        if not id_barrido or "/" in id_barrido or "\\" in id_barrido or id_barrido.startswith("."):
-            raise ValueError(f"Identificador de barrido inválido: {id_barrido!r}")
-        return self.raiz / id_barrido
+        self.ruta_reservado = Path(ruta_reservado) if ruta_reservado else self.raiz.parent / "reservado.json"
 
     # ---- creación y borrado ----------------------------------------------------
 
@@ -230,18 +227,15 @@ class AlmacenBarridos:
         se reinicia (se borran sus resultados de validación).
         """
         id_barrido = config.identificador()
-        carpeta = self._carpeta(id_barrido)
-        with self._cerrojo:
-            if (carpeta / "barrido.json").exists() and not forzar:
+        with self.documentos.cerrojo:
+            if self.documentos.existe(id_barrido) and not forzar:
                 return id_barrido, False
-            if carpeta.exists():
-                shutil.rmtree(carpeta)
-            carpeta.mkdir(parents=True)
+            self.documentos.crear(id_barrido, reemplazar=True)
             validas, omitidas = config._expandir_tolerante()
             combinaciones = [{"id": c.identificador(), "etiqueta": c.etiqueta, "valores": valores,
                               "posiciones": posiciones} for c, valores, posiciones in validas]
             ahora = datetime.now().isoformat()
-            _escribir_json(carpeta / "barrido.json", {
+            self.documentos.escribir_json(id_barrido, "barrido", {
                 "id": id_barrido, "config": config.model_dump(), "combinaciones": combinaciones, "omitidas": omitidas,
                 "estado": "pendiente", "progreso": {"total": len(combinaciones), "hechos": 0, "errores": 0},
                 "tareas": {}, "creado": ahora, "actualizado": ahora,
@@ -250,25 +244,24 @@ class AlmacenBarridos:
 
     def borrar(self, id_barrido: str, con_experimentos: bool = False) -> bool:
         """Elimina el barrido (y, si se pide, los experimentos de sus combinaciones). False si no existía."""
-        carpeta = self._carpeta(id_barrido)
-        with self._cerrojo:
-            datos = _leer_json(carpeta / "barrido.json")
+        with self.documentos.cerrojo:
+            datos = self.documentos.leer_json(id_barrido, "barrido")
             if datos is None:
                 return False
             if con_experimentos:
                 for combinacion in datos["combinaciones"]:
                     self.experimentos.borrar(combinacion["id"])
-            shutil.rmtree(carpeta)
+            self.documentos.borrar(id_barrido)
         return True
 
     def existe(self, id_barrido: str) -> bool:
-        return (self._carpeta(id_barrido) / "barrido.json").exists()
+        return self.documentos.existe(id_barrido)
 
     # ---- lectura ---------------------------------------------------------------
 
     def cargar(self, id_barrido: str) -> Barrido:
         """Vista `Barrido` del barrido guardado (KeyError si no existe)."""
-        datos = _leer_json(self._carpeta(id_barrido) / "barrido.json")
+        datos = self.documentos.leer_json(id_barrido, "barrido")
         if datos is None:
             raise KeyError(id_barrido)
         return Barrido(id_barrido, ConfiguracionBarrido(**datos["config"]), datos["combinaciones"], self)
@@ -296,25 +289,22 @@ class AlmacenBarridos:
         `barrido.json` con el estado y el progreso al día (recalculados desde los experimentos) y los
         resultados de validación disponibles (nombres de archivo sin extensión).
         """
-        carpeta = self._carpeta(id_barrido)
-        with self._cerrojo:
-            datos = _leer_json(carpeta / "barrido.json")
+        with self.documentos.cerrojo:
+            datos = self.documentos.leer_json(id_barrido, "barrido")
             if datos is None:
                 raise KeyError(id_barrido)
             nuevo = self.estado_experimentos(self.cargar(id_barrido))
             if nuevo["estado"] != datos.get("estado") or nuevo["progreso"] != datos.get("progreso"):
                 datos.update(nuevo, actualizado=datetime.now().isoformat())
-                _escribir_json(carpeta / "barrido.json", datos)
-        datos["resultados"] = sorted(p.stem for p in carpeta.glob("*.json") if p.name != "barrido.json")
+                self.documentos.escribir_json(id_barrido, "barrido", datos)
+        datos["resultados"] = [n for n in self.documentos.nombres_json(id_barrido) if n != "barrido"]
         return datos
 
     def listar(self) -> list[dict[str, Any]]:
         """Resúmenes (más recientes primero): id, etiqueta, estrategia, estado, progreso, métrica objetivo..."""
         resumenes = []
-        for carpeta in self.raiz.iterdir():
-            if not (carpeta / "barrido.json").exists():
-                continue
-            datos = self.leer(carpeta.name)
+        for id_barrido in self.documentos.ids():
+            datos = self.leer(id_barrido)
             config = datos["config"]
             resumenes.append({
                 "id": datos["id"], "etiqueta": config.get("etiqueta", ""), "estrategia": config["base"]["estrategia"],
@@ -329,14 +319,14 @@ class AlmacenBarridos:
 
     def guardar_resultado(self, id_barrido: str, nombre: str, contenido: Any) -> None:
         """Guarda `<nombre>.json` en la carpeta del barrido (escritura atómica)."""
-        _escribir_json(self._carpeta(id_barrido) / f"{nombre}.json", contenido)
+        self.documentos.escribir_json(id_barrido, nombre, contenido)
 
     def leer_resultado(self, id_barrido: str, nombre: str) -> Any:
         """Contenido de `<nombre>.json` (None si no existe)."""
-        return _leer_json(self._carpeta(id_barrido) / f"{nombre}.json")
+        return self.documentos.leer_json(id_barrido, nombre)
 
     def guardar_parquet(self, id_barrido: str, nombre: str, tabla: pd.DataFrame) -> None:
-        _escribir_parquet(tabla, self._carpeta(id_barrido) / f"{nombre}.parquet", index=True)
+        self.documentos.escribir_parquet(id_barrido, nombre, tabla, index=True)
 
     # ---- tareas largas (permutación) -------------------------------------------
 
@@ -344,28 +334,27 @@ class AlmacenBarridos:
         """Crea o actualiza `tareas[nombre]` en `barrido.json` (estado, progreso, error, parámetros...)."""
         if "estado" in campos and campos["estado"] not in ESTADOS_TAREA:
             raise ValueError(f"Estado de tarea inválido: {campos['estado']}")
-        carpeta = self._carpeta(id_barrido)
-        with self._cerrojo:
-            datos = _leer_json(carpeta / "barrido.json")
+        with self.documentos.cerrojo:
+            datos = self.documentos.leer_json(id_barrido, "barrido")
             if datos is None:
                 raise KeyError(id_barrido)
             tarea = datos["tareas"].setdefault(nombre, {})
             tarea.update(campos, actualizado=datetime.now().isoformat())
-            _escribir_json(carpeta / "barrido.json", datos)
+            self.documentos.escribir_json(id_barrido, "barrido", datos)
             return tarea
 
     def tarea(self, id_barrido: str, nombre: str) -> dict[str, Any] | None:
-        datos = _leer_json(self._carpeta(id_barrido) / "barrido.json")
+        datos = self.documentos.leer_json(id_barrido, "barrido")
         return (datos or {}).get("tareas", {}).get(nombre)
 
     def marcar_interrumpidos(self) -> int:
         """Pasa a `error` las tareas que quedaron `en_curso`/`pendiente` (el proceso anterior murió)."""
         cuenta = 0
-        for carpeta in self.raiz.iterdir():
-            datos = _leer_json(carpeta / "barrido.json") if carpeta.is_dir() else None
+        for id_barrido in self.documentos.ids():
+            datos = self.documentos.leer_json(id_barrido, "barrido")
             for nombre, tarea in (datos or {}).get("tareas", {}).items():
                 if tarea.get("estado") in ("pendiente", "en_curso"):
-                    self.actualizar_tarea(carpeta.name, nombre, estado="error",
+                    self.actualizar_tarea(id_barrido, nombre, estado="error",
                                           error="Interrumpida: el servidor se reinició durante la ejecución")
                     cuenta += 1
         return cuenta

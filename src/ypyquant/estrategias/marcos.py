@@ -15,7 +15,9 @@ Responsabilidad:
 - `preparar_comparativa(marco, entradas)`: aplica el marco a N estrategias validándolas TODAS antes de lanzar nada.
 - `AlmacenMarcos`: `data/marcos/<id>/marco.json` y las comparativas lanzadas en `data/marcos/_comparativas/<id>.json`
   (id del marco + experimentos, con una copia del marco y el informe de cada estrategia). El id de una comparativa
-  sale de los experimentos: relanzar lo mismo la reutiliza.
+  sale de los experimentos: relanzar lo mismo la reutiliza. Es un adaptador de dominio sobre `AlmacenDocumentos` (los
+  marcos) y `ColeccionJson` (las comparativas, archivos planos); `comparativas_de_configuracion` las consulta por
+  configuración con un índice en memoria.
 - `marco_desde_configuracion(configuracion, inicio, fin)` y `fechas_por_defecto(...)`: funciones puras que convierten
   una configuración guardada en un marco (su ENTORNO: universo, frecuencia, costes, benchmark, capital, semilla,
   historia previa y los `COMUNES_CONOCIDOS` que traiga) para lanzar la misma receta de entorno contra otras
@@ -32,7 +34,8 @@ pero sí se comparan por los campos de su configuración.
 Se relaciona con:
 - ypyquant.estrategias.receta (`Entorno`, `Receta`, canonización de `diferencias_ceteris_paribus`), .experimentos
   (ConfiguracionExperimento), .registro (clases y `Parametros`) y .almacen
-  (E/S JSON atómica); .configuraciones (una configuración puede apuntar a un marco con `id_marco`).
+  y ypyquant.almacen_documentos (E/S JSON atómica); .configuraciones (una configuración puede apuntar a un marco con
+  `id_marco`).
 - app/api/rutas_marcos.py (las expone) y app/web (páginas Marcos y Comparar).
 """
 
@@ -41,7 +44,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import threading
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
@@ -51,7 +53,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ypyquant.estrategias.almacen import _escribir_json, _leer_json
+from ypyquant.almacen_documentos import AlmacenDocumentos, ColeccionJson, id_slug
 from ypyquant.estrategias.configuraciones import crear_slug
 from ypyquant.estrategias.experimentos import (
     ConfiguracionExperimento,
@@ -61,12 +63,11 @@ from ypyquant.estrategias.experimentos import (
 from ypyquant.estrategias.receta import CAMPOS_ENTORNO as CAMPOS_ENTORNO_RECETA
 from ypyquant.estrategias.receta import Entorno, Frecuencia, Receta, valor_comparable
 from ypyquant.estrategias.registro import obtener_estrategia
+from ypyquant.raiz_datos import RaizDatos
 
 if TYPE_CHECKING:  # solo para anotar: configuraciones.py ya importa este módulo de forma indirecta
     from ypyquant.estrategias.configuraciones import ConfiguracionGuardada
 
-RAIZ_REPO = Path(__file__).resolve().parents[3]
-RAIZ_POR_DEFECTO = RAIZ_REPO / "data" / "marcos"
 CARPETA_COMPARATIVAS = "_comparativas"
 # Parámetros que suelen ser comunes entre estrategias; se sugieren en la UI y se vigilan en `diferencias_ceteris_paribus`
 COMUNES_CONOCIDOS = ("ventana_dias", "peso_maximo", "tasa_libre_riesgo", "estimador_sigma", "frecuencia_estimacion")
@@ -246,36 +247,37 @@ def _resumen_error(error: ValueError) -> str:
 
 
 class AlmacenMarcos:
-    """Persistencia de marcos y comparativas (ver cabecera del módulo). Escritura atómica por archivo."""
+    """
+    Persistencia de marcos y comparativas (ver cabecera del módulo). Escritura atómica por archivo.
+
+    `self.documentos` guarda los marcos (`<raiz>/<id>/marco.json`) y `self.comparativas` las comparativas
+    (`<raiz>/_comparativas/cmp-*.json`). El índice `{id_configuracion: ids de comparativa}` es **en memoria**: se construye
+    en la primera consulta (o con `indexar_comparativas`) y se mantiene en `registrar_comparativa`; las comparativas que
+    otro proceso añada después no se ven hasta reindexar (las consultas descartan las que ya no apuntan a la configuración).
+    """
 
     def __init__(self, raiz: Path | str | None = None):
-        self.raiz = Path(raiz) if raiz else RAIZ_POR_DEFECTO
-        self.raiz.mkdir(parents=True, exist_ok=True)
-        (self.raiz / CARPETA_COMPARATIVAS).mkdir(exist_ok=True)
+        self.documentos = AlmacenDocumentos(raiz or RaizDatos().marcos, nombre="marco", validar_id=id_slug, marca="marco")
+        self.raiz = self.documentos.raiz
+        self.comparativas = ColeccionJson(self.raiz / CARPETA_COMPARATIVAS, prefijo="cmp-")
         self._cerrojo = threading.Lock()
-
-    def _carpeta(self, id_marco: str) -> Path:
-        if not id_marco or not re.fullmatch(r"[a-z0-9][a-z0-9\-_.]*", id_marco) or ".." in id_marco:
-            raise ValueError(f"Identificador de marco inválido: {id_marco!r}")
-        return self.raiz / id_marco
+        self._por_configuracion: dict[str, set[str]] | None = None
 
     def guardar(self, marco: MarcoComparacion) -> MarcoComparacion:
         """Crea el marco. `MarcoExistente` si el id ya existe."""
-        carpeta = self._carpeta(marco.id)
         with self._cerrojo:
-            if (carpeta / "marco.json").exists():
+            if self.documentos.existe(marco.id):
                 raise MarcoExistente(f"Ya existe el marco '{marco.id}'")
-            carpeta.mkdir(parents=True, exist_ok=True)
-            _escribir_json(carpeta / "marco.json", marco.model_dump())
+            self.documentos.crear(marco.id)
+            self.documentos.escribir_json(marco.id, "marco", marco.model_dump())
         return marco
 
     def actualizar(self, marco: MarcoComparacion) -> MarcoComparacion:
         """Reemplaza un marco existente (`KeyError` si no existe). Los experimentos ya lanzados no cambian."""
-        carpeta = self._carpeta(marco.id)
         with self._cerrojo:
-            if not (carpeta / "marco.json").exists():
+            if not self.documentos.existe(marco.id):
                 raise KeyError(marco.id)
-            anterior = MarcoComparacion(**_leer_json(carpeta / "marco.json"))
+            anterior = MarcoComparacion(**self.documentos.leer_json(marco.id, "marco"))
             cambios: dict = {"creado": anterior.creado}
             # El formulario de marcos no envía el vínculo con la configuración de origen: si falta, se conserva.
             if marco.id_configuracion is None:
@@ -284,11 +286,11 @@ class AlmacenMarcos:
                     "version_configuracion": anterior.version_configuracion,
                 }
             marco = marco.model_copy(update=cambios)
-            _escribir_json(carpeta / "marco.json", marco.model_dump())
+            self.documentos.escribir_json(marco.id, "marco", marco.model_dump())
         return marco
 
     def leer(self, id_marco: str) -> MarcoComparacion:
-        datos = _leer_json(self._carpeta(id_marco) / "marco.json")
+        datos = self.documentos.leer_json(id_marco, "marco")
         if datos is None:
             raise KeyError(id_marco)
         return MarcoComparacion(**datos)
@@ -296,20 +298,16 @@ class AlmacenMarcos:
     def listar(self) -> list[MarcoComparacion]:
         """Todos los marcos, los más recientes primero."""
         marcos = []
-        for carpeta in self.raiz.iterdir():
-            datos = _leer_json(carpeta / "marco.json") if carpeta.is_dir() and carpeta.name != CARPETA_COMPARATIVAS else None
+        for id_marco in self.documentos.ids():
+            datos = self.documentos.leer_json(id_marco, "marco")
             if datos is not None:
                 marcos.append(MarcoComparacion(**datos))
         return sorted(marcos, key=lambda m: m.creado, reverse=True)
 
     def borrar(self, id_marco: str) -> bool:
         """Borra el marco (las comparativas ya lanzadas se conservan con su copia del marco)."""
-        carpeta = self._carpeta(id_marco)
         with self._cerrojo:
-            if not carpeta.exists():
-                return False
-            shutil.rmtree(carpeta)
-        return True
+            return self.documentos.borrar(id_marco)
 
     # ---- comparativas ---------------------------------------------------------------------
 
@@ -324,22 +322,48 @@ class AlmacenMarcos:
         comparativa = {"id": identificador, "id_marco": marco.id, "marco": marco.model_dump(),
                        "creada": datetime.now().isoformat(timespec="seconds"), "experimentos": [dict(e) for e in experimentos]}
         with self._cerrojo:
-            _escribir_json(self.raiz / CARPETA_COMPARATIVAS / f"{identificador}.json", comparativa)
+            self.comparativas.escribir(identificador, comparativa)
+            if self._por_configuracion is not None:
+                for ids in self._por_configuracion.values():
+                    ids.discard(identificador)  # el mismo id puede reasignarse si el marco cambió de configuración
+                if marco.id_configuracion:
+                    self._por_configuracion.setdefault(marco.id_configuracion, set()).add(identificador)
         return comparativa
 
     def leer_comparativa(self, id_comparativa: str) -> dict[str, Any]:
         if not re.fullmatch(r"cmp-[0-9a-f]{10}", id_comparativa):
             raise KeyError(id_comparativa)
-        datos = _leer_json(self.raiz / CARPETA_COMPARATIVAS / f"{id_comparativa}.json")
+        datos = self.comparativas.leer(id_comparativa)
         if datos is None:
             raise KeyError(id_comparativa)
         return datos
 
     def listar_comparativas(self, id_marco: str | None = None) -> list[dict[str, Any]]:
         """Comparativas (las más recientes primero), de un marco o de todos."""
-        todas = [_leer_json(ruta) for ruta in (self.raiz / CARPETA_COMPARATIVAS).glob("cmp-*.json")]
-        todas = [c for c in todas if c is not None and (id_marco is None or c["id_marco"] == id_marco)]
+        todas = [c for c in self.comparativas.listar() if id_marco is None or c["id_marco"] == id_marco]
         return sorted(todas, key=lambda c: c["creada"], reverse=True)
+
+    def indexar_comparativas(self) -> None:
+        """(Re)construye el índice por configuración leyendo todas las comparativas (una vez al arrancar basta)."""
+        indice: dict[str, set[str]] = {}
+        for comparativa in self.comparativas.listar():
+            id_configuracion = comparativa["marco"].get("id_configuracion")
+            if id_configuracion:
+                indice.setdefault(id_configuracion, set()).add(comparativa["id"])
+        with self._cerrojo:
+            self._por_configuracion = indice
+
+    def comparativas_de_configuracion(self, id_configuracion: str) -> list[dict[str, Any]]:
+        """
+        Comparativas (las más recientes primero) lanzadas con un marco creado desde esa configuración
+        (`marco.id_configuracion`), sin recorrer todas: usa el índice en memoria y solo lee esas comparativas.
+        """
+        if self._por_configuracion is None:
+            self.indexar_comparativas()
+        ids = sorted(self._por_configuracion.get(id_configuracion, ()))
+        leidas = [c for i in ids if (c := self.comparativas.leer(i)) is not None]
+        propias = [c for c in leidas if c["marco"].get("id_configuracion") == id_configuracion]
+        return sorted(propias, key=lambda c: c["creada"], reverse=True)
 
 
 # ---- ceteris paribus ---------------------------------------------------------------------
