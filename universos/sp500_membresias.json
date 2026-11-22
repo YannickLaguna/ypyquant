@@ -296,7 +296,10 @@
   "ALK": [
    {
     "date_added": "2016-05-13",
-    "date_removed": "2023-10-18"
+    "date_removed": "2023-12-18",
+    "fuente_baja": "https://press.spglobal.com/2023-12-01-Uber-Technologies,-Jabil-and-Builders-FirstSource-Set-to-Join-S-P-500-Others-to-Join-S-P-MidCap-400-and-S-P-SmallCap-600 (comunicado de S&P DJI: efectivo antes de la apertura del 2023-12-18)",
+    "motivo_baja": "Market capitalization changes.",
+    "fecha_baja_corregida_desde": "2023-10-18"
    }
   ],
   "ALL": [
@@ -1089,7 +1092,10 @@
   "BWA": [
    {
     "date_added": "2011-12-19",
-    "date_removed": "2025-04-24"
+    "date_removed": "2025-03-24",
+    "fuente_baja": "https://press.spglobal.com/2025-03-07-DoorDash,-TKO-Group-Holdings,-Williams-Sonoma-and-Expand-Energy-Set-to-Join-S-P-500-Others-to-Join-S-P-100,-S-P-MidCap-400-and-S-P-SmallCap-600 (comunicado de S&P DJI: efectivo antes de la apertura del 2025-03-24)",
+    "motivo_baja": "Market capitalization changes.",
+    "fecha_baja_corregida_desde": "2025-04-24"
    }
   ],
   "BX": [
@@ -5852,13 +5858,19 @@
   "SEDG": [
    {
     "date_added": "2021-12-20",
-    "date_removed": "2023-10-18"
+    "date_removed": "2023-12-18",
+    "fuente_baja": "https://press.spglobal.com/2023-12-01-Uber-Technologies,-Jabil-and-Builders-FirstSource-Set-to-Join-S-P-500-Others-to-Join-S-P-MidCap-400-and-S-P-SmallCap-600 (comunicado de S&P DJI: efectivo antes de la apertura del 2023-12-18)",
+    "motivo_baja": "Market capitalization changes.",
+    "fecha_baja_corregida_desde": "2023-10-18"
    }
   ],
   "SEE": [
    {
     "date_added": "1998-04-01",
-    "date_removed": "2023-10-18"
+    "date_removed": "2023-12-18",
+    "fuente_baja": "https://press.spglobal.com/2023-12-01-Uber-Technologies,-Jabil-and-Builders-FirstSource-Set-to-Join-S-P-500-Others-to-Join-S-P-MidCap-400-and-S-P-SmallCap-600 (comunicado de S&P DJI: efectivo antes de la apertura del 2023-12-18)",
+    "motivo_baja": "Market capitalization changes.",
+    "fecha_baja_corregida_desde": "2023-10-18"
    }
   ],
   "SEG": [
@@ -6346,7 +6358,10 @@
   "TFX": [
    {
     "date_added": "2019-01-18",
-    "date_removed": "2025-04-24"
+    "date_removed": "2025-03-24",
+    "fuente_baja": "https://press.spglobal.com/2025-03-07-DoorDash,-TKO-Group-Holdings,-Williams-Sonoma-and-Expand-Energy-Set-to-Join-S-P-500-Others-to-Join-S-P-100,-S-P-MidCap-400-and-S-P-SmallCap-600 (comunicado de S&P DJI: efectivo antes de la apertura del 2025-03-24)",
+    "motivo_baja": "Market capitalization changes.",
+    "fecha_baja_corregida_desde": "2025-04-24"
    }
   ],
   "TGNA": [

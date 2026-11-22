@@ -272,6 +272,16 @@ def test_los_intervalos_del_fichero_son_coherentes():
         ("2015-11-19", "2024-06-24"), ("2026-09-21", None)]
 
 
+@pytest.mark.parametrize("simbolo", ["BWA", "TFX", "ALK", "SEDG", "SEE"])
+def test_bajas_corregidas_a_la_fecha_efectiva_verificada_con_su_fuente(simbolo):
+    """Fechas efectivas según los comunicados de S&P DJI (2025-03-07 y 2023-12-01), con la fuente anotada en el fichero."""
+    esperada = "2025-03-24" if simbolo in ("BWA", "TFX") else "2023-12-18"
+    documento = json.loads((Path(__file__).resolve().parents[1] / "universos" / "sp500_membresias.json").read_text(encoding="utf-8"))
+    intervalo = documento["miembros"][simbolo][-1]
+    assert intervalo["date_removed"] == esperada
+    assert "press.spglobal.com" in intervalo["fuente_baja"]
+
+
 def test_la_antiguedad_sin_cambios_no_avisa_si_hay_comprobacion_reciente():
     membresias = cargar_membresias_sp500()
     assert any("antigüedad" in a for a in avisos_membresias(membresias, "2027-06-01"))
