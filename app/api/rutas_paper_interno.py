@@ -12,6 +12,8 @@ Responsabilidad (prefijo `/api/paper/interno`; distinto de `/api/paper`, que es 
 - `POST /sesiones/{id}/pausar|reanudar|detener`: control (una sesión detenida no se reanuda: 409).
 - `POST /avanzar` (202): avanza todas las sesiones activas en un hilo del ejecutor; 409 si ya hay un avance en curso.
   `GET /avanzar/estado`: `{en_curso, inicio, fin, resultados, error}` para el sondeo de la web.
+- `GET /planificador`: estado del temporizador en segundo plano que avanza las sesiones mientras la API vive:
+  `{activo, intervalo_min, proxima_comprobacion, ultima: {hora, resultado, dias_procesados, error}}`.
 - `GET /sesiones/{id}/espejo`: lanza (o reutiliza por huella) el backtest de la misma receta de `fecha_alta` a la última
   fecha procesada y devuelve la curva real y la del backtest para compararlas (`estado` del espejo mientras se calcula).
 
@@ -150,6 +152,15 @@ def avanzar(ctx: Contexto = Depends(obtener_contexto)):
 @router.get("/avanzar/estado")
 def estado_avance(ctx: Contexto = Depends(obtener_contexto)):
     return ctx.control_avance_paper.estado()
+
+
+@router.get("/planificador")
+def estado_planificador(ctx: Contexto = Depends(obtener_contexto)):
+    """Temporizador del paper interno: si está activo, cada cuántos minutos, próxima comprobación y última ejecución."""
+    planificador = ctx.planificador_paper
+    if planificador is None:
+        return {"activo": False, "intervalo_min": 0, "proxima_comprobacion": None, "ultima": None}
+    return planificador.estado()
 
 
 @router.get("/sesiones/{id_sesion}/espejo")

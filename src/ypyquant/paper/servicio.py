@@ -166,6 +166,17 @@ class ServicioPaper:
     def hay_sesiones_activas(self) -> bool:
         return any(s.estado == "activa" for s in self.almacen.sesiones())
 
+    def hay_dias_pendientes(self) -> bool:
+        """True si alguna sesión activa tiene días laborables cerrados sin procesar (estimación sin datos: ver `calendario`)."""
+        ahora = self.ahora()
+        for sesion in self.almacen.sesiones():
+            if sesion.estado != "activa":
+                continue
+            ultima = date.fromisoformat(self.almacen.leer_estado(sesion.id).ultima_fecha_procesada)
+            if dias_pendientes_estimados(ultima, ahora) > 0:
+                return True
+        return False
+
     # ---- consultas -----------------------------------------------------------------------------
 
     def _evaluar(self, sesion: SesionPaper, tablas: TablasSesion) -> dict[str, Any] | None:

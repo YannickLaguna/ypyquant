@@ -14,11 +14,17 @@ Arranque (desde la raíz del repo):
 
 Se relaciona con: app/api/contexto.py, rutas_*.py, paper.py y app/web (frontend, proxy /api -> 8010).
 Variables: `YPYQUANT_PRECIOS=sintetico` usa precios sintéticos; `YPYQUANT_OFFLINE=1` no descarga;
-`YPYQUANT_ESTRATEGIAS_USUARIO` cambia la carpeta de estrategias propias.
+`YPYQUANT_ESTRATEGIAS_USUARIO` cambia la carpeta de estrategias propias; `YPYQUANT_PAPER_INTERVALO_MIN` (30 por
+defecto, 0 lo desactiva) fija cada cuántos minutos el temporizador del paper interno comprueba si hay días cerrados
+pendientes y avanza las sesiones activas (ver ypyquant/paper/planificador.py; vive en el lifespan de la API).
 """
 
 from __future__ import annotations
 
+import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -38,6 +44,7 @@ from app.api import (
 from app.api import rutas_alpaca
 from app.api.contexto import Contexto
 from app.api.paper import BotControl, ServicioAlpaca
+from ypyquant.paper.planificador import PlanificadorPaper
 from ypyquant.data.matriz_precios import CargadorPrecios
 from ypyquant.estrategias.almacen import AlmacenExperimentos
 from ypyquant.estrategias.barridos import AlmacenBarridos
@@ -46,8 +53,23 @@ from ypyquant.estrategias.marcos import AlmacenMarcos
 from ypyquant.raiz_datos import RaizDatos
 from ypyquant.data.fuentes import fuente_por_defecto
 
+logger = logging.getLogger(__name__)
+
 RAIZ_REPO = Path(__file__).resolve().parents[2]
+INTERVALO_PAPER_MIN_POR_DEFECTO = 30.0
 CARPETA_WEB = RAIZ_REPO / "app" / "web" / "dist"
+
+
+def _intervalo_paper_s(intervalo_min: float | None) -> float:
+    """Intervalo del temporizador del paper interno en segundos: el argumento, o `YPYQUANT_PAPER_INTERVALO_MIN`, o 30 min."""
+    if intervalo_min is None:
+        crudo = os.getenv("YPYQUANT_PAPER_INTERVALO_MIN")
+        try:
+            intervalo_min = float(crudo) if crudo else INTERVALO_PAPER_MIN_POR_DEFECTO
+        except ValueError:
+            logger.warning("YPYQUANT_PAPER_INTERVALO_MIN=%r no es un número: se usan %s minutos", crudo, INTERVALO_PAPER_MIN_POR_DEFECTO)
+            intervalo_min = INTERVALO_PAPER_MIN_POR_DEFECTO
+    return max(intervalo_min, 0.0) * 60
 
 
 def crear_app(
@@ -61,6 +83,7 @@ def crear_app(
     raiz_marcos: Path | None = None,
     catchup_paper_al_arrancar: bool = True,
     reloj_paper=None,
+    intervalo_paper_min: float | None = None,
 ) -> FastAPI:
     """
     Construye la aplicación con sus dependencias (todas inyectables para los tests).
@@ -76,6 +99,9 @@ def crear_app(
         cargar_env: si True, lee el `.env` de la raíz (claves de Alpaca) con python-dotenv.
         catchup_paper_al_arrancar: si hay sesiones de paper interno activas, las pone al día en segundo plano al
             arrancar (los tests lo desactivan). reloj_paper: reloj inyectable del paper interno (por defecto, Nueva York).
+        intervalo_paper_min: cada cuántos minutos el temporizador del paper interno avanza las sesiones con días cerrados
+            pendientes mientras la API vive; 0 lo desactiva y None lo lee de `YPYQUANT_PAPER_INTERVALO_MIN` (30 por defecto).
+            Solo arranca dentro del ciclo de vida de la app (lifespan), así que un cliente de pruebas sin `with` no lo lanza.
     """
     if cargar_env:
         try:
@@ -85,7 +111,19 @@ def crear_app(
         except ImportError:
             pass
 
-    api = FastAPI(title="Sistema_trading — interfaz interna", version="0.1.0")
+    @asynccontextmanager
+    async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
+        """Arranca el temporizador del paper interno con la API y lo detiene limpio al cerrarla."""
+        planificador = api.state.ctx.planificador_paper
+        if planificador is not None and planificador.intervalo_s > 0:
+            planificador.iniciar()
+        try:
+            yield
+        finally:
+            if planificador is not None:
+                planificador.detener()
+
+    api = FastAPI(title="Sistema_trading — interfaz interna", version="0.1.0", lifespan=ciclo_de_vida)
     api.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
     raiz = RaizDatos.de_experimentos(raiz_experimentos) if raiz_experimentos else RaizDatos()
     almacen = AlmacenExperimentos(raiz.experimentos)
@@ -104,6 +142,10 @@ def crear_app(
         bot=bot or BotControl(),
         **({"reloj_paper": reloj_paper} if reloj_paper else {}),
     )
+
+    api.state.ctx.planificador_paper = PlanificadorPaper(
+        api.state.ctx.servicio_paper_interno, api.state.ctx.control_avance_paper,
+        intervalo_s=_intervalo_paper_s(intervalo_paper_min))
 
     api.state.ctx.gestor_bots.rehidratar()  # bots de Alpaca que siguieron vivos tras reiniciar la API
     almacen.indexar()  # índice receta -> experimentos (backtests de una configuración sin recorrer el disco)
