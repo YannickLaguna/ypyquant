@@ -383,7 +383,9 @@ El arranque de la API (`crear_app`) ejecuta el catch-up en segundo plano si hay 
 - Sesiones internas: tabla (configuración, modo, días, retorno, Sharpe, drawdown, costes, estado, "al día / n días pendientes"); botón **Avanzar ahora**; selección múltiple → gráfico de equity normalizada a 100 reutilizando `Graficos.tsx` y la lógica de `Comparar.tsx` (varias sesiones y su benchmark en un solo gráfico). Detalle de sesión: curva real vs backtest espejo, operaciones, pesos actuales, avisos.
 - Botón **Paper interno** en `ConfiguracionDetalle`.
 
-### 4.3 Programación (Windows)
+### 4.3 Programación (Windows) — OPCIONAL
+> Desde 2026-11-22 la vía recomendada es el temporizador dentro de la API (ver «Estado 2026-11-22 (universo vivo, tiempo y temporizador)»); la tarea de Windows es opcional.
+
 `scripts/instalar_tarea_paper.ps1` (lo ejecuta el usuario; no se registra nada sin su OK) crea una tarea diaria con `schtasks`/`Register-ScheduledTask`: a las 23:30 hora local (cierre de EE. UU. = 22:00 en Madrid con calendarios sincronizados; margen para datos de yfinance), `StartWhenAvailable` (si el PC estaba apagado, se ejecuta al encender), `WakeToRun` opcional, `RunOnlyIfNetworkAvailable`, ejecutando `uv run python -m ypyquant.paper avanzar` con directorio de trabajo en el repo, log en `data/paper_interno/avance.log`. Dos disparadores: 23:30 diario y "al iniciar sesión" (catch-up).
 
 ### 4.4 Tareas
@@ -559,3 +561,21 @@ Hecho en la rama `fase3/paper-interno` (tareas 3.1-3.11 y 4.1-4.6 marcadas arrib
 **Verificación**: `tests/test_paper_paridad.py` (paridad con `simular` a 1e-9: día a día, en bloque y partido en dos procesos, con `pesos_iguales`, `momentum` y `cruce_medias`), `test_paper_simulador.py`, `test_paper_cli.py`, `test_api_paper_interno.py`, `test_fuente_refresco.py` y los tests Vitest de la tabla, el avance, la selección, el panel de alta y el detalle.
 
 **Pendiente**: vincular una sesión con una cuenta Alpaca (fase 5) y la comparación interno vs Alpaca (fase 6); intradía y acciones enteras en el paper interno (fase 7).
+
+---
+
+## Estado 2026-11-22 (universo vivo, tiempo y temporizador)
+
+Hecho en la rama `paper/universo-vivo` (worktree `st-wt-vivo`), sobre `main`.
+
+**1. Tiempo en el paper interno (web + API).** La tabla y la ficha mostraban «días» sin unidad. Ahora: periodo (`alta → última fecha procesada`), duración legible («11 sesiones de mercado · 1 semana y 5 días», «3 meses y 5 días»), días pendientes (hábiles), frecuencia («rebalanceo mensual») y próxima fecha de rebalanceo. La API añade `frecuencia_rebalanceo`, `ultimo_rebalanceo` y `proximo_rebalanceo` al resumen y detalle (`calendario.proximo_rebalanceo`: primer día laborable >= la siguiente fecha programada de `execution.calendario`, nunca anterior a la próxima sesión; sin festivos). Formato en funciones puras de `app/web/src/lib/paperInterno.ts` con Vitest. Cabeceras con unidad (%, USD, días hábiles).
+
+**2. `sp500_pit` en vivo (paper interno y bot).** Regla: backtest = point-in-time por fecha; vivo = membresía vigente en cada día. El alta ya no devuelve 422; el bot tampoco. Paper: la sesión guarda `sp500_pit` como nombre y `SimuladorPaper` resuelve los miembros vigentes en cada fecha procesada con el filtro del backtest (`UniversoPuntoEnElTiempo`; `meses_historia_pit=12`). Bot: `vinculo.universo_dinamico`, y en cada rebalanceo descarga vigentes de hoy + cartera (450 días de historia mínimos). Un valor que sale del índice se liquida en el siguiente rebalanceo (no ese día), con aviso (`salida_indice` / WARNING). Avisos de calidad (`data.universos.avisos_membresias`): antigüedad > 30 días respecto a la fecha procesada (con instrucciones para refrescar) y número de miembros vigentes fuera de 500 ± 15. Decisión de diseño: el valor que sale NO se fuerza a vender en el día porque la regla pedida es liquidar en el siguiente rebalanceo; la estrategia sí deja de verlo al instante.
+
+*Hallazgo de las 525 membresías vigentes*: ver `docs/ui.md`, «Universo `sp500_pit` en vivo» (22 sobrantes: 17 altas posteriores a 2026-03-15 sin bajas registradas desde 2026-01-14 y 5 altas antiguas sin cierre; las clases duplicadas no lo explican). No se inventó ninguna membresía ni se descargó nada: hay que corregir TFM.db y volver a exportar.
+
+**3. Catch-up mientras la API está en marcha.** Sin tarea programada obligatoria. `PlanificadorPaper` (`ypyquant/paper/planificador.py`) corre en el lifespan de la API y cada `YPYQUANT_PAPER_INTERVALO_MIN` minutos (30; 0 lo desactiva; `crear_app(intervalo_paper_min=...)`) avanza las sesiones activas con días cerrados pendientes usando el `ControlAvance` existente (sin solaparse con el botón ni con el catch-up del arranque, que sigue activo). Tras 4 intentos sin datos para la misma sesión cerrada objetivo deja de reintentar (festivos). `GET /api/paper/interno/planificador` y aviso en la página. `scripts/instalar_tarea_paper.ps1` queda como OPCIONAL (documentado, no borrado).
+
+**Pruebas**: `tests/test_universos_vivo.py`, `test_paper_universo_vivo.py`, `test_bot_universo_vivo.py`, `test_planificador_paper.py`, `test_paper_tiempo.py`; los de paridad (`test_paper_paridad.py`) siguen verdes. Vitest de los textos de tiempo y de las páginas.
+
+**Pendiente / decisiones**: corregir las membresías en TFM.db (bajas sin cerrar) y reexportar; el próximo rebalanceo no conoce festivos bursátiles; con `apertura_siguiente` la ejecución es un día después de la fecha de rebalanceo mostrada; el bot filtra por la membresía de la fecha del último precio (puede ir un día por detrás de «hoy»).

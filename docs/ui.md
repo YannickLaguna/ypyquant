@@ -112,10 +112,10 @@ Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUAN
 | GET | `/api/paper/{estado,cuenta,posiciones,ordenes,historial,fills}?perfil=X` | Alpaca paper de UN perfil (por defecto `DEFECTO`); **503** sin claves (el mensaje nombra el perfil y las variables), 502 si Alpaca falla, 422 si el nombre del perfil es inválido |
 | GET | `/api/paper/alpaca/perfiles?conexion=` | Cuentas detectadas: nombre, configurada sí/no, últimos 4 de la API key (nunca el secreto), variables que faltan, conexión y equity, bot y vínculo; límite blando (3) y aviso |
 | GET | `/api/paper/alpaca/bots/{perfil}` / `.../log?desde=N` / `/api/paper/alpaca/{perfil}/instantaneas` | Estado del bot + vínculo / log redactado (polling por línea) / foto diaria de la cuenta |
-| POST | `/api/paper/alpaca/bots/{perfil}/{arrancar,parar}` | `arrancar`: `{experimento_id \| configuracion_id, modo: continuo\|diario, intervalo_s}`; **404** experimento inexistente, **422** receta no operable (universo `sp500_pit`, parámetros inválidos), **409** perfil ocupado o límite de 3 bots, **503** perfil sin claves |
+| POST | `/api/paper/alpaca/bots/{perfil}/{arrancar,parar}` | `arrancar`: `{experimento_id \| configuracion_id, modo: continuo\|diario, intervalo_s}`; **404** experimento inexistente, **422** receta no operable (parámetros inválidos, apalancamiento > 1), **409** perfil ocupado o límite de 3 bots, **503** perfil sin claves |
 | POST | `/api/paper/bot/{arrancar,parar}` | (bot ÚNICO heredado, perfil `DEFECTO`; la UI ya no lo usa) Subproceso `python -m pipelines.paper_trading --estrategia ...`; `arrancar` admite `dias_historico` (mínimo, 30-10000) y `frecuencia_rebalanceo` opcionales |
 | GET | `/api/paper/bot/{estado,log?desde=N}` | Estado y log (polling por línea) |
-| GET / POST | `/api/paper/interno/sesiones` | Sesiones de **paper interno** (distinto de `/api/paper`, que es Alpaca): lista con retorno, Sharpe, drawdown, costes, estado y `dias_pendientes` / `al_dia` / crea desde `{id_experimento o id_configuracion (+version), capital_inicial?, modo_ejecucion, comision?, slippage?, nombre?, fecha_alta?}` (201; 404 origen inexistente, 409 experimento sin terminar, 422 incoherente, estrategia sin código o `sp500_pit`) |
+| GET / POST | `/api/paper/interno/sesiones` | Sesiones de **paper interno** (distinto de `/api/paper`, que es Alpaca): lista con retorno, Sharpe, drawdown, costes, estado y `dias_pendientes` / `al_dia` / crea desde `{id_experimento o id_configuracion (+version), capital_inicial?, modo_ejecucion, comision?, slippage?, nombre?, fecha_alta?}` (201; 404 origen inexistente, 409 experimento sin terminar, 422 incoherente, estrategia sin código) |
 | GET | `/api/paper/interno/sesiones/{id}` y `/equity`, `/operaciones`, `/pesos` | Detalle (receta congelada, métricas forward, posiciones, pesos objetivo y pendientes, avisos) y series |
 | POST | `/api/paper/interno/sesiones/{id}/{pausar,reanudar,detener}` | Control; 409 si la transición no es válida (una detenida no se reanuda) |
 | POST / GET | `/api/paper/interno/avanzar`, `/avanzar/estado` | Avanza todas las activas en un hilo del ejecutor (202; 409 si ya hay un avance); estado `{en_curso, inicio, fin, resultados, error}` para el sondeo |
@@ -322,7 +322,7 @@ ALPACA_ML_API_KEY=...           ALPACA_ML_SECRET_KEY=...
 
 `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (sin nombre) son el perfil `DEFECTO` (compatibilidad). `ALPACA_PERFILES=TREND,VALOR,ML` (opcional) declara perfiles aunque aún no tengan claves: aparecen como «sin configurar» con las variables que faltan. La API reinicia para leer el `.env`. De una clave solo salen «configurada sí/no» y los últimos 4 caracteres de la API key; los logs del bot pasan por un filtro de redacción (y la API vuelve a redactar al servirlos). El límite blando de cuentas activas (3 bots a la vez) es `LIMITE_PERFILES_ACTIVOS`.
 
-**Vínculo cuenta-experimento.** Al arrancar un bot (`--perfil X --experimento ID`, o el botón de la UI) se congela la `Receta` del experimento (estrategia, parámetros, entorno) en `data/paper_trading/<PERFIL>/vinculo.json`, con su huella, el universo ya resuelto a tickers, la frecuencia de rebalanceo (la de la receta o la sugerida por la estrategia), la fecha de alta y el equity inicial de la cuenta. Si el experimento se borra o se edita después, el bot sigue con lo congelado. Cambiar de experimento guarda el anterior en `vinculos_anteriores` y borra la memoria de la estrategia. `--configuracion ID` toma la receta de una configuración guardada (opcional; la UI trabaja con experimentos). El universo dinámico `sp500_pit` no se puede operar en vivo (422): usa una lista de tickers o `sp500:N`.
+**Vínculo cuenta-experimento.** Al arrancar un bot (`--perfil X --experimento ID`, o el botón de la UI) se congela la `Receta` del experimento (estrategia, parámetros, entorno) en `data/paper_trading/<PERFIL>/vinculo.json`, con su huella, el universo ya resuelto a tickers, la frecuencia de rebalanceo (la de la receta o la sugerida por la estrategia), la fecha de alta y el equity inicial de la cuenta. Si el experimento se borra o se edita después, el bot sigue con lo congelado. Cambiar de experimento guarda el anterior en `vinculos_anteriores` y borra la memoria de la estrategia. `--configuracion ID` toma la receta de una configuración guardada (opcional; la UI trabaja con experimentos). El universo dinámico `sp500_pit` SÍ se puede operar: el vínculo guarda `universo_dinamico` (y los tickers de hoy como foto) y el bot resuelve la membresía vigente en cada rebalanceo (ver «Universo `sp500_pit` en vivo»).
 
 **Qué hay en `data/paper_trading/<PERFIL>/`:** `vinculo.json`, `bot.json` (pid, marca del proceso, modo, intervalo; lo escribe la API), `bot.log`, `estado_bot.json` (último rebalanceo y órdenes pendientes con su precio de referencia), `estado_estrategia.json` (memoria de la estrategia entre reinicios: las posiciones de una `EstrategiaSenales`; solo la parte serializable), `fills.jsonl` y `instantaneas.parquet` (una fila por día: equity, efectivo y posiciones con cantidad y precio; Alpaca no devuelve posiciones pasadas y sin esto no se puede medir el descuadre de cartera). Los fills añaden `perfil`, `experimento_id` (o `configuracion_id`), `tipo` (`rebalanceo`) y `precio_referencia` (último cierre al decidir); las filas antiguas se leen igual.
 
@@ -350,20 +350,61 @@ reales y sin broker, la receta congelada de un experimento terminado (núcleo: `
 - **Crear una sesión**: en la ficha de un experimento terminado, botón **«Paper interno»**: nombre, modo de ejecución
   (apertura siguiente por defecto; «al cierre» es optimista), capital (100 000 por defecto), comisión y slippage opcionales
   (en %; vacío = los del experimento; 0 = costes tipo Alpaca) y fecha de alta (vacío = hoy). Navega al detalle de la sesión.
-- **Lista** (`/paper-interno`): nombre, estrategia, modo, días, retorno, Sharpe, drawdown, costes, estado y «Al día / n días
-  pendientes». **Avanzar ahora** procesa los días cerrados pendientes (el botón se deshabilita y la página sondea mientras está
+- **Lista** (`/paper-interno`): nombre, estrategia, modo, **periodo** (fecha de alta → última fecha procesada), **duración**
+  («11 sesiones de mercado · 2 semanas», «3 meses y 5 días»: sesiones de trading procesadas y tiempo de calendario desde el
+  alta), retorno total (%), Sharpe, drawdown máx. (%), costes (USD), estado, **pendientes** (días hábiles cerrados aún sin
+  procesar) y **rebalanceo** (frecuencia de la receta, «rebalanceo mensual», y fecha del próximo, estimada sin festivos:
+  `proximo_rebalanceo` en la API). Las cabeceras llevan su unidad. **Avanzar ahora** procesa los días cerrados pendientes (el botón se deshabilita y la página sondea mientras está
   en curso; al acabar muestra días procesados, avisos y errores por sesión). Selección múltiple: equity a base 100 en la
   primera fecha común, con el benchmark.
-- **Detalle** (`/paper-interno/<id>`): KPIs forward, **curva real frente al backtest espejo** (la misma receta del alta a la
+- **Detalle** (`/paper-interno/<id>`): bloque **«Tiempo en paper interno»** (periodo, duración, pendientes, frecuencia y
+  próximo rebalanceo, con el último en la ayuda), KPIs forward, **curva real frente al backtest espejo** (la misma receta del alta a la
   última fecha, al cierre; en modo `cierre` deben coincidir), avisos (re-bases, liquidaciones, errores de estrategia), decisión
   pendiente (modo apertura siguiente), posiciones actuales, pesos objetivo, operaciones y pausar / reanudar / detener.
 - **Al arrancar la API** se hace el catch-up en segundo plano si hay sesiones activas (`crear_app(catchup_paper_al_arrancar=False)`
   lo desactiva en los tests).
-- **Programador de Windows**: `scripts/instalar_tarea_paper.ps1` registra la tarea «Sistema_trading paper interno» (diaria a
+- **Comprobación automática mientras la API está en marcha**: un temporizador en segundo plano (`ypyquant/paper/planificador.py`,
+  en el lifespan de la API) comprueba cada `YPYQUANT_PAPER_INTERVALO_MIN` minutos (30 por defecto; `0` lo desactiva; también
+  `crear_app(intervalo_paper_min=...)`) si hay sesiones activas con días cerrados pendientes (día cerrado = tras las 16:30 de
+  Nueva York) y las avanza con el mismo `ControlAvance` que el botón y el catch-up: si ya hay un avance en curso no lanza otro.
+  Si no hay precios para el día pendiente (festivo o proveedor retrasado) deja de reintentar tras 4 intentos hasta que cambia la
+  sesión cerrada objetivo. Se detiene limpio al cerrar la API. `GET /api/paper/interno/planificador` devuelve
+  `{activo, intervalo_min, proxima_comprobacion, ultima: {hora, resultado, dias_procesados, error}}` y la página de lista muestra
+  la próxima comprobación y qué hizo la última. Solo avanza mientras la API vive; los días perdidos se recuperan al volver
+  (el simulador es idempotente y hace catch-up exacto). Es la vía recomendada: no hace falta tarea programada.
+- **Programador de Windows (OPCIONAL, no necesario)**: `scripts/instalar_tarea_paper.ps1` registra la tarea «Sistema_trading paper interno» (diaria a
   las 23:30 hora local y al iniciar sesión, `StartWhenAvailable`: si el PC estaba apagado se ejecuta al encender y recupera todos
   los días pendientes), que lanza `uv run python -m ypyquant.paper avanzar` y añade la salida a `data/paper_interno/avance.log`.
   No registra nada sin que lo ejecutes tú: `-SoloMostrar` enseña lo que haría, `-Hora 23:45`, `-Despertar` (WakeToRun) y
-  `-Desinstalar`. Ver el log: `Get-Content data\paper_interno\avance.log -Tail 50`.
+  `-Desinstalar`. Ver el log: `Get-Content data\paper_interno\avance.log -Tail 50`. Solo sirve si quieres que el paper avance
+  con la API apagada; con el temporizador y el catch-up al arrancar no es imprescindible.
+
+### Universo `sp500_pit` en vivo
+
+Regla estándar: en un backtest se usa la membresía point-in-time (los miembros en cada fecha; un universo fijo actual aplicado
+hacia atrás introduce sesgo de supervivencia); en operativa en vivo el universo es la membresía VIGENTE en cada día (= point-in-time
+con la fecha de hoy). Implementado en el paper interno y en el bot de Alpaca:
+
+- **Paper interno**: la sesión conserva `sp500_pit` como nombre (ya no hay 422). En cada fecha procesada la estrategia ve solo a
+  los miembros vigentes ese día con historia suficiente (el filtro del backtest, `UniversoPuntoEnElTiempo`); la membresía es la
+  de la fecha de la barra (el paper avanza por fechas pasadas recientes). Los precios que se descargan son los de todo miembro
+  entre el alta y la última sesión cerrada.
+- **Bot de Alpaca**: en cada rebalanceo descarga los miembros de hoy más lo que hay en cartera (para poder venderlo) y la
+  estrategia ve solo a los vigentes en la fecha del último precio. Necesita ~450 días de historia (el filtro exige 12 retornos
+  mensuales completos), no los 252 por defecto.
+- **Salidas del índice**: un valor que sale del S&P 500 no se vende ese día; la estrategia deja de verlo y se liquida en el
+  siguiente rebalanceo. Hay aviso: evento `salida_indice` en el paper interno y WARNING en el log del bot.
+- **Calidad de las membresías** (`universos/sp500_membresias.json`, exportado de TFM.db con
+  `scripts/exportar_membresias_sp500.py`): aviso (una vez por sesión en el paper, en el log del bot y en el detalle de la sesión)
+  si la última fecha registrada tiene más de 30 días respecto a la fecha procesada (indica cómo refrescarla: actualizar TFM.db y
+  volver a ejecutar el script) y si el número de miembros vigentes se aleja de ~500 (±15).
+- **Hallazgo (2026-11-22)**: el JSON da 525 miembros vigentes frente a ~503 símbolos reales. `universos/sp500.txt` (miembros a
+  15-03-2026) tiene 503 y todos están vigentes en el JSON. Los 22 sobrantes: 17 altas posteriores a esa fecha (BE, CASY, COHR,
+  ECHO, FDXF, FERG, FLEX, HONA, LITE, MRVL, OKTA, P, RDDT, TWLO, VEEV, VRT, VYLR) sin ninguna baja posterior registrada (la última
+  baja del JSON es 2026-01-14; el índice mantiene su tamaño, así que faltan ~17 bajas de marzo-noviembre de 2026) y 5 filas con
+  altas antiguas sin cierre que no están en el `sp500.txt` de marzo (BNY, DAY, ILMN, SKYD, VMRK: probables bajas o cambios de
+  ticker sin cerrar). Las clases duplicadas (GOOG/GOOGL, FOX/FOXA, NWS/NWSA) NO explican la diferencia: ya están en los 503. No
+  se pudo contrastar contra una fuente externa (no se descargó nada); hay que corregirlo en TFM.db y volver a exportar.
 
 ## Tests
 
@@ -376,4 +417,5 @@ reales y sin broker, la receta congelada de un experimento terminado (núcleo: `
 - Las validaciones del barrido (DSR, PBO, permutación) cuentan solo las combinaciones de la rejilla: si probaste más cosas a mano, N real es mayor (ver `docs/validacion.md`). El PBO-CSCV y el walk-forward sobre la matriz ignoran el coste de cambiar de combinación.
 - CPCV no está implementado (sí DSR, PBO-CSCV, rachas, permutación y walk-forward).
 - Sin autenticación: solo para `127.0.0.1`. El bot es hijo de la API; si la API muere en Windows puede seguir vivo (la API lo rehidrata al volver a arrancar).
-- Alpaca: acciones enteras (el simulador usa fracciones: el descuadre por enteros se mide en la fase 6) y universo `sp500_pit` no soportado en vivo.
+- Alpaca: acciones enteras (el simulador usa fracciones: el descuadre por enteros se mide en la fase 6).
+- `sp500_pit` en vivo depende de que las membresías estén al día (aviso a los 30 días) y de que no falten bajas (ver «Universo `sp500_pit` en vivo»).

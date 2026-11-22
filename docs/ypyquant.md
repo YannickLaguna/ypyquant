@@ -102,8 +102,11 @@ servicio.listar()            # una fila por sesión: retorno, Sharpe, drawdown, 
   misma equity, operaciones, pesos y rotaciones que `simular` del mismo rango (tolerancia 1e-9). Protege el motor que usa GrowSave.
 - **CLI**: `uv run python -m ypyquant.paper avanzar [--sesion ID] [--hasta AAAA-MM-DD]`, `estado`, `crear --experimento ID`,
   `pausar|reanudar|detener ID`. Código de salida 1 si alguna sesión falló. `YPYQUANT_PAPER_RAIZ` cambia la raíz y
-  `YPYQUANT_PRECIOS=sintetico` usa precios sin red. Tarea diaria de Windows: `scripts/instalar_tarea_paper.ps1` (ver `docs/ui.md`).
-- **Limitaciones**: universo fijo (`sp500_pit` no se admite), solo largo, cantidades fraccionarias (política del motor),
+  `YPYQUANT_PRECIOS=sintetico` usa precios sin red. Con la API en marcha, un temporizador (`YPYQUANT_PAPER_INTERVALO_MIN`, 30 min por defecto) avanza solo las sesiones con días cerrados
+  pendientes (`paper/planificador.py`). Tarea diaria de Windows OPCIONAL: `scripts/instalar_tarea_paper.ps1` (ver `docs/ui.md`).
+- **Universo `sp500_pit`**: se admite; se resuelve en cada fecha procesada con los miembros vigentes (ver `docs/ui.md`,
+  «Universo `sp500_pit` en vivo»). `proximo_rebalanceo` (calendario) estima la fecha del siguiente rebalanceo.
+- **Limitaciones**: solo largo, cantidades fraccionarias (política del motor),
   barras diarias (sin intradía), y el estado de la estrategia (p. ej. precios de entrada de las de señales) no se re-basa por ajustes.
 
 ## Uso rápido

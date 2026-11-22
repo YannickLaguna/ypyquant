@@ -11,6 +11,9 @@ Responsabilidad:
   (sesgo de supervivencia residual). El criterio de ELEGIBILIDAD por fecha (historia mínima, máscara) vive en
   `estrategias/universo_dinamico.py`, que consume estas membresías. Una fuente con membresías propias (Norgate:
   `index_constituent_timeseries`) las serviría con este mismo formato `{símbolo: [{index, date_added, date_removed}]}`.
+- Universo en vivo: `miembros_vigentes_en(membresias, fecha)` son los miembros de una fecha (con la de hoy, la membresía
+  vigente) y `avisos_membresias` avisa si las membresías tienen más de 30 días de antigüedad respecto a la fecha o si el
+  número de vigentes se aleja de ~500 (bajas sin registrar). Lo usan el paper interno y el bot de Alpaca.
 - Traducción de símbolos: el símbolo CANÓNICO del proyecto es el de yfinance (`BRK-B`, con guion). Aquí se
   normaliza todo lo que entra desde fuera (`a_simbolo_canonico`: `BRK.B` -> `BRK-B`); las fuentes de precios
   reciben símbolos canónicos y traducen al de su proveedor si hace falta. Ningún otro módulo conoce el formato.
