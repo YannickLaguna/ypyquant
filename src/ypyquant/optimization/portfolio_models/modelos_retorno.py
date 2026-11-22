@@ -28,6 +28,11 @@ from ypyquant.optimization.portfolio_models.base import ExpectedReturnsModel
 
 logger = logging.getLogger(__name__)
 
+# Errores esperables al usar QuantLib / la curva de tasas / el posterior de BL (dependencias externas, red,
+# datos degenerados). Las reservas que los capturan son legítimas y dejan aviso en el log; no se capturan
+# errores de programación (TypeError, AttributeError, NameError...).
+_ERRORES_SERVICIO_TASAS = (OSError, ValueError, KeyError, RuntimeError, ArithmeticError, np.linalg.LinAlgError)
+
 
 class HistoricalReturnsModel(ExpectedReturnsModel):
     """Rendimientos históricos (media o mediana)"""
@@ -80,7 +85,7 @@ class CAPMReturnsModel(ExpectedReturnsModel):
                 self._servicio_tasas = TasaLibreRiesgoDinamica(actualizar_curva=True)
                 self.risk_free_rate = self._servicio_tasas.obtener_tasa_por_plazo(horizonte_inversion_años)
                 logger.debug(f"[CAPMReturns] Usando tasa dinámica {horizonte_inversion_años}Y: {self.risk_free_rate:.4f}")
-            except Exception as e:
+            except _ERRORES_SERVICIO_TASAS as e:  # reserva legítima: sin QuantLib/curva se usa la tasa fija
                 logger.warning(f"[CAPMReturns] No se pudo usar QuantLib: {e}. Usando tasa fija.")
                 self.risk_free_rate = risk_free_rate
                 self.usar_tasas_dinamicas = False
@@ -128,7 +133,7 @@ class CAPMReturnsModel(ExpectedReturnsModel):
             if self.usar_tasas_dinamicas and self._servicio_tasas is not None:
                 try:
                     rf_activo = self._servicio_tasas.obtener_tasa_para_activo(ticker, betas[ticker])
-                except Exception:
+                except _ERRORES_SERVICIO_TASAS:  # sin tasa para ese activo: tasa general
                     rf_activo = self.risk_free_rate
             else:
                 rf_activo = self.risk_free_rate
@@ -253,7 +258,7 @@ class BlackLittermanReturnsModel(ExpectedReturnsModel):
                 except ImportError:
                     logger.warning("[BlackLitterman] QuantLib BL no disponible, usando prior sin ajustar")
                     posterior = prior
-                except Exception as e:
+                except _ERRORES_SERVICIO_TASAS as e:  # BL QuantLib falla: se conserva el prior
                     logger.warning(f"[BlackLitterman] Error en BL QuantLib: {e}, usando prior")
                     posterior = prior
             else:
@@ -309,7 +314,7 @@ class LSTMReturnsModel(ExpectedReturnsModel):
                 try:
                     predictor.load_models(self.pretrained_models_path)
                     logger.info(f"[LSTM] Usando modelos pre-entrenados desde {self.pretrained_models_path}")
-                except Exception as e:
+                except (OSError, ValueError, KeyError, RuntimeError) as e:  # modelos ausentes o corruptos: se reentrena
                     logger.warning(f"[LSTM] No se pudieron cargar modelos pre-entrenados: {e}. Entrenando desde cero...")
                     predictor.train(returns_df, epochs=30, validation_split=0.2, verbose=0)
             else:

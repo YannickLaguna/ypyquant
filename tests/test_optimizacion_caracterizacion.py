@@ -7,11 +7,11 @@ Responsabilidad:
     BL-prior, CVaR, semicovarianza) devuelven lo mismo. Hay dos tipos de aserciones:
       - EQUIVALENCIA EXACTA (atol ~1e-10): las implementaciones coinciden; una puede delegar en la
         otra sin cambiar resultados.
-      - DIFERENCIA ACOTADA (cotas medidas el 2026-11-21): las implementaciones NO coinciden (SLSQP
-        frente a QP exacto, pypfopt con `clean_weights`, semicovarianza de pypfopt frente a la de
-        ceros); la cota documenta cuánto y fija que no se amplíe sin darse cuenta. Delegar una en
-        otra cambiaría resultados de GrowSave: es una decisión pendiente (ver
-        docs/planes/2026-11-21-optimizacion-canonica.md).
+      - FACHADA = CANÓNICA (2026-11-22): las funciones scipy/pypfopt y `MarkowitzOptimizer` delegan en el
+        QP/SOCP de `estimacion_robusta`; se fija la equivalencia exacta y la nueva semántica de la volatilidad
+        objetivo (GMV con estado si es inalcanzable; apalancamiento = tangente escalada).
+      - DIFERENCIA ACOTADA: solo la semicovarianza de pypfopt frente a la de ceros (estimadores distintos).
+        Ver docs/planes/2026-11-21-optimizacion-canonica.md.
 
 Datos sintéticos y semillas fijas; sin red ni BD.
 

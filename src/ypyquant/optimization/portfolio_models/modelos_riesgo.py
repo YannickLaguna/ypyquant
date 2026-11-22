@@ -122,7 +122,7 @@ class SemiCovarianceModel(RiskModel):
                 frequency=self.frequency,
             )
             self.metadata['method'] = 'pypfopt'
-        except (ImportError, Exception) as exc:
+        except (ImportError, ValueError, ArithmeticError, np.linalg.LinAlgError) as exc:  # reserva: cálculo manual
             logger.warning(f"[SemiCovarianceModel] pypfopt no disponible ({exc}), usando cálculo manual")
             # Fallback: zeroing retornos por encima del umbral
             downside_returns = returns_df.copy()

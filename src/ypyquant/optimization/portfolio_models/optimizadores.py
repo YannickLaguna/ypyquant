@@ -18,6 +18,8 @@ import logging
 
 import numpy as np
 import pandas as pd
+from cvxpy import error as cvxpy_error
+from pypfopt import exceptions as pypfopt_exceptions
 
 from ypyquant.optimization.estimacion_robusta.elipsoide import (
     delta_caja,
@@ -37,6 +39,12 @@ from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_ri
 from ypyquant.optimization.portfolio_models.base import PortfolioOptimizer
 
 logger = logging.getLogger(__name__)
+
+# Fallos esperables de pypfopt/cvxpy (problema infactible, solver sin solución, datos degenerados) tras los que
+# la cascada pasa a SLSQP con un aviso en el log. No incluye errores de programación.
+_ERRORES_SOLVER = (
+    ValueError, ArithmeticError, np.linalg.LinAlgError, cvxpy_error.SolverError, pypfopt_exceptions.OptimizationError,
+)
 
 
 class MarkowitzOptimizer(PortfolioOptimizer):
@@ -216,7 +224,7 @@ class PMPTMinCVaROptimizer(PortfolioOptimizer):
                 'optimizer_metadata': {'method': 'pypfopt_ecvar', 'success': True},
             }
 
-        except (ImportError, Exception) as exc:
+        except (ImportError, *_ERRORES_SOLVER) as exc:  # reserva legítima de la cascada: SLSQP
             logger.warning(f"[PMPTMinCVaR] pypfopt falló ({exc}), usando SLSQP")
 
         # Fallback: SLSQP manual sobre CVaR empírico
@@ -339,7 +347,7 @@ class PMPTMaxSortinoOptimizer(PortfolioOptimizer):
                     'target_return': self.target_return,
                     'optimizer_metadata': {'method': 'pypfopt_esv', 'success': True},
                 }
-            except (ImportError, Exception) as exc:
+            except (ImportError, *_ERRORES_SOLVER) as exc:  # reserva legítima de la cascada: SLSQP
                 logger.warning(f"[PMPTMaxSortino] pypfopt EfficientSemivariance falló ({exc}), usando SLSQP")
 
         # Fallback (y caso sin retornos históricos): SLSQP sobre Sortino matricial

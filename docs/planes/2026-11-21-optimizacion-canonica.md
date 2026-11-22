@@ -33,6 +33,8 @@ El contrato queda fijado en `tests/test_optimizacion_compatibilidad.py`.
 
 ## 2. Mapa de duplicados
 
+> Estado a 2026-11-21 (antes de la delegación). Las filas marcadas «NO delega», «Pendiente» o «Sin cambio» se resolvieron el 2026-11-22: ver sección 4.
+
 Diferencia = máx. |Δ peso| (o Δ relativa) medida con `tests/test_optimizacion_caracterizacion.py` (5 activos, 500 días, 3 semillas,
 tope de peso 1,0 y 0,3).
 
@@ -64,14 +66,44 @@ mantiene por construcción; `tests/test_paridad_tfm.py` sigue siendo la red de s
 - `portfolio_models.py` (1861 líneas) pasa a subpaquete `portfolio_models/` (`base`, `modelos_retorno`, `modelos_riesgo`,
   `optimizadores`, `modelo`); `__init__` reexporta los 31 nombres públicos.
 
-## 4. Pendiente (decisión del usuario)
+## 4. Hecho el 2026-11-22 (rama `arq/optimizacion-canonica-2`)
 
-1. Delegar `optimizar_max_sharpe_scipy`, `optimizar_min_volatilidad` y `optimizar_volatilidad_objetivo` (scipy) en el QP/SOCP.
-   Ganancia: óptimo exacto y una sola implementación. Coste: pesos de GrowSave cambian hasta 1,4e-4 (max-Sharpe), 6,5e-4 (mín.
-   varianza) y 5,3e-4 (vol. objetivo), y la vol. objetivo cambia de semántica (sin `ValueError`, sin apalancamiento). Requiere avisar a GrowSave.
-2. Sustituir `MarkowitzOptimizer` (pypfopt + `clean_weights`, hasta 5e-6) y `optimizar_max_sharpe_pypfopt` por el QP (cambia el redondeo de pesos).
-3. Unificar el respaldo de Ledoit-Wolf (sklearn frente a covarianza muestral).
-4. Fragilidad detectada: el QP usa `warm_start` con caché global (`_CACHE_QP`); el resultado de Michaud con semilla fija
-   depende de qué se resolvió antes en el proceso (un test mío rompía `test_michaud_reproducible...` hasta aislar la caché).
-   Conviene no compartir estado entre llamadas o limpiar la caché por llamada.
-5. Los 8 `except Exception` (BLE001) de `optimizadores.py`/`modelos_retorno.py` son anteriores al movimiento y siguen sin tratar.
+Decisión del usuario: no se conservan los resultados numéricos de GrowSave; se conserva la interfaz (nombres, firmas,
+imports) y los resultados de los experimentos de Sistema_trading (`tests/test_paridad_tfm.py`, huellas fijas).
+
+1. **Delegación de las funciones scipy** (`optimizador_portafolio.py`): `optimizar_max_sharpe_scipy` → `optimizar_max_sharpe`
+   (QP, rf = 0); `optimizar_min_volatilidad` → `optimizar_min_varianza`; `optimizar_volatilidad_objetivo` → SOCP canónico.
+   - Semántica de la volatilidad objetivo: sin apalancamiento, σ* inalcanzable (< GMV) ya NO lanza `ValueError`: devuelve la
+     GMV con `estado = 'gmv_volatilidad_inalcanzable'` y `volatility_achieved = False` (coherente con el núcleo, y el hecho
+     queda explícito en el resultado). `ValueError` solo si el solver falla del todo o σ* <= 0. Con `allow_leverage=True` se
+     escala la tangente long-only (rf = 0) por σ*/σ_tangente (solución exacta de máx. µ'w con σ <= σ*, w >= 0, suma libre),
+     limitando el factor para que ningún peso supere 2; ya no hay cortos (el rango antiguo era [-2, 2]). Se añade la clave
+     `estado` al resultado.
+2. **pypfopt**: `optimizar_max_sharpe_pypfopt` (rf = 2 %, el valor por defecto de pypfopt) y `MarkowitzOptimizer`
+   (`max_sharpe`, `min_volatility`) delegan en el QP / mínima varianza canónicos; pypfopt queda solo como respaldo dentro de la
+   cascada de `optimizar_max_sharpe`. Ya no se redondean los pesos con `clean_weights`. Se elimina la constante
+   `PYPFOPT_AVAILABLE` (sin usos) y el SLSQP propio de `MarkowitzOptimizer`. `optimizer_metadata.method` pasa a ser el estado del
+   solver (`qp`, `min_varianza`, ...).
+3. **Ledoit-Wolf**: una sola implementación, `sigma.ledoit_wolf_con_metodo`; `estimar_sigma_ledoit_wolf` y
+   `LedoitWolfShrinkageModel` delegan en ella. Reserva única: covarianza muestral anualizada (se retira el sklearn del modelo).
+4. **`except` amplios**: los 7 `BLE001` de `portfolio_models/` se estrechan a tuplas explícitas (`_ERRORES_SOLVER`,
+   `_ERRORES_SERVICIO_TASAS`, etc.) con comentario que justifica la reserva; los errores de programación (TypeError,
+   AttributeError...) ya no se silencian. La reserva de `estimar_sigma_ledoit_wolf` se acota a
+   (ImportError, ValueError, ArithmeticError, LinAlgError).
+5. Fragilidad del `warm_start` del QP: resuelta antes en main (`warm_start=False`).
+
+### Δ que cambian para GrowSave (máx. |Δ peso|, medidas en la primera caracterización; 5 activos, 500 días, 3 semillas)
+
+| Función / clase | Antes | Ahora | Δ de pesos |
+|---|---|---|---|
+| `optimizar_max_sharpe_scipy` | SLSQP | QP canónico (rf = 0) | hasta 1,4e-4 |
+| `optimizar_min_volatilidad` | SLSQP | `optimizar_min_varianza` | hasta 6,5e-4 |
+| `optimizar_volatilidad_objetivo` (sin apalancamiento) | SLSQP con `ValueError` | SOCP; GMV si inalcanzable | hasta 5,3e-4; semántica distinta |
+| `optimizar_volatilidad_objetivo` (con apalancamiento) | SLSQP, pesos [-2, 2] | tangente long-only escalada | cambio de cartera (sin cortos) |
+| `optimizar_max_sharpe_pypfopt`, `optimizar_portafolio('max_sharpe')` | pypfopt + `clean_weights` | QP canónico (rf = 2 %) | hasta 5e-6 |
+| `MarkowitzOptimizer('max_sharpe')` | pypfopt + `clean_weights` | QP canónico | hasta 5e-6 |
+| `MarkowitzOptimizer('min_volatility')` | pypfopt + `clean_weights` | `optimizar_min_varianza` | hasta 2,3e-5 |
+| `LedoitWolfShrinkageModel` (solo ante fallo de pypfopt) | sklearn / muestral | muestral | solo si pypfopt falla |
+
+`tests/test_optimizacion_caracterizacion.py` fija ahora la equivalencia exacta (< 1e-12) fachada = canónica en todas las filas.
+La semicovarianza sigue siendo un caso aparte (estimadores distintos, no duplicados).
