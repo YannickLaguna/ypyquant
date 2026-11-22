@@ -8,7 +8,8 @@ Responsabilidad:
 - Lanzamientos compuestos: `lanzar_varios` (N configuraciones), `lanzar_barrido` (crea el barrido y encola sus
   combinaciones), `lanzar_comparativa` (aplica un marco a N estrategias validándolas TODAS antes de lanzar nada y
   registra la comparativa), `lanzar_backtest_de_configuracion` y `lanzar_comparativa_de_configuracion` (una
-  configuración guardada con fechas por defecto: las de su marco enlazado, las de su origen o los últimos 5 años).
+  configuración guardada con fechas por defecto de una sola regla, `marcos.resolver_fechas`: explícitas > marco enlazado >
+  origen > últimos 5 años hasta el último día hábil).
 - Consultas: `backtests_de_receta(configuracion)` usa el índice por receta del almacén (no recorre el disco);
   `estado_de`, `borrar` y `borrar_varios` (omite los que siguen en marcha: el ejecutor escribiría en su carpeta).
 - Tareas largas de un barrido: `lanzar_permutacion` (prueba de permutación en un hilo aparte, con estado y progreso en
@@ -20,7 +21,7 @@ Responsabilidad:
 
 Se relaciona con:
 - ypyquant.estrategias.almacen (estado y resultados), .barridos (`AlmacenBarridos`), .marcos (`AlmacenMarcos`,
-  `preparar_comparativa`, `marco_desde_configuracion`, `fechas_por_defecto`), .configuraciones (`ConfiguracionGuardada`),
+  `preparar_comparativa`, `marco_desde_configuracion`, `resolver_fechas`), .configuraciones (`ConfiguracionGuardada`),
   .receta (huella por receta) y .experimentos (`ejecutar_experimento`).
 - app/api/contexto.py (lo construye y lo guarda en el contexto) y app/api/rutas_experimentos.py, rutas_barridos.py,
   rutas_marcos.py y rutas_configuraciones.py (lo llaman).
@@ -33,7 +34,7 @@ import logging
 import threading
 from collections.abc import Mapping, Sequence
 from concurrent.futures import Executor
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, NamedTuple
 
 from ypyquant.data.matriz_precios import CargadorPrecios
@@ -42,13 +43,12 @@ from ypyquant.estrategias.barridos import AlmacenBarridos, ConfiguracionBarrido
 from ypyquant.estrategias.configuraciones import ConfiguracionGuardada
 from ypyquant.estrategias.experimentos import ConfiguracionExperimento, ejecutar_experimento
 from ypyquant.estrategias.marcos import (
-    ANIOS_POR_DEFECTO,
     AlmacenMarcos,
     MarcoComparacion,
     MarcoExistente,
-    fechas_por_defecto,
     marco_desde_configuracion,
     preparar_comparativa,
+    resolver_fechas,
 )
 from ypyquant.estrategias.validacion_barridos import PruebaCancelada, prueba_permutacion_barrido
 
@@ -233,16 +233,10 @@ class ServicioExperimentos:
     ) -> Lanzamiento:
         """
         Lanza (o reutiliza) el backtest de la receta de `configuracion`. Fechas que falten: las de su marco enlazado
-        y, si no, `ANIOS_POR_DEFECTO` años hasta ayer. Errores del dominio sin traducir (`KeyError` estrategia,
+        según `marcos.resolver_fechas` (explícitas > marco enlazado > origen > 5 años hasta el último día hábil). Errores del dominio sin traducir (`KeyError` estrategia,
         `ValidationError` / `ValueError` parámetros o fechas inválidos).
         """
-        inicio, fin = fecha_inicio, fecha_fin
-        if inicio is None or fin is None:
-            marco = self.marco_enlazado(configuracion)
-            if marco is not None:
-                inicio, fin = inicio or marco.fecha_inicio, fin or marco.fecha_fin
-        fin = fin or ((hoy or date.today()) - timedelta(days=1)).isoformat()
-        inicio = inicio or (date.fromisoformat(fin) - timedelta(days=365 * ANIOS_POR_DEFECTO)).isoformat()
+        inicio, fin = resolver_fechas(configuracion, self.marco_enlazado(configuracion), fecha_inicio, fecha_fin, hoy)
         return self.lanzar(configuracion.a_experimento(inicio, fin, capital_inicial), forzar)
 
     # ---- comparativas ---------------------------------------------------------------------
@@ -266,14 +260,15 @@ class ServicioExperimentos:
     def lanzar_comparativa_de_configuracion(
         self, configuracion: ConfiguracionGuardada, entradas: Sequence[Mapping[str, Any]],
         fecha_inicio: str | None = None, fecha_fin: str | None = None, forzar: bool = False,
+        hoy: date | None = None,
     ) -> dict[str, Any]:
         """
         Lanza el entorno de `configuracion` contra N estrategias: la convierte en un marco (id derivado de
         configuración + versión + fechas, idempotente: se crea o se reutiliza) y sigue el flujo de `lanzar_comparativa`.
-        Fechas que falten: las de su marco enlazado, las de su origen o 5 años. La configuración no cambia.
+        Fechas que falten: `marcos.resolver_fechas` (la misma regla que el backtest). La configuración no cambia.
         """
-        inicio_defecto, fin_defecto = fechas_por_defecto(configuracion, self.marco_enlazado(configuracion))
-        marco = marco_desde_configuracion(configuracion, fecha_inicio or inicio_defecto, fecha_fin or fin_defecto)
+        inicio, fin = resolver_fechas(configuracion, self.marco_enlazado(configuracion), fecha_inicio, fecha_fin, hoy)
+        marco = marco_desde_configuracion(configuracion, inicio, fin)
         try:
             self.almacen_marcos.guardar(marco)
         except MarcoExistente:

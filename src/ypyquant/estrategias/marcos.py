@@ -18,7 +18,9 @@ Responsabilidad:
   sale de los experimentos: relanzar lo mismo la reutiliza. Es un adaptador de dominio sobre `AlmacenDocumentos` (los
   marcos) y `ColeccionJson` (las comparativas, archivos planos); `comparativas_de_configuracion` las consulta por
   configuración con un índice en memoria.
-- `marco_desde_configuracion(configuracion, inicio, fin)` y `fechas_por_defecto(...)`: funciones puras que convierten
+- `marco_desde_configuracion(configuracion, inicio, fin)`, `resolver_fechas` (la regla ÚNICA de fechas por defecto de
+  backtest y comparativa: explícitas > marco enlazado > experimento de origen > 5 años hasta el último día hábil) y
+  `fechas_por_defecto(...)`: funciones puras que convierten
   una configuración guardada en un marco (su ENTORNO: universo, frecuencia, costes, benchmark, capital, semilla,
   historia previa y los `COMUNES_CONOCIDOS` que traiga) para lanzar la misma receta de entorno contra otras
   estrategias. El id es determinista (configuración + versión + fechas): lanzarlo dos veces reutiliza el marco.
@@ -155,17 +157,39 @@ def marco_desde_configuracion(configuracion: ConfiguracionGuardada, fecha_inicio
     )
 
 
-def fechas_por_defecto(configuracion: ConfiguracionGuardada, marco: MarcoComparacion | None, hoy: date | None = None) -> tuple[str, str]:
+def _ultimo_dia_habil(hoy: date) -> date:
+    """Último día hábil (lunes a viernes) ANTERIOR a `hoy`: ayer, o el viernes si ayer fue fin de semana."""
+    dia = hoy - timedelta(days=1)
+    while dia.weekday() >= 5:
+        dia -= timedelta(days=1)
+    return dia
+
+
+def resolver_fechas(configuracion: ConfiguracionGuardada, marco: MarcoComparacion | None,
+                    fecha_inicio: str | None = None, fecha_fin: str | None = None,
+                    hoy: date | None = None) -> tuple[str, str]:
     """
-    Fechas sugeridas para comparar una configuración: las de su marco enlazado, si no las del experimento de
-    origen (`origen.fechas`) y, si no, los últimos `ANIOS_POR_DEFECTO` años hasta ayer.
+    Fechas `(inicio, fin)` con que se lanza una configuración guardada (backtest o comparativa): UNA sola regla.
+
+    Cada fecha sale, por orden de prioridad, de: 1) la explícita; 2) el marco enlazado; 3) el experimento de origen
+    (`origen.fechas`); 4) los últimos `ANIOS_POR_DEFECTO` años hasta el último día hábil anterior a `hoy`. El
+    par de las fuentes 2 y 3 se toma de una sola (la primera disponible); si solo falta el inicio y hay un fin
+    explícito sin marco ni origen, el inicio son `ANIOS_POR_DEFECTO` años antes de ese fin.
     """
     if marco is not None:
-        return marco.fecha_inicio, marco.fecha_fin
-    if configuracion.origen.fechas and len(configuracion.origen.fechas) == 2:
-        return configuracion.origen.fechas[0], configuracion.origen.fechas[1]
-    fin = (hoy or date.today()) - timedelta(days=1)
-    return (fin - timedelta(days=365 * ANIOS_POR_DEFECTO)).isoformat(), fin.isoformat()
+        base: tuple[str, str] | None = (marco.fecha_inicio, marco.fecha_fin)
+    elif configuracion.origen.fechas and len(configuracion.origen.fechas) == 2:
+        base = (configuracion.origen.fechas[0], configuracion.origen.fechas[1])
+    else:
+        base = None
+    fin = fecha_fin or (base[1] if base else _ultimo_dia_habil(hoy or date.today()).isoformat())
+    inicio = fecha_inicio or (base[0] if base else (date.fromisoformat(fin) - timedelta(days=365 * ANIOS_POR_DEFECTO)).isoformat())
+    return inicio, fin
+
+
+def fechas_por_defecto(configuracion: ConfiguracionGuardada, marco: MarcoComparacion | None, hoy: date | None = None) -> tuple[str, str]:
+    """Fechas sugeridas sin explícitas: `resolver_fechas` (marco enlazado > origen > 5 años hasta el último día hábil)."""
+    return resolver_fechas(configuracion, marco, hoy=hoy)
 
 
 class InformeAplicacion(BaseModel):
