@@ -1,0 +1,441 @@
+"""
+simulador.py — Simulador incremental del paper interno: avanza las sesiones día a día con precios reales.
+
+Responsabilidad:
+    `SimuladorPaper.avanzar(id)`, `avanzar_varias(ids)` y `avanzar_todas()` procesan, en orden, cada día de
+    trading CERRADO y pendiente de cada sesión (catch-up exacto tras un parón: nada depende de que el proceso
+    estuviera vivo). Una descarga por ticker para todas las sesiones (unión de universos). Bucle de un día D:
+      1. precios: cierre de D (y apertura de D en modo `apertura_siguiente`); un ticker sin barra usa su último
+         cierre, como el motor (`BacktestEngine._get_prices_at_date`);
+      2. re-base por ajuste (una vez por avance): si el cierre de la última fecha procesada, recién descargado,
+         difiere del guardado más de `TOLERANCIA_REBASE` (dividendo o split: yfinance reescribe el histórico
+         ajustado), se escala `cantidad /= f` y `precio_medio *= f` para que el valor no salte;
+      3. ejecución: planifica con el Ejecutor (`planificar_rebalanceo` + `POLITICA_MOTOR`) y ejecuta con el
+         `BrokerSimulado` aplicando la MISMA comisión y slippage que el motor (`_buy`/`_sell`);
+      4. valoración al cierre de D -> una fila de equity; 5. decisión si toca (`toca_rebalancear`): en modo
+         `cierre` se ejecuta ya al cierre de D (equivale a `run_backtest`: la fila de equity es la de antes del
+         rebalanceo salvo en la asignación inicial); en `apertura_siguiente` queda como `pesos_pendientes` y se
+         ejecuta a la apertura de D+1; 6. commit: tablas y, AL FINAL, `estado.json` con `ultima_fecha_procesada`.
+    Solo se procesa una sesión `D` si ya es definitiva (`ultima_sesion_cerrada`) y su barra es completa
+    (benchmark y al menos `COBERTURA_MINIMA` del universo; si no, se pospone el último día o se omite uno
+    intermedio con aviso). Un ticker que lleva `SESIONES_PARA_LIQUIDAR` sesiones sin barra se liquida a su último
+    precio con aviso (deslistado o cambio de ticker).
+    Métricas forward: `evaluar(simulacion_desde_tablas(...))`, la misma función que el backtest (ver `servicio`).
+
+Se relaciona con:
+    - ypyquant.execution (ejecutor, broker_simulado, calendario): decisión de órdenes, ejecución y rebalanceo.
+    - ypyquant.estrategias (registro, base: `como_funcion`) y ypyquant.data.fuente_precios (precios).
+    - ypyquant.paper.almacen (estado y tablas), .sesion (modelos) y .calendario (sesiones cerradas).
+    - tests/test_paper_paridad.py: el avance día a día equivale al backtest del mismo rango (modo `cierre`).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import date, datetime
+
+import numpy as np
+import pandas as pd
+
+from ypyquant.almacen_documentos import limpiar_para_json
+from ypyquant.data.fuente_precios import FuentePrecios, como_fuente
+from ypyquant.estrategias.registro import obtener_estrategia
+from ypyquant.execution.broker_simulado import BrokerSimulado
+from ypyquant.execution.calendario import toca_rebalancear
+from ypyquant.execution.ejecutor import COMPRA, POLITICA_MOTOR, VENTA, planificar_rebalanceo
+from ypyquant.paper.almacen import (
+    COLUMNAS_EQUITY,
+    COLUMNAS_OPERACIONES,
+    COLUMNAS_PESOS,
+    COLUMNAS_ROTACIONES,
+    AlmacenPaper,
+    SesionBloqueada,
+    TablasSesion,
+)
+from ypyquant.paper.calendario import ahora_nueva_york, dias_pendientes, ultima_sesion_cerrada
+from ypyquant.paper.sesion import EstadoCartera, PosicionPaper, SesionPaper
+
+logger = logging.getLogger(__name__)
+
+TOLERANCIA_REBASE = 1e-6
+COBERTURA_MINIMA = 0.8
+SESIONES_PARA_LIQUIDAR = 5
+UMBRAL_POSICION_MINIMA = 0.001  # el motor descarta lo que quede por debajo tras una venta parcial
+# Claves del `estado` de una estrategia que son caché recalculable (no JSON): no se persisten
+CLAVES_CACHE_ESTADO = ("modelo",)
+
+
+@dataclass
+class ResultadoAvance:
+    """Qué hizo el avance de una sesión: días procesados, avisos y, si no avanzó, por qué (`omitida` o `error`)."""
+
+    id_sesion: str
+    dias_procesados: int = 0
+    desde: str | None = None
+    hasta: str | None = None
+    avisos: list[str] = field(default_factory=list)
+    omitida: str | None = None
+    error: str | None = None
+
+    def a_dict(self) -> dict:
+        return {"id_sesion": self.id_sesion, "dias_procesados": self.dias_procesados, "desde": self.desde,
+                "hasta": self.hasta, "avisos": self.avisos, "omitida": self.omitida, "error": self.error}
+
+
+def estado_serializable(estado: Mapping) -> dict:
+    """
+    Copia JSON del `estado` de una estrategia (contrato: solo tipos JSON). Las claves de caché recalculable
+    (`CLAVES_CACHE_ESTADO`) se omiten; cualquier otro valor no serializable lanza `TypeError` con la clave.
+    """
+    limpio = {}
+    for clave, valor in estado.items():
+        if clave in CLAVES_CACHE_ESTADO:
+            continue
+        try:
+            json.dumps(limpiar_para_json(valor))
+        except TypeError as error:
+            raise TypeError(f"El estado de la estrategia no es JSON: clave {clave!r} ({error})") from error
+        limpio[clave] = limpiar_para_json(valor)
+    return limpio
+
+
+def _ultimo_precio(df: pd.DataFrame, fecha: pd.Timestamp, columna: str = "Close") -> float | None:
+    """Valor de `columna` el día `fecha` o, si no cotizó, el del último día anterior (None si no hay)."""
+    posicion = df.index.searchsorted(fecha, side="right") - 1
+    if posicion < 0:
+        return None
+    valor = float(df[columna].iloc[posicion])
+    return valor if np.isfinite(valor) else None
+
+
+def _anadir(tabla: pd.DataFrame, filas: list[dict], columnas: list[str]) -> pd.DataFrame:
+    if not filas:
+        return tabla
+    nuevas = pd.DataFrame(filas, columns=columnas)
+    return nuevas if tabla.empty else pd.concat([tabla, nuevas], ignore_index=True)
+
+
+class _Decisor:
+    """La estrategia de una sesión durante un avance: restaura su memoria y su generador y los vuelca al terminar."""
+
+    def __init__(self, sesion: SesionPaper, estado: EstadoCartera):
+        receta = sesion.receta
+        self.estrategia = obtener_estrategia(receta.estrategia)(receta.parametros)
+        self.estrategia.semilla = receta.semilla
+        self.estrategia.estado = dict(estado.estado_estrategia)
+        generador = np.random.default_rng(receta.semilla)
+        if estado.estado_rng is not None:
+            generador.bit_generator.state = estado.estado_rng
+        self.estrategia.rng = generador
+        self.funcion = self.estrategia.como_funcion()
+
+    def pesos(self, fecha: pd.Timestamp, datos: dict[str, pd.DataFrame]) -> dict[str, float]:
+        return self.funcion(fecha, datos)
+
+    def volcar_en(self, estado: EstadoCartera) -> None:
+        estado.estado_estrategia = estado_serializable(self.estrategia.estado)
+        estado.estado_rng = limpiar_para_json(self.estrategia.rng.bit_generator.state)
+
+
+class SimuladorPaper:
+    """
+    Avanza sesiones de paper interno (ver cabecera del módulo).
+
+    Args:
+        almacen: sesiones en disco. fuente: de dónde salen los precios (`FuentePrecios` o cargador suelto).
+        ahora: reloj inyectable (devuelve un `datetime`); por defecto la hora de Nueva York.
+    """
+
+    def __init__(self, almacen: AlmacenPaper, fuente: FuentePrecios | Callable, ahora: Callable[[], datetime] = ahora_nueva_york):
+        self.almacen = almacen
+        self.fuente = como_fuente(fuente)
+        self.ahora = ahora
+
+    # ---- API pública ---------------------------------------------------------------------------
+
+    def avanzar(self, id_sesion: str, hasta: date | None = None) -> ResultadoAvance:
+        """Avanza UNA sesión (aunque esté pausada devuelve `omitida`)."""
+        return self.avanzar_varias([id_sesion], hasta)[0]
+
+    def avanzar_todas(self, hasta: date | None = None) -> list[ResultadoAvance]:
+        """Avanza todas las sesiones activas con una sola descarga por ticker."""
+        return self.avanzar_varias([s.id for s in self.almacen.sesiones() if s.estado == "activa"], hasta)
+
+    def avanzar_varias(self, ids: Sequence[str], hasta: date | None = None) -> list[ResultadoAvance]:
+        """Avanza las sesiones `ids` (cada una bajo su bloqueo). Un error en una no impide avanzar las demás."""
+        ahora = self.ahora()
+        tope = ultima_sesion_cerrada(ahora)
+        if hasta is not None:
+            tope = min(tope, hasta)
+        sesiones = [self.almacen.leer_sesion(i) for i in ids]
+        resultados: dict[str, ResultadoAvance] = {}
+        a_avanzar = []
+        for sesion in sesiones:
+            if sesion.estado != "activa":
+                resultados[sesion.id] = ResultadoAvance(sesion.id, omitida=sesion.estado)
+            else:
+                a_avanzar.append(sesion)
+        datos = self._cargar_datos(a_avanzar, tope) if a_avanzar else {}
+        for sesion in a_avanzar:
+            try:
+                resultados[sesion.id] = self._avanzar_sesion(sesion.id, datos, tope, ahora)
+            except SesionBloqueada as error:
+                resultados[sesion.id] = ResultadoAvance(sesion.id, omitida=f"bloqueada: {error}")
+            except Exception as error:
+                logger.exception("Falló el avance de la sesión %s", sesion.id)
+                resultados[sesion.id] = ResultadoAvance(sesion.id, error=f"{type(error).__name__}: {error}")
+        return [resultados[s.id] for s in sesiones]
+
+    # ---- datos ---------------------------------------------------------------------------------
+
+    def _cargar_datos(self, sesiones: Sequence[SesionPaper], tope: date) -> dict[str, pd.DataFrame]:
+        """OHLCV de la unión de tickers y benchmarks: UNA petición por ticker, desde la historia más antigua que pida alguna."""
+        inicio: dict[str, pd.Timestamp] = {}
+        for sesion in sesiones:
+            desde = pd.Timestamp(sesion.fecha_alta) - pd.Timedelta(days=sesion.receta.dias_historia_previa)
+            for simbolo in [*sesion.tickers, sesion.receta.benchmark]:
+                inicio[simbolo] = min(inicio.get(simbolo, desde), desde)
+        fin = tope.isoformat()
+        try:
+            self.fuente.refrescar_reciente(sorted(inicio), fin)
+        except Exception as error:  # noqa: BLE001 - sin red se trabaja con lo cacheado
+            logger.warning("No se pudo refrescar el tramo reciente: %s", error)
+
+        def cargar(simbolo: str):
+            try:
+                return simbolo, self.fuente.ohlcv(simbolo, inicio[simbolo].strftime("%Y-%m-%d"), fin)
+            except Exception as error:  # noqa: BLE001
+                logger.warning("No se pudo cargar %s: %s", simbolo, error)
+                return simbolo, None
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            cargados = dict(pool.map(cargar, sorted(inicio)))
+        return {s: df for s, df in cargados.items() if df is not None and not df.empty}
+
+    # ---- una sesión ----------------------------------------------------------------------------
+
+    def _avanzar_sesion(self, id_sesion: str, datos: dict[str, pd.DataFrame], tope: date, ahora: datetime) -> ResultadoAvance:
+        with self.almacen.bloqueo(id_sesion):
+            sesion = self.almacen.leer_sesion(id_sesion)
+            resultado = ResultadoAvance(id_sesion)
+            if sesion.estado != "activa":
+                resultado.omitida = sesion.estado
+                return resultado
+            estado = self.almacen.leer_estado(id_sesion)
+            tablas = self.almacen.leer_tablas(id_sesion)
+            if tablas.recortar(pd.Timestamp(estado.ultima_fecha_procesada)):  # restos de un día no confirmado
+                self.almacen.guardar_tablas(id_sesion, tablas)
+            universo = {t: datos[t] for t in sesion.tickers if t in datos}
+            if not universo:
+                raise RuntimeError("No hay precios de ningún ticker del universo (¿sin red y sin caché?)")
+            dias = self._dias_a_procesar(sesion, estado, universo, datos.get(sesion.receta.benchmark), tope, ahora, tablas)
+            if not dias:
+                return resultado
+            decisor = _Decisor(sesion, estado)
+            self._rebasar(estado, universo, tablas)
+            resultado.desde = f"{dias[0]:%Y-%m-%d}"
+            for dia in dias:
+                eventos_antes = len(tablas.eventos)
+                self._procesar_dia(sesion, estado, tablas, decisor, dia, universo, datos.get(sesion.receta.benchmark))
+                decisor.volcar_en(estado)
+                estado.ultima_fecha_procesada = f"{dia:%Y-%m-%d}"
+                self.almacen.guardar_tablas(id_sesion, tablas)
+                self.almacen.guardar_estado(id_sesion, estado)  # el commit del día, siempre lo último
+                resultado.dias_procesados += 1
+                resultado.hasta = estado.ultima_fecha_procesada
+                resultado.avisos.extend(e["mensaje"] for e in tablas.eventos[eventos_antes:])
+            return resultado
+
+    def _dias_a_procesar(self, sesion, estado, universo, benchmark, tope: date, ahora: datetime,
+                         tablas: TablasSesion) -> list[pd.Timestamp]:
+        """Días con datos, cerrados y completos posteriores al último procesado (el último incompleto se pospone)."""
+        union = sorted({d for df in universo.values() for d in df.index})
+        candidatos = [d for d in dias_pendientes(date.fromisoformat(estado.ultima_fecha_procesada), union, ahora)
+                      if d <= pd.Timestamp(tope)]
+        dias = []
+        for posicion, dia in enumerate(candidatos):
+            con_barra = sum(dia in df.index for df in universo.values())
+            completo = con_barra / len(universo) >= COBERTURA_MINIMA and (benchmark is None or dia in benchmark.index)
+            if completo:
+                dias.append(dia)
+            elif posicion == len(candidatos) - 1:
+                break  # barra parcial del último día: se pospone hasta que el proveedor la complete
+            else:
+                tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "dia_omitido",
+                                       "mensaje": f"{dia:%Y-%m-%d}: barra incompleta ({con_barra}/{len(universo)} tickers); se omite"})
+        return dias
+
+    def _rebasar(self, estado: EstadoCartera, universo: dict[str, pd.DataFrame], tablas: TablasSesion) -> None:
+        """Re-base por ajuste (ver cabecera): compara el cierre guardado de cada posición con el recién descargado."""
+        fecha = pd.Timestamp(estado.ultima_fecha_procesada)
+        for ticker, posicion in estado.posiciones.items():
+            guardado = estado.ultimos_cierres.get(ticker)
+            nuevo = _ultimo_precio(universo[ticker], fecha) if ticker in universo else None
+            if not guardado or not nuevo:
+                continue
+            factor = nuevo / guardado
+            if abs(factor - 1.0) > TOLERANCIA_REBASE:
+                posicion.cantidad /= factor
+                posicion.precio_medio *= factor
+                estado.ultimos_cierres[ticker] = nuevo
+                tablas.eventos.append({"fecha": estado.ultima_fecha_procesada, "tipo": "rebase", "mensaje": (
+                    f"{ticker}: el histórico ajustado cambió (factor {factor:.6f}); se re-basa la posición para conservar su valor")})
+
+    # ---- un día --------------------------------------------------------------------------------
+
+    @staticmethod
+    def _precios_de(universo: dict[str, pd.DataFrame], dia: pd.Timestamp) -> tuple[dict[str, float], dict[str, float]]:
+        """(cierres, aperturas) de cada ticker: sin barra ese día, el último cierre; sin apertura válida, el cierre."""
+        cierres, aperturas = {}, {}
+        for ticker, df in universo.items():
+            cierre = _ultimo_precio(df, dia)
+            if cierre is None:
+                continue
+            cierres[ticker] = cierre
+            apertura = float(df["Open"].loc[dia]) if "Open" in df.columns and dia in df.index else float("nan")
+            aperturas[ticker] = apertura if np.isfinite(apertura) and apertura > 0 else cierre
+        return cierres, aperturas
+
+    @staticmethod
+    def _valor(estado: EstadoCartera, precios: Mapping[str, float]) -> float:
+        return estado.efectivo + sum(p.cantidad * precios[t] for t, p in estado.posiciones.items() if t in precios)
+
+    def _procesar_dia(self, sesion: SesionPaper, estado: EstadoCartera, tablas: TablasSesion, decisor: _Decisor,
+                      dia: pd.Timestamp, universo: dict[str, pd.DataFrame], benchmark: pd.DataFrame | None) -> None:
+        cierres, aperturas = self._precios_de(universo, dia)
+        self._liquidar_desaparecidos(sesion, estado, tablas, dia, universo, cierres)
+        modo_cierre = sesion.modo_ejecucion == "cierre"
+        frecuencia = sesion.receta.frecuencia_rebalanceo
+
+        if modo_cierre:
+            if not estado.asignacion_inicial_hecha:
+                self._decidir_y_ejecutar(sesion, estado, tablas, decisor, dia, universo, cierres)
+                fila_equity = self._valor(estado, cierres)  # la asignación inicial cuenta en la equity del primer día
+            else:
+                fila_equity = self._valor(estado, cierres)  # la equity de D es la de ANTES de rebalancear a su cierre
+                ultimo = date.fromisoformat(estado.ultimo_rebalanceo) if estado.ultimo_rebalanceo else None
+                if toca_rebalancear(frecuencia, ultimo, dia.date()):
+                    self._decidir_y_ejecutar(sesion, estado, tablas, decisor, dia, universo, cierres)
+        else:
+            if estado.pesos_pendientes is not None:
+                self._ejecutar(sesion, estado, tablas, estado.pesos_pendientes, aperturas, dia)
+                estado.pesos_pendientes, estado.fecha_decision_pendiente = None, None
+            fila_equity = self._valor(estado, cierres)
+            ultimo = date.fromisoformat(estado.ultimo_rebalanceo) if estado.ultimo_rebalanceo else None
+            if not estado.asignacion_inicial_hecha or toca_rebalancear(frecuencia, ultimo, dia.date()):
+                pesos = self._decidir(sesion, estado, tablas, decisor, dia, universo)
+                if pesos is not None:
+                    estado.pesos_pendientes, estado.fecha_decision_pendiente = pesos, f"{dia:%Y-%m-%d}"
+                    estado.asignacion_inicial_hecha, estado.ultimo_rebalanceo = True, f"{dia:%Y-%m-%d}"
+
+        valor_benchmark = _ultimo_precio(benchmark, dia) if benchmark is not None else None
+        tablas.equity = _anadir(tablas.equity, [{
+            "fecha": dia, "equity": fila_equity, "efectivo": estado.efectivo, "n_posiciones": len(estado.posiciones),
+            "benchmark": valor_benchmark if valor_benchmark is not None else float("nan")}], COLUMNAS_EQUITY)
+        estado.ultimos_cierres = {t: cierres[t] for t in estado.posiciones if t in cierres}
+
+    def _decidir(self, sesion, estado, tablas, decisor, dia, universo) -> dict[str, float] | None:
+        """Pesos objetivo de la estrategia en `dia` (None si falla: se anota el error y se reintenta el siguiente día)."""
+        try:
+            pesos = decisor.pesos(dia, universo)
+        except Exception as error:  # noqa: BLE001 - como el motor: un día fallido no aborta la sesión
+            logger.warning("Estrategia de %s falló el %s: %s", sesion.id, dia, error)
+            tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "error_estrategia",
+                                   "mensaje": f"{dia:%Y-%m-%d}: la estrategia falló ({type(error).__name__}: {error})"})
+            return None
+        tablas.pesos = _anadir(tablas.pesos, [{"fecha": dia, "ticker": t, "peso": float(w)} for t, w in pesos.items()],
+                               COLUMNAS_PESOS)
+        return pesos
+
+    def _decidir_y_ejecutar(self, sesion, estado, tablas, decisor, dia, universo, precios) -> None:
+        pesos = self._decidir(sesion, estado, tablas, decisor, dia, universo)
+        if pesos is None:
+            return
+        self._ejecutar(sesion, estado, tablas, pesos, precios, dia)
+        estado.asignacion_inicial_hecha, estado.ultimo_rebalanceo = True, f"{dia:%Y-%m-%d}"
+
+    def _ejecutar(self, sesion: SesionPaper, estado: EstadoCartera, tablas: TablasSesion, pesos: Mapping[str, float],
+                  precios: Mapping[str, float], dia: pd.Timestamp) -> None:
+        """
+        Planifica con el Ejecutor (política del motor) y ejecuta con el broker simulado a `precios`.
+
+        Traduce cada `Orden` a la cantidad exacta que calculan `_buy`/`_sell` del motor: la compra se recorta al
+        efectivo disponible (`efectivo / (1 + comisión)`) y no opera menos de 1; la venta vende `importe` al precio con
+        slippage, limitada a la posición. El broker aplica comisión y slippage.
+        """
+        comision, slippage = sesion.receta.comision, sesion.receta.slippage
+        broker = BrokerSimulado(efectivo_inicial=estado.efectivo, comision=comision, slippage=slippage, precios=precios)
+        broker.posiciones = {t: p.cantidad for t, p in estado.posiciones.items()}
+        cuenta = broker.estado_cuenta()
+        plan = planificar_rebalanceo(pesos, precios, cuenta, POLITICA_MOTOR)
+        if cuenta.equity > 0:
+            tablas.rotaciones = _anadir(tablas.rotaciones, [{"fecha": dia, "rotacion": plan.rotacion}], COLUMNAS_ROTACIONES)
+        filas = []
+        for orden in plan.ordenes:
+            precio = precios[orden.ticker]
+            if orden.lado == VENTA:
+                if orden.ticker not in broker.posiciones:
+                    continue
+                cantidad = min(orden.importe / (precio * (1 - slippage)), broker.posiciones[orden.ticker])
+            else:
+                importe = min(orden.importe, broker.efectivo / (1 + comision))
+                if importe < 1.0:
+                    continue
+                cantidad = importe / (precio * (1 + slippage))
+            relleno = broker.consultar_orden(broker.enviar_orden(orden.ticker, orden.lado, cantidad))
+            if relleno.estado != "filled":
+                tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "orden_rechazada",
+                                       "mensaje": f"{dia:%Y-%m-%d}: orden de {orden.lado} de {orden.ticker} rechazada"})
+                continue
+            filas.append(self._registrar_relleno(estado, broker, relleno, precio, comision, dia))
+        estado.efectivo = broker.efectivo
+        tablas.operaciones = _anadir(tablas.operaciones, filas, COLUMNAS_OPERACIONES)
+
+    @staticmethod
+    def _registrar_relleno(estado: EstadoCartera, broker: BrokerSimulado, relleno, precio_referencia: float,
+                           comision: float, dia: pd.Timestamp) -> dict:
+        """Actualiza la posición (con su precio medio, como el motor) y devuelve la fila de `operaciones`."""
+        ticker, cantidad, precio = relleno.ticker, relleno.cantidad_ejecutada, relleno.precio_medio
+        if relleno.lado == COMPRA:
+            previa = estado.posiciones.get(ticker)
+            medio = precio if previa is None else (previa.cantidad * previa.precio_medio + cantidad * precio) / (previa.cantidad + cantidad)
+            estado.posiciones[ticker] = PosicionPaper(cantidad=broker.posiciones[ticker], precio_medio=medio)
+            comision_pagada, pnl, slippage = cantidad * precio * comision, float("nan"), cantidad * (precio - precio_referencia)
+        else:
+            posicion = estado.posiciones[ticker]
+            ingreso = cantidad * precio
+            comision_pagada = ingreso * comision
+            pnl = (precio - posicion.precio_medio) * cantidad - comision_pagada
+            slippage = cantidad * (precio_referencia - precio)
+            resto = broker.posiciones.get(ticker, 0.0)
+            if resto < UMBRAL_POSICION_MINIMA:  # como el motor: lo que queda por debajo se descarta
+                broker.posiciones.pop(ticker, None)
+                del estado.posiciones[ticker]
+            else:
+                posicion.cantidad = resto
+        return {"fecha": dia, "ticker": ticker, "lado": relleno.lado, "cantidad": cantidad, "precio": precio,
+                "comision": comision_pagada, "pnl": pnl, "slippage": slippage}
+
+    def _liquidar_desaparecidos(self, sesion, estado, tablas, dia, universo, cierres) -> None:
+        """Un ticker en cartera sin barra durante `SESIONES_PARA_LIQUIDAR` sesiones seguidas se vende a su último precio."""
+        for ticker in list(estado.posiciones):
+            hay_barra = ticker in universo and dia in universo[ticker].index
+            estado.dias_sin_barra[ticker] = 0 if hay_barra else estado.dias_sin_barra.get(ticker, 0) + 1
+            if estado.dias_sin_barra[ticker] < SESIONES_PARA_LIQUIDAR or ticker not in cierres:
+                continue
+            posicion = estado.posiciones[ticker]
+            broker = BrokerSimulado(efectivo_inicial=estado.efectivo, comision=sesion.receta.comision,
+                                    slippage=sesion.receta.slippage, precios=cierres)
+            broker.posiciones = {t: p.cantidad for t, p in estado.posiciones.items()}
+            relleno = broker.consultar_orden(broker.enviar_orden(ticker, VENTA, posicion.cantidad))
+            fila = self._registrar_relleno(estado, broker, relleno, cierres[ticker], sesion.receta.comision, dia)
+            estado.efectivo = broker.efectivo
+            tablas.operaciones = _anadir(tablas.operaciones, [fila], COLUMNAS_OPERACIONES)
+            estado.dias_sin_barra.pop(ticker, None)
+            tablas.eventos.append({"fecha": f"{dia:%Y-%m-%d}", "tipo": "liquidacion", "mensaje": (
+                f"{ticker}: {SESIONES_PARA_LIQUIDAR} sesiones sin barra (¿deslistado o cambio de ticker?); "
+                "se liquida a su último precio conocido")})

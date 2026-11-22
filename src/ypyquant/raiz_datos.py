@@ -2,8 +2,8 @@
 Raíz de datos: la única que sabe cómo cuelgan los almacenes de la carpeta `data/`.
 
 Responsabilidad: construir, a partir de una carpeta base, las rutas de los almacenes hermanos (experimentos, barridos,
-configuraciones, marcos) y del archivo común del periodo reservado, para que nadie las recomponga con `parent / "..."`.
-Cuando haya almacenes nuevos (paper interno: sesiones, órdenes, fills) se añaden aquí como propiedad.
+configuraciones, marcos, paper interno) y del archivo común del periodo reservado, para que nadie las recomponga con `parent / "..."`.
+El paper interno cuelga de `paper_interno`; los almacenes nuevos se añaden aquí como propiedad.
 
 Se relaciona con:
 - ypyquant.almacen_documentos (los almacenes que se construyen sobre estas rutas) y los adaptadores en
@@ -52,6 +52,11 @@ class RaizDatos:
     @property
     def marcos(self) -> Path:
         return self.base / "marcos"
+
+    @property
+    def paper_interno(self) -> Path:
+        """Sesiones del paper interno: una carpeta por sesión (ver `ypyquant.paper.almacen`)."""
+        return self.base / "paper_interno"
 
     @property
     def reservado(self) -> Path:

@@ -2,7 +2,7 @@
 Aplicación FastAPI de la interfaz interna de Sistema_trading.
 
 Responsabilidad:
-- `crear_app(...)`: fábrica que monta las rutas (estrategias, experimentos, barridos, configuraciones, marcos, paper trading), el
+- `crear_app(...)`: fábrica que monta las rutas (estrategias, experimentos, barridos, configuraciones, marcos, paper trading y paper interno), el
   contexto inyectable (almacén, cargador de precios, Alpaca, bot) y, si existe `app/web/dist`, sirve
   el frontend compilado en `/`. Es una capa fina: toda la lógica vive en `ypyquant.estrategias`.
 - `app`: instancia lista para uvicorn.
@@ -33,6 +33,7 @@ from app.api import (
     rutas_experimentos,
     rutas_marcos,
     rutas_paper,
+    rutas_paper_interno,
 )
 from app.api.contexto import Contexto
 from app.api.paper import BotControl, ServicioAlpaca
@@ -57,6 +58,8 @@ def crear_app(
     raiz_barridos: Path | None = None,
     raiz_configuraciones: Path | None = None,
     raiz_marcos: Path | None = None,
+    catchup_paper_al_arrancar: bool = True,
+    reloj_paper=None,
 ) -> FastAPI:
     """
     Construye la aplicación con sus dependencias (todas inyectables para los tests).
@@ -70,6 +73,8 @@ def crear_app(
             (por defecto `configuraciones/` y `marcos/` junto a la del almacén, es decir `data/configuraciones/` y `data/marcos/`).
         servicio_alpaca / bot: sustitutos para tests.
         cargar_env: si True, lee el `.env` de la raíz (claves de Alpaca) con python-dotenv.
+        catchup_paper_al_arrancar: si hay sesiones de paper interno activas, las pone al día en segundo plano al
+            arrancar (los tests lo desactivan). reloj_paper: reloj inyectable del paper interno (por defecto, Nueva York).
     """
     if cargar_env:
         try:
@@ -96,6 +101,7 @@ def crear_app(
         cargador_precios=cargador_precios or fuente_por_defecto(),
         alpaca=servicio_alpaca or ServicioAlpaca(),
         bot=bot or BotControl(),
+        **({"reloj_paper": reloj_paper} if reloj_paper else {}),
     )
 
     almacen.indexar()  # índice receta -> experimentos (backtests de una configuración sin recorrer el disco)
@@ -111,6 +117,12 @@ def crear_app(
     api.include_router(rutas_configuraciones.router)
     api.include_router(rutas_marcos.router)
     api.include_router(rutas_paper.router)
+    api.include_router(rutas_paper_interno.router)
+
+    # Paper interno: catch-up de los días perdidos (PC apagado) sin bloquear el arranque
+    servicio_paper = api.state.ctx.servicio_paper_interno
+    if catchup_paper_al_arrancar and servicio_paper.hay_sesiones_activas() and api.state.ctx.control_avance_paper.iniciar():
+        api.state.ctx.ejecutor.submit(api.state.ctx.control_avance_paper.ejecutar, servicio_paper.avanzar)
 
     if CARPETA_WEB.is_dir():  # frontend compilado (npm run build); en desarrollo se usa `npm run dev`
         api.mount("/assets", StaticFiles(directory=CARPETA_WEB / "assets"), name="assets")

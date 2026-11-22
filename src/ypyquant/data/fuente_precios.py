@@ -32,13 +32,14 @@ Se relaciona con:
 - ypyquant.data.matriz_precios (`CargadorPrecios`, contrato heredado que esta interfaz generaliza).
 - ypyquant.data.fuentes (adaptadores y `fuente_por_defecto`) y ypyquant.data.universos (símbolos canónicos).
 - ypyquant.estrategias.experimentos (`cargar_datos_experimento` recoge los deslistados) y .simulacion (los avisa).
+- ypyquant.paper.simulador (llama a `refrescar_reciente` antes de avanzar las sesiones).
 - pipelines/paper_trading/precios.py (el bot usa la misma fuente) y app/api (la construye al arrancar).
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -99,6 +100,15 @@ class FuentePrecios(ABC):
     @abstractmethod
     def deslistado(self, simbolo: str) -> Deslistado | None:
         """Información de deslistado del valor, o None si sigue cotizando (o no hay datos)."""
+
+    def refrescar_reciente(self, simbolos: Sequence[str], hasta: str) -> list[str]:
+        """
+        Pone al día el tramo reciente de los símbolos (hasta `hasta`, 'YYYY-MM-DD') antes de que el paper interno
+        pida los precios. Por defecto no hace nada (fuentes sin caché: sintética, cargadores sueltos). Devuelve los
+        símbolos cuyo historial ajustado cambió (dividendo o split), que el paper interno re-basa. No altera los
+        precios ya guardados salvo en ese caso: ver `FuenteYFinanceCache.refrescar_reciente`.
+        """
+        return []
 
     def __call__(self, ticker: str, fecha_inicio: str, fecha_fin: str) -> pd.DataFrame | None:
         """Compatibilidad con `CargadorPrecios`: la serie ajustada."""

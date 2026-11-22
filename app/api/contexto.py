@@ -13,13 +13,16 @@ Se relaciona con:
 - app/api/main.py (crea el contexto), app/api/rutas_*.py (lo consumen vía `obtener_contexto`).
 - ypyquant.raiz_datos (rutas de los almacenes) y ypyquant.estrategias (ServicioExperimentos, AlmacenExperimentos,
   AlmacenBarridos, cargadores de precios).
-- app/api/paper.py (servicios de paper trading que cuelgan del contexto).
+- app/api/paper.py (servicios de paper trading que cuelgan del contexto) y ypyquant.paper (paper interno: almacén,
+  servicio y control del avance en segundo plano).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from fastapi import Request
 
@@ -30,6 +33,9 @@ from ypyquant.estrategias.barridos import AlmacenBarridos
 from ypyquant.estrategias.configuraciones import AlmacenConfiguraciones
 from ypyquant.estrategias.marcos import AlmacenMarcos
 from ypyquant.estrategias.servicio_experimentos import ServicioExperimentos
+from ypyquant.paper.almacen import AlmacenPaper
+from ypyquant.paper.calendario import ahora_nueva_york
+from ypyquant.paper.servicio import ControlAvance, ServicioPaper
 from ypyquant.raiz_datos import RaizDatos
 
 
@@ -55,6 +61,11 @@ class Contexto:
     almacen_configuraciones: AlmacenConfiguraciones | None = None
     almacen_marcos: AlmacenMarcos | None = None
     servicio: ServicioExperimentos | None = None  # se construye con los almacenes y el `ejecutor` de este contexto
+    # Paper interno (ver app/api/rutas_paper_interno.py): sesiones forward; `reloj_paper` se inyecta en los tests
+    almacen_paper_interno: AlmacenPaper | None = None
+    reloj_paper: Callable[[], datetime] = ahora_nueva_york
+    servicio_paper_interno: ServicioPaper | None = None
+    control_avance_paper: ControlAvance = field(default_factory=ControlAvance)
 
     def __post_init__(self) -> None:
         raiz = RaizDatos.de_experimentos(self.almacen.raiz)
@@ -67,6 +78,10 @@ class Contexto:
         if self.servicio is None:
             self.servicio = ServicioExperimentos(self.almacen, self.cargador_precios, self.ejecutor,
                                                  self.almacen_barridos, self.almacen_marcos, self.ejecutor_barridos)
+        if self.almacen_paper_interno is None:
+            self.almacen_paper_interno = AlmacenPaper(raiz.paper_interno)
+        if self.servicio_paper_interno is None:
+            self.servicio_paper_interno = ServicioPaper(self.almacen_paper_interno, self.cargador_precios, self.reloj_paper)
 
 
 def obtener_contexto(request: Request) -> Contexto:

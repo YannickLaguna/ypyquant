@@ -11,6 +11,8 @@ Responsabilidad:
 - Deslistados: yfinance no los sabe. `deslistado()` mantiene la inferencia de siempre como comportamiento
   del adaptador: si el último dato de la caché queda más de `DIAS_PRECIO_CADUCADO` antes del final del rango
   cubierto, el valor dejó de cotizar (`Deslistado.inferido=True`, sin motivo).
+- `refrescar_reciente`: añade las sesiones nuevas sin tocar lo cacheado (solo re-descarga el símbolo si el solape
+  revela un ajuste por dividendo o split); lo usa el paper interno antes de cada avance.
 - Identificador: yfinance no ofrece uno estable; se usa el propio símbolo (`yf:<símbolo>`).
 
 Formato de salida (como espera `BacktestEngine`): índice fecha (DatetimeIndex ordenado, sin zona),
@@ -38,6 +40,11 @@ logger = logging.getLogger(__name__)
 
 RAIZ_REPO = Path(__file__).resolve().parents[4]
 CARPETA_CACHE_POR_DEFECTO = RAIZ_REPO / "data" / "cache_precios"
+
+# `refrescar_reciente`: días naturales de solape con lo ya cacheado y diferencia relativa máxima del cierre en ese
+# solape a partir de la cual se considera que yfinance reescribió el histórico ajustado (dividendo o split).
+VENTANA_SOLAPE_DIAS = 10
+TOLERANCIA_AJUSTE = 1e-6
 
 
 def _nombre_archivo(simbolo: str) -> str:
@@ -144,6 +151,42 @@ class FuenteYFinanceCache(FuentePrecios):
         """Recuerda (último dato, fin cubierto) de la serie ajustada para `deslistado` sin volver a leer el Parquet."""
         if ajuste == "ajustado" and not df.empty:
             self._ultimo_dato[simbolo] = (pd.Timestamp(df.index[-1]), pd.Timestamp(fin_cubierto))
+
+    def refrescar_reciente(self, simbolos, hasta: str) -> list[str]:
+        """
+        Añade a la caché ajustada las sesiones nuevas hasta `hasta` (descarga solo el tramo reciente).
+
+        Descarga desde `VENTANA_SOLAPE_DIAS` antes del último dato cacheado y compara el solape con lo guardado: si
+        coincide (tolerancia `TOLERANCIA_AJUSTE`) solo se AÑADEN las filas posteriores y los precios cacheados no
+        cambian. Si difiere (dividendo o split: yfinance reescribe todo el histórico ajustado) se vuelve a descargar
+        el símbolo entero y se sustituye su caché; ese símbolo se devuelve para que el paper interno re-base sus
+        cantidades. Sin red (o con `descargar=False`) no hace nada. Un símbolo sin caché previa se omite: lo carga
+        `ohlcv` con su rango habitual.
+        """
+        if not self.descargar:
+            return []
+        cambiados = []
+        for simbolo in simbolos:
+            cache, cubierto = self._leer_cache(simbolo)
+            if cache is None or cache.empty or not cubierto or cubierto[1] >= hasta:
+                continue
+            desde = (pd.Timestamp(cache.index[-1]) - pd.Timedelta(days=VENTANA_SOLAPE_DIAS)).strftime("%Y-%m-%d")
+            nuevo = self._descargar(simbolo, desde, hasta)
+            if nuevo is None or nuevo.empty:
+                continue
+            solape = cache.index.intersection(nuevo.index)
+            relativo = (nuevo.loc[solape, "Close"] / cache.loc[solape, "Close"] - 1).abs().max() if len(solape) else 0.0
+            if relativo > TOLERANCIA_AJUSTE:
+                completo = self._descargar(simbolo, cubierto[0], hasta)
+                if completo is not None and not completo.empty:
+                    self._guardar_cache(simbolo, completo, cubierto[0], hasta)
+                    self._anotar_ultimo_dato(simbolo, "ajustado", completo, hasta)
+                    cambiados.append(simbolo)
+                continue
+            ampliada = pd.concat([cache, nuevo.loc[nuevo.index > cache.index[-1]]])
+            self._guardar_cache(simbolo, ampliada, cubierto[0], hasta)
+            self._anotar_ultimo_dato(simbolo, "ajustado", ampliada, hasta)
+        return cambiados
 
     def identificador(self, simbolo: str) -> str:
         return f"yf:{simbolo}"
