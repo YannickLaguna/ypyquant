@@ -28,8 +28,8 @@ from ypyquant.execution.ejecutor import (
 )
 from ypyquant.execution.margen import (
     ReglasMargen,
-    cargos_diarios,
     capacidad_de_compra,
+    cargos_diarios,
     evaluar_margen,
     factor_de_conservacion,
     reglas_desde_parametros,
@@ -212,7 +212,7 @@ def test_llamada_de_margen_liquida_proporcionalmente_y_queda_anotada():
 def test_motor_con_reglas_por_defecto_no_cambia():
     n = 60
     precios = _precios(A=100 * 1.001 ** np.arange(n), B=100 * 1.0005 ** np.arange(n))
-    estrategia = lambda f, d: {"A": 0.5, "B": 0.5}  # noqa: E731
+    estrategia = lambda f, d: {"A": 0.5, "B": 0.5}
     base = _motor(n).run_backtest(estrategia, precios)
     con_reglas = _motor(n, reglas_margen=ReglasMargen()).run_backtest(estrategia, precios)
     np.testing.assert_array_equal(base.equity_curve["equity"].to_numpy(), con_reglas.equity_curve["equity"].to_numpy())

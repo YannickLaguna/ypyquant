@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from ypyquant.execution.broker import EstadoOrden
-from ypyquant.execution.ejecutor import COMPRA, VENTA, EstadoCuenta
+from ypyquant.execution.ejecutor import COMPRA, EstadoCuenta
 from ypyquant.execution.margen import ReglasMargen, capacidad_bruta, capacidad_de_compra, valores_largo_corto
 
 

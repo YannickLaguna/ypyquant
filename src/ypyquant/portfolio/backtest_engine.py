@@ -10,6 +10,9 @@ Responsabilidades:
   (frente a los pesos a la deriva) y conversión de la equity a la divisa del usuario.
 - `PortfolioBacktestService`: backtest + benchmark buy & hold (con el mismo DCA y la misma
   divisa), comparación, comparación de estrategias y métricas rolling.
+- Margen y cortos (opcional, `reglas_margen` de `ypyquant.execution.margen`): préstamo con intereses, posiciones cortas con
+  préstamo de títulos, comprobación diaria del mantenimiento y liquidación forzosa proporcional (`llamadas_margen`). Con las
+  reglas por defecto (sin apalancamiento ni cortos) el motor funciona exactamente como antes.
 - Dataclasses `BacktestConfig`, `BacktestTrade`, `BacktestResult` con los nombres de campo de
   GrowSave (inglés) y alias en español de la API 0.2.0 (fecha_inicio, capital_inicial,
   retorno_total_pct, ...), para que funcionen ambos consumidores.
@@ -49,7 +52,7 @@ from ypyquant.execution.calendario import (
     fechas_programadas,
     validar_frecuencia,
 )
-from ypyquant.execution.ejecutor import POLITICA_MOTOR, VENTA, EstadoCuenta, planificar_rebalanceo
+from ypyquant.execution.ejecutor import VENTA, EstadoCuenta, planificar_rebalanceo
 from ypyquant.execution.margen import (
     ReglasMargen,
     capacidad_bruta,

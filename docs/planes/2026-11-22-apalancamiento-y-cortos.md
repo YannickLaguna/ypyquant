@@ -54,6 +54,43 @@ financiación (ver pendientes).
   `apalancamiento_maximo > 1` (o exigir cuenta de margen en Alpaca). No se tocó su código.
 - Web: la tabla de pesos muestra `CASH` (Efectivo) con peso negativo; podría rotularse «Préstamo (margen)».
 
+## 1b. Margen y cortos: lo desarrollado (rama `arq/margen-y-cortos`, 2026-11-22)
+
+Se siguió la propuesta priorizada de la sección 4 (puntos 2, 3 y 4, y parte del 5). Código en `src/ypyquant/execution/margen.py`
+(reglas puras compartidas) y adaptadores que las usan.
+
+1. **Mantenimiento y llamadas de margen en el motor** (hecho). Requisito inicial 50 %, mantenimiento 25 % largos / 30 % cortos
+   (configurables en `ReglasMargen`). Cada día, tras valorar, `BacktestEngine._comprobar_margen`: si el equity cae bajo el
+   mantenimiento se liquida toda la cartera proporcionalmente (con costes) hasta el requisito inicial y se anota la
+   llamada (fecha, equity, requisito, fracción conservada) como aviso. Con L = 1 y sin cortos no entra en ninguna rama.
+2. **Paper interno con margen** (hecho). El simulador usa las mismas funciones (`cargos_diarios`, `capacidad_*`,
+   `evaluar_margen`, `factor_de_conservacion`) y el `BrokerSimulado` acepta `reglas_margen`; la paridad paper-backtest se
+   amplía a 130/30, dólar-neutral, apalancamiento 2x y un caso con llamada de margen idéntica. Se quitó el 422 del alta.
+3. **Alpaca con margen** (hecho). `ALPACA_<PERFIL>_MARGEN=1` declara la cuenta de margen (`ALPACA_MARGEN` para `DEFECTO`); sin
+   ella se mantiene el rechazo con mensaje claro. `BrokerAlpaca.capacidad_margen()` lee `multiplier` y `shorting_enabled` del
+   objeto cuenta de alpaca-py (verificado en `alpaca.trading.models.TradeAccount`); el bot lo comprueba al arrancar y se
+   niega si la cuenta real no admite la receta. El apalancamiento permitido es `min(multiplier, 2)` (el 4x es intradía).
+   El bot usa `politica_para(...)`: con cortos, `POLITICA_BOT` con `permite_cortos`.
+4. **Cortos** (hecho en lo principal). `sanear_pesos(permite_cortos=True)` conserva pesos negativos sin normalizar; el Ejecutor
+   abre y cubre cortos (cambio de signo = cierre + apertura); el motor valora cortos, cobra `coste_prestamo_titulos` y limita la
+   exposición bruta; la evaluación añade exposición bruta/neta y `llamadas_margen`.
+   - Estrategias con cortos: **`momentum`** largo-corto por ranking (`exposicion_larga`, `exposicion_corta`, `top_k_cortos`,
+     `coste_prestamo_titulos`; 130/30 = 1,3/0,3; dólar-neutral = 1/1). Fuera de huella en su defecto.
+   - **No hecho**: `senales_tecnicas` (la máquina de estados de `EstrategiaSenales` es solo largo; abrir cortos con una señal
+     < -umbral exige rediseñar stops, trailing y tamaños), mínima varianza y volatilidad objetivo con cortos acotados
+     (cambian `optimizar_min_varianza`/`optimizar_volatilidad_objetivo` y el `_apalancar` de las cinco estrategias robustas;
+     la exposición bruta máxima y la interacción con el préstamo de margen necesitan una decisión), max-Sharpe con cortos
+     y paridad de riesgo con cortos (se mantiene la decisión de NO hacerla).
+5. **Web** (hecho). El gráfico de pesos apila positivos y negativos, rotula `CASH` negativo como «Préstamo (margen)» y los
+   negativos como «(corto)»; la ficha muestra exposición bruta/neta y llamadas de margen (métricas y avisos).
+
+Decisiones de modelado (revisables): la liquidación forzosa reduce TODAS las posiciones en la misma proporción (Alpaca decide
+qué liquidar); el objetivo tras la liquidación es el requisito INICIAL, no el de mantenimiento (más conservador); el interés del
+margen se cobra solo sobre el efectivo negativo (el producto de los cortos cuenta como efectivo y compensa); el préstamo de
+títulos es una tasa plana sobre el valor de los cortos (por defecto 0,3 %); no se modela el rebate ni los valores
+hard-to-borrow ni el cierre forzoso por deslistado de un corto. La paridad del paper en `apertura_siguiente` no está
+cubierta por test (las reglas son las mismas, el momento de ejecución cambia).
+
 ## 2. Estudio de cortos: qué modelos los admiten
 
 Cortos = pesos negativos. Interesan dos restricciones: exposición neta `Σw` y bruta `Σ|w|`.

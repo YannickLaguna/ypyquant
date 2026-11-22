@@ -116,7 +116,7 @@ def test_el_bot_se_niega_a_arrancar_si_la_cuenta_real_no_es_de_margen(tmp_path, 
     from pipelines.paper_trading import config as cfg
 
     cuenta = SimpleNamespace(equity="100000", cash="100000", multiplier="1", shorting_enabled=False)
-    cliente = SimpleNamespace(get_account=lambda: cuenta, get_all_positions=lambda: [])
+    cliente = SimpleNamespace(get_account=lambda: cuenta, get_all_positions=list)
     monkeypatch.setattr(alpaca_vivo, "crear_clientes", lambda servicio: (cliente, None))
     servicio = cfg.ConfiguracionServicio(
         alpaca=cfg.ConfiguracionAlpaca("k", "s"), segundos_entre_iteraciones=1, dias_historico=252,
