@@ -84,7 +84,7 @@ ypyquant/
 ├── ml/             # MarketRegimeClassifier, MLPredictor, LSTM, RL ✅
 ├── factors/        # FamaFrenchModel (FF5+MOM) ✅
 ├── data/           # Indicadores técnicos, datos FF, yield curves ✅
-└── execution/      # BrokerInterface, PaperBroker, BotExecutor... ← M0 pendiente
+└── execution/      # calendario, Ejecutor (pesos→órdenes), puerto Broker (simulado/Alpaca), protecciones, analítica ✅
 ```
 
 ---

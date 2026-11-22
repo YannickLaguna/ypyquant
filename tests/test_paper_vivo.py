@@ -32,7 +32,8 @@ from pipelines.paper_trading.precios import (
 )
 from ypyquant.estrategias import obtener_estrategia
 from ypyquant.estrategias.base import MARGEN_SESIONES
-from ypyquant.execution.nautilus.ordenes import decidir_ordenes_rebalanceo
+from ypyquant.execution.broker_alpaca import BrokerAlpaca
+from ypyquant.execution.ejecutor import POLITICA_BOT, EstadoCuenta, planificar_rebalanceo
 from ypyquant.execution.nautilus.registro_fills import RegistroFills
 
 pytest.importorskip("alpaca")  # extra `trading`: se construyen MarketOrderRequest reales
@@ -169,7 +170,7 @@ class TestFillsReales:
         """Una iteración de rebalanceo: devuelve los pesos y deja las órdenes enviadas como pendientes."""
         estrategia = obtener_estrategia("pesos_iguales")({})
         return alpaca_vivo.rebalancear_con_estrategia_registro(
-            cliente, estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
+            BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
 
     def test_las_ordenes_enviadas_quedan_pendientes_y_no_se_registran_con_cantidad_cero(self, tmp_path):
         cliente, estado = ClienteAlpacaFalso(), _estado(tmp_path)
@@ -177,7 +178,7 @@ class TestFillsReales:
         assert len(cliente.enviadas) == 2 and set(estado.ordenes_pendientes) == {"orden-1", "orden-2"}
         registro = RegistroFills(tmp_path / "fills.jsonl")
         # Aún sin ejecutar: no se registra nada y siguen pendientes
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=0, espera_s=0) == 0
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=0, espera_s=0) == 0
         assert not (tmp_path / "fills.jsonl").exists() and len(estado.ordenes_pendientes) == 2
 
     def test_registra_el_fill_real_cuando_se_ejecuta_y_no_duplica(self, tmp_path):
@@ -186,13 +187,13 @@ class TestFillsReales:
         cliente.ejecutar("orden-1", 101.5)
         cliente.ejecutar("orden-2", 99.0)
         registro = RegistroFills(tmp_path / "fills.jsonl")
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=0, espera_s=0) == 2
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=0, espera_s=0) == 2
         filas = [json.loads(linea) for linea in (tmp_path / "fills.jsonl").read_text(encoding="utf-8").splitlines()]
         assert {f["id_orden"] for f in filas} == {"orden-1", "orden-2"}
         assert {f["precio"] for f in filas} == {101.5, 99.0} and all(f["cantidad"] == 500 for f in filas)
         assert estado.ordenes_pendientes == []
         # Segunda sincronización y recarga desde disco: nada nuevo
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=0, espera_s=0) == 0
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=0, espera_s=0) == 0
         assert len((tmp_path / "fills.jsonl").read_text(encoding="utf-8").splitlines()) == 2
         assert _estado(tmp_path).ordenes_pendientes == []
 
@@ -202,10 +203,10 @@ class TestFillsReales:
         registro = RegistroFills(tmp_path / "fills.jsonl")
         cliente.ejecutar("orden-1", 100.0, cantidad=100, estado="partially_filled")
         cliente.ejecutar("orden-2", 100.0, cantidad=200, estado="canceled")
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=0, espera_s=0) == 1
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=0, espera_s=0) == 1
         assert estado.ordenes_pendientes == ["orden-1"]  # la parcial aún puede completarse
         cliente.ordenes["orden-1"].status = SimpleNamespace(value="canceled")
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=0, espera_s=0) == 1
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=0, espera_s=0) == 1
         assert estado.ordenes_pendientes == []
 
     def test_rechazada_sin_fill_se_descarta_sin_registrar(self, tmp_path):
@@ -214,7 +215,7 @@ class TestFillsReales:
         for identificador in ("orden-1", "orden-2"):
             cliente.ordenes[identificador].status = SimpleNamespace(value="rejected")
         registro = RegistroFills(tmp_path / "fills.jsonl")
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=0, espera_s=0) == 0
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=0, espera_s=0) == 0
         assert estado.ordenes_pendientes == [] and not (tmp_path / "fills.jsonl").exists()
 
     def test_error_de_consulta_deja_la_orden_pendiente(self, tmp_path, caplog):
@@ -222,7 +223,7 @@ class TestFillsReales:
         self._enviar(cliente, estado, tmp_path)
         cliente.get_order_by_id = lambda _id: (_ for _ in ()).throw(ConnectionError("caído"))
         with caplog.at_level(logging.WARNING):
-            alpaca_vivo.sincronizar_fills(cliente, RegistroFills(tmp_path / "fills.jsonl"), estado, reintentos=0, espera_s=0)
+            alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), RegistroFills(tmp_path / "fills.jsonl"), estado, reintentos=0, espera_s=0)
         assert len(estado.ordenes_pendientes) == 2 and "caído" in caplog.text
 
     def test_reintenta_hasta_que_se_ejecuten(self, tmp_path):
@@ -241,7 +242,7 @@ class TestFillsReales:
 
         cliente.get_order_by_id = consulta
         registro = RegistroFills(tmp_path / "fills.jsonl")
-        assert alpaca_vivo.sincronizar_fills(cliente, registro, estado, reintentos=3, espera_s=0) == 2
+        assert alpaca_vivo.sincronizar_fills(BrokerAlpaca(cliente), registro, estado, reintentos=3, espera_s=0) == 2
 
     def test_registro_fills_no_duplica_el_mismo_id_de_orden(self, tmp_path):
         registro = RegistroFills(tmp_path / "fills.jsonl")
@@ -291,22 +292,22 @@ class TestFrecuenciaDeRebalanceo:
         estrategia = obtener_estrategia("pesos_iguales")({})
         rebalancear = alpaca_vivo.rebalancear_con_estrategia_registro
         # Primera vez: toca, envía y marca
-        assert rebalancear(cliente, estrategia, _precios(), True, estado, "monthly", hoy=date(2026, 11, 2)) is not None
+        assert rebalancear(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "monthly", hoy=date(2026, 11, 2)) is not None
         assert len(cliente.enviadas) == 2 and estado.ultimo_rebalanceo == date(2026, 11, 2)
         # Mismo mes, otro día e incluso con la cartera desviada: no toca, solo loguea
         cliente.posiciones = {"AAA": 1, "BBB": 900}
         with caplog.at_level(logging.INFO):
-            assert rebalancear(cliente, estrategia, _precios(), True, estado, "monthly", hoy=date(2026, 11, 20)) is None
+            assert rebalancear(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "monthly", hoy=date(2026, 11, 20)) is None
         assert len(cliente.enviadas) == 2 and "no toca" in caplog.text.lower()
         # Tras reiniciar el proceso (estado recargado de disco) sigue sin tocar
-        assert rebalancear(cliente, estrategia, _precios(), True, _estado(tmp_path), "monthly", hoy=date(2026, 11, 25)) is None
+        assert rebalancear(BrokerAlpaca(cliente), estrategia, _precios(), True, _estado(tmp_path), "monthly", hoy=date(2026, 11, 25)) is None
         # Mes siguiente: toca de nuevo
-        assert rebalancear(cliente, estrategia, _precios(), True, _estado(tmp_path), "monthly", hoy=date(2026, 12, 1)) is not None
+        assert rebalancear(BrokerAlpaca(cliente), estrategia, _precios(), True, _estado(tmp_path), "monthly", hoy=date(2026, 12, 1)) is not None
 
     def test_mercado_cerrado_no_envia_ni_marca(self, tmp_path):
         cliente, estado = ClienteAlpacaFalso(), _estado(tmp_path)
         estrategia = obtener_estrategia("pesos_iguales")({})
-        alpaca_vivo.rebalancear_con_estrategia_registro(cliente, estrategia, _precios(), False, estado, "daily", hoy=date(2026, 11, 20))
+        alpaca_vivo.rebalancear_con_estrategia_registro(BrokerAlpaca(cliente), estrategia, _precios(), False, estado, "daily", hoy=date(2026, 11, 20))
         assert cliente.enviadas == [] and estado.ultimo_rebalanceo is None
 
     def test_si_falla_un_envio_no_marca_para_reintentar(self, tmp_path):
@@ -314,7 +315,7 @@ class TestFrecuenciaDeRebalanceo:
         estrategia = obtener_estrategia("pesos_iguales")({})
         envio = cliente.submit_order
         cliente.submit_order = lambda peticion: (_ for _ in ()).throw(RuntimeError("rechazada")) if peticion.symbol == "BBB" else envio(peticion)
-        alpaca_vivo.rebalancear_con_estrategia_registro(cliente, estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
+        alpaca_vivo.rebalancear_con_estrategia_registro(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
         assert len(cliente.enviadas) == 1 and estado.ultimo_rebalanceo is None
 
 
@@ -323,28 +324,30 @@ class TestFrecuenciaDeRebalanceo:
 
 class TestOrdenesAbiertas:
     def test_decision_ignora_los_tickers_bloqueados(self):
-        sin_bloqueo = decidir_ordenes_rebalanceo({"AAA": 0.5, "BBB": 0.5}, 10_000, {"AAA": 100.0, "BBB": 50.0}, {})
-        assert [t for t, _ in sin_bloqueo] == ["AAA", "BBB"]
-        con_bloqueo = decidir_ordenes_rebalanceo({"AAA": 0.5, "BBB": 0.5}, 10_000, {"AAA": 100.0, "BBB": 50.0}, {},
-                                                 tickers_bloqueados={"AAA"})
-        assert [t for t, _ in con_bloqueo] == ["BBB"]
+        cuenta, precios = EstadoCuenta(10_000, 0.0, {}), {"AAA": 100.0, "BBB": 50.0}
+        sin_bloqueo = planificar_rebalanceo({"AAA": 0.5, "BBB": 0.5}, precios, cuenta, POLITICA_BOT)
+        assert [o.ticker for o in sin_bloqueo.ordenes] == ["AAA", "BBB"]
+        con_bloqueo = planificar_rebalanceo({"AAA": 0.5, "BBB": 0.5}, precios, cuenta, POLITICA_BOT,
+                                            tickers_bloqueados={"AAA"})
+        assert [o.ticker for o in con_bloqueo.ordenes] == ["BBB"]
+        assert [(o.ticker, o.motivo) for o in con_bloqueo.omitidas] == [("AAA", "bloqueado")]
 
     def test_no_duplica_una_orden_ya_abierta(self, tmp_path, caplog):
         cliente, estado = ClienteAlpacaFalso(), _estado(tmp_path)
         estrategia = obtener_estrategia("pesos_iguales")({})
         rebalancear = alpaca_vivo.rebalancear_con_estrategia_registro
-        rebalancear(cliente, estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 19))
+        rebalancear(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 19))
         assert len(cliente.enviadas) == 2  # ambas siguen en estado `new` (abiertas)
         # Al día siguiente toca de nuevo, pero las dos órdenes siguen abiertas: no se envía ninguna más
         with caplog.at_level(logging.INFO):
-            rebalancear(cliente, estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
+            rebalancear(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
         assert len(cliente.enviadas) == 2 and "orden abierta" in caplog.text.lower()
 
     def test_solo_se_bloquea_el_ticker_con_orden_abierta(self, tmp_path):
         cliente, estado = ClienteAlpacaFalso(), _estado(tmp_path)
         estrategia = obtener_estrategia("pesos_iguales")({})
         cliente.ordenes["previa"] = SimpleNamespace(id="previa", symbol="AAA", status=SimpleNamespace(value="accepted"))
-        alpaca_vivo.rebalancear_con_estrategia_registro(cliente, estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
+        alpaca_vivo.rebalancear_con_estrategia_registro(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
         assert [p.symbol for p in cliente.enviadas] == ["BBB"]
 
     def test_si_no_se_pueden_consultar_las_abiertas_no_se_envia_nada(self, tmp_path, caplog):
@@ -352,7 +355,7 @@ class TestOrdenesAbiertas:
         cliente.fallar_ordenes_abiertas = True
         estrategia = obtener_estrategia("pesos_iguales")({})
         with caplog.at_level(logging.WARNING):
-            alpaca_vivo.rebalancear_con_estrategia_registro(cliente, estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
+            alpaca_vivo.rebalancear_con_estrategia_registro(BrokerAlpaca(cliente), estrategia, _precios(), True, estado, "daily", hoy=date(2026, 11, 20))
         assert cliente.enviadas == [] and estado.ultimo_rebalanceo is None and "órdenes abiertas" in caplog.text
 
 

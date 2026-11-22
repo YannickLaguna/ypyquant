@@ -14,7 +14,8 @@ Se relaciona con:
     - alpaca_vivo.py: lo carga en `ejecutar_vivo`, lo consulta en `rebalancear_con_estrategia_registro`
       y lo usa en `sincronizar_fills`.
     - config.py: `ConfiguracionServicio.ruta_estado` fija dónde se guarda.
-    - ypyquant.estrategias.base: `FRECUENCIAS_VALIDAS` (daily | weekly | monthly | quarterly).
+    - ypyquant.execution.calendario: única fuente del calendario (`toca_rebalancear`, `periodo_de_rebalanceo`);
+      aquí solo se reexportan para no romper importaciones.
 """
 
 import json
@@ -23,39 +24,9 @@ import os
 from datetime import date
 from pathlib import Path
 
-from ypyquant.estrategias.base import FRECUENCIAS_VALIDAS
+from ypyquant.execution.calendario import periodo_de_rebalanceo, toca_rebalancear  # noqa: F401  (reexportadas)
 
 logger = logging.getLogger(__name__)
-
-
-def periodo_de_rebalanceo(frecuencia: str, fecha: date) -> tuple[int, ...]:
-    """
-    Periodo de calendario al que pertenece `fecha` según la frecuencia: dos fechas del mismo periodo
-    comparten rebalanceo. daily = el día; weekly = semana ISO; monthly = mes; quarterly = trimestre.
-    """
-    if frecuencia == "daily":
-        return (fecha.year, fecha.month, fecha.day)
-    if frecuencia == "weekly":
-        iso = fecha.isocalendar()
-        return (iso.year, iso.week)
-    if frecuencia == "monthly":
-        return (fecha.year, fecha.month)
-    if frecuencia == "quarterly":
-        return (fecha.year, (fecha.month - 1) // 3 + 1)
-    raise ValueError(f"frecuencia no soportada: {frecuencia!r} (válidas: {', '.join(FRECUENCIAS_VALIDAS)})")
-
-
-def toca_rebalancear(frecuencia: str, ultimo: date | None, hoy: date) -> bool:
-    """
-    True si hoy toca rebalancear: nunca se rebalanceó, o hoy cae en un periodo posterior al del último
-    rebalanceo (primer día de mercado del periodo, como hace el motor de backtest). Si el reloj va por
-    detrás de la última fecha registrada, no se rebalancea.
-    """
-    if ultimo is None:
-        return True
-    if hoy <= ultimo:
-        return False
-    return periodo_de_rebalanceo(frecuencia, hoy) != periodo_de_rebalanceo(frecuencia, ultimo)
 
 
 class EstadoBot:

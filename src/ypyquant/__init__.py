@@ -31,16 +31,13 @@ from ypyquant.data.risk_free_rates import TasaLibreRiesgoDinamica
 # Execution — ejecución de trading (Fase 3+4)
 # ---------------------------------------------------------------------------
 from ypyquant.execution import (
-    BotExecutor,
-    BrokerInterface,
-    OrderSide,
-    OrderStatus,
-    OrderType,
-    PaperBroker,
+    Broker,
+    BrokerSimulado,
+    PoliticaEjecucion,
     ProtectionManager,
     StorageInterface,
     TradeAnalytics,
-    WalletManager,
+    planificar_rebalanceo,
 )
 
 # ---------------------------------------------------------------------------
@@ -126,14 +123,11 @@ __all__ = [
     "FactorSignalGenerator",
     "SignalCombiner",
     # Execution (Fase 3+4)
-    "BrokerInterface",
-    "PaperBroker",
-    "BotExecutor",
+    "Broker",
+    "BrokerSimulado",
+    "PoliticaEjecucion",
+    "planificar_rebalanceo",
     "ProtectionManager",
-    "WalletManager",
     "TradeAnalytics",
     "StorageInterface",
-    "OrderSide",
-    "OrderType",
-    "OrderStatus",
 ]

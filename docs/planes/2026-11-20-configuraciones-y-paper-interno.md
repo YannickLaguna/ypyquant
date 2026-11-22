@@ -74,7 +74,7 @@ Tareas paralelizables (no comparten archivos): 1 y 2 tras la fase 0; dentro de l
 - **No romper GrowSave.** `BacktestEngine` y `BacktestConfig` los consume GrowSave (subclases). Reglas: ningún cambio de semántica por defecto; solo campos nuevos con valor por defecto idéntico al comportamiento actual; antes y después de tocar `portfolio/backtest_engine.py` pasan `tests/test_backtest_motor.py`, `tests/test_paridad_tfm.py` y `tests/test_ypyquant_api.py` con salida idéntica. El paper interno **no modifica** el motor en las fases 1-6: lo usa como ejecutor (acceso a métodos privados concentrado en un único módulo, `paper/ejecutor.py`, protegido por el test de paridad).
 - **No cambiar huellas existentes.** Añadir campos a `ConfiguracionExperimento` cambia `huella()` de todos los experimentos guardados. Regla: un campo nuevo se excluye de la huella cuando vale su defecto (ver 7.1).
 - **Español en código, tests y commits;** cabecera de cada archivo con responsabilidad y relaciones (regla del proyecto). Tests offline con `CargadorSintetico`.
-- **Un único punto de verdad para el calendario de rebalanceo** (`paper/calendario.py`), usado por el simulador interno y por el bot Alpaca. Reutiliza `BacktestEngine._get_rebalance_dates` y `_alinear_a_dias_de_trading` en vez de reimplementarlos.
+- **Un único punto de verdad para el calendario de rebalanceo** (`ypyquant/execution/calendario.py`, ya implementado: ver `2026-11-21-ejecutor.md`), usado por el simulador interno y por el bot Alpaca. Reutiliza `BacktestEngine._get_rebalance_dates` y `_alinear_a_dias_de_trading` en vez de reimplementarlos.
 - **Estado JSON-serializable.** Contrato nuevo de `Estrategia.estado`: solo tipos JSON (dict, list, str, float, int, bool, None). Lo verifica una utilidad y falla con mensaje claro. Las estrategias incluidas actuales (`_EstimadorRobusto` usa `estado['pesos_previos']`, arrays NumPy) se comprueban en la fase 3.
 - **Secretos.** Las claves Alpaca nunca van en `config.json`, logs ni respuestas de API; la UI muestra solo el nombre del perfil y los 4 últimos caracteres.
 
@@ -315,8 +315,8 @@ Riesgos: look-ahead al precalcular en `preparar` (mitigado con el verificador y 
 
 | Módulo | Responsabilidad |
 |---|---|
-| `calendario.py` | `es_dia_de_rebalanceo(dia, dias_trading, inicio, frecuencia, ultimo_rebalanceo)` reutilizando los métodos estáticos del motor; `dias_pendientes(ultima_fecha, dias_con_datos, ahora_ny)` (solo sesiones cerradas) |
-| `ejecutor.py` | `EjecutorCartera`: envuelve una instancia de `BacktestEngine` con estado restaurado (`cash`, `positions`) y llama a `_execute_rebalance`; devuelve operaciones y rotación. **Único** sitio que toca métodos privados del motor |
+| `calendario.py` (**hecho** en `execution/calendario.py`: `fechas_de_rebalanceo`, `toca_rebalancear`) | `es_dia_de_rebalanceo(dia, dias_trading, inicio, frecuencia, ultimo_rebalanceo)` reutilizando los métodos estáticos del motor; `dias_pendientes(ultima_fecha, dias_con_datos, ahora_ny)` (solo sesiones cerradas) |
+| `ejecutor.py` (**hecho**, otro diseño: `execution/ejecutor.py` puro, sin envolver el motor privado; ver `2026-11-21-ejecutor.md`) | `EjecutorCartera`: envuelve una instancia de `BacktestEngine` con estado restaurado (`cash`, `positions`) y llama a `_execute_rebalance`; devuelve operaciones y rotación. **Único** sitio que toca métodos privados del motor |
 | `sesion.py` | `SesionPaper` (Pydantic: configuración congelada, capital, modo de ejecución, estado, perfil Alpaca opcional) y `EstadoCartera` (efectivo, posiciones, `estado_estrategia`, pesos pendientes, último rebalanceo) |
 | `almacen.py` | `AlmacenPaper`: `data/paper_interno/<id_sesion>/` con `sesion.json`, `estado.json`, `equity.parquet`, `operaciones.parquet`, `pesos.parquet`, `eventos.jsonl`; bloqueo por archivo |
 | `simulador.py` | `SimuladorPaper.avanzar(sesion, hasta=None)` y `avanzar_todas(...)` con precios cargados una vez para la unión de tickers |
