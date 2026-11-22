@@ -9,18 +9,21 @@
  * Los experimentos importados del TFM (estrategia `tfm_*`) llevan la insignia «TFM · importado» y una
  * nota de solo lectura; esta página no ofrece relanzar ningún experimento.
  * El botón «Paper interno» abre `CrearSesionPaper` (sesión forward con la receta congelada del experimento terminado).
+ * Las estrategias de señales añaden la columna «Motivo», el resumen de entradas y salidas y la tabla «Salidas por motivo»
+ * (componentes/TablaMotivosSalida.tsx: nº, PnL, acierto y duración por motivo y lado de la posición).
  * Se relaciona con: api/hooks.ts (useExperimento, useBorrarExperimento), componentes/Graficos.tsx,
- * componentes/TablaOrdenable.tsx, componentes/Piezas.tsx y componentes/CrearSesionPaper.tsx.
+ * componentes/TablaOrdenable.tsx, componentes/TablaMotivosSalida.tsx, componentes/Piezas.tsx y componentes/CrearSesionPaper.tsx.
  */
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useBorrarExperimento, useExperimento } from '../api/hooks'
-import type { OperacionFila } from '../api/tipos'
+import type { MotivoSalida, OperacionFila } from '../api/tipos'
 import CrearSesionPaper from '../componentes/CrearSesionPaper'
 import { CajaError, Cargando, esImportadoTfm, Insignia, InsigniaTfm } from '../componentes/Estado'
 import { GraficoPesos, GraficoSeries, type MarcaGrafico, type SerieGrafico } from '../componentes/Graficos'
 import { Kpi } from '../componentes/Piezas'
 import ProcedenciaExperimento from '../componentes/ProcedenciaExperimento'
+import TablaMotivosSalida from '../componentes/TablaMotivosSalida'
 import TablaOrdenable, { type Columna } from '../componentes/TablaOrdenable'
 import { claseSigno, dinero, entero, fechaCorta, porcentaje, ratio, resumenParametros, resumenUniverso } from '../lib/formato'
 import { etiquetaMotivo, resumenMotivos } from '../lib/senales'
@@ -110,6 +113,7 @@ export default function ExperimentoDetalle() {
 
   const m = data.metricas_completas ?? {}
   const num = (k: string) => (typeof m[k] === 'number' ? (m[k] as number) : null)
+  const motivosSalida = Array.isArray(m.motivos_salida) ? (m.motivos_salida as unknown as MotivoSalida[]) : []
   const avisos = Array.isArray(m.avisos) ? (m.avisos as string[]) : []
   const terminado = data.estado === 'hecho'
 
@@ -249,6 +253,8 @@ export default function ExperimentoDetalle() {
           </div>
 
           <ProcedenciaExperimento procedencia={data.procedencia} />
+
+          <TablaMotivosSalida filas={motivosSalida} />
 
           <section aria-labelledby="h-ops" className="space-y-2">
             <h2 id="h-ops">Operaciones ({entero(data.operaciones.length)})</h2>
