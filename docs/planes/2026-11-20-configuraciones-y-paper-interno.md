@@ -416,14 +416,34 @@ Crear: `src/ypyquant/paper/perfiles.py` (descubrir perfiles desde el entorno, si
 Modificar: `app/api/paper.py` (`ServicioAlpaca(perfil)`, `GestorBots`), `app/api/rutas_paper.py` (`perfil`, `/perfiles`, `/bots`), `app/api/contexto.py`, `app/api/main.py`, `pipelines/paper_trading/{__main__,config,alpaca_vivo}.py`, `src/ypyquant/execution/nautilus/registro_fills.py`, `.env.example`, `docs/ui.md`, `app/web/src/paginas/PaperTrading.tsx` (selector de perfil), `app/web/src/api/*`.
 
 ### 5.3 Tareas (TDD)
-- [ ] **5.1** `perfiles.py`: con un entorno simulado (`monkeypatch.setenv`) detecta `DEFECTO`, `A`, `B`; ignora variables incompletas; no expone secretos.
-- [ ] **5.2** `ServicioAlpaca(perfil)` con `fabrica_cliente` falsa: claves de cada perfil por separado; error claro y 503 con el nombre del perfil.
-- [ ] **5.3** `GestorBots`: con `construir_comando` falso, dos perfiles arrancan a la vez, un perfil ocupado devuelve 409, y la rehidratación reconoce un pid vivo (proceso de prueba) y descarta uno muerto.
-- [ ] **5.4** Bot: con un cliente Alpaca falso y reloj inyectable, un martes sin día de rebalanceo no envía órdenes; en día de rebalanceo envía una vez y no repite en la segunda iteración; tras "reiniciar" (nueva instancia leyendo `estado_estrategia.json`) una `cruce_medias` conserva sus posiciones.
-- [ ] **5.5** Fills enriquecidos: formato, retrocompatibilidad (lectura de filas antiguas sin `perfil`).
-- [ ] **5.6** Rutas con `?perfil=`; la UI conserva el comportamiento con el perfil por defecto (tests existentes de `tests/test_api.py` pasan sin cambios).
-- [ ] **5.7** Orden de prueba manual documentada (checklist, no automática): una orden DAY fuera de horario en el perfil de pruebas y comprobar cuándo se ejecuta.
-- [ ] **5.8** Commit `fase 5: Alpaca multi-perfil y bot por configuración`.
+- [x] **5.1** `perfiles.py`: con un entorno simulado (`monkeypatch.setenv`) detecta `DEFECTO`, `A`, `B`; ignora variables incompletas; no expone secretos.
+- [x] **5.2** `ServicioAlpaca(perfil)` con `fabrica_cliente` falsa: claves de cada perfil por separado; error claro y 503 con el nombre del perfil.
+- [x] **5.3** `GestorBots`: con `construir_comando` falso, dos perfiles arrancan a la vez, un perfil ocupado devuelve 409, y la rehidratación reconoce un pid vivo (proceso de prueba) y descarta uno muerto.
+- [x] **5.4** Bot: con un cliente Alpaca falso y reloj inyectable, un martes sin día de rebalanceo no envía órdenes; en día de rebalanceo envía una vez y no repite en la segunda iteración; tras "reiniciar" (nueva instancia leyendo `estado_estrategia.json`) una `cruce_medias` conserva sus posiciones.
+- [x] **5.5** Fills enriquecidos: formato, retrocompatibilidad (lectura de filas antiguas sin `perfil`).
+- [x] **5.6** Rutas con `?perfil=`; la UI conserva el comportamiento con el perfil por defecto (tests existentes de `tests/test_api.py` pasan sin cambios).
+- [x] **5.7** Orden de prueba manual documentada (checklist, no automática): una orden DAY fuera de horario en el perfil de pruebas y comprobar cuándo se ejecuta.
+- [x] **5.8** Commit `fase 5: Alpaca multi-perfil y bot por configuración`.
+
+### Estado 2026-11-22 (fase 5)
+
+Hecha en la rama `fase5/alpaca-perfiles` (worktree `st-wt-alpaca`), sobre la arquitectura nueva (Ejecutor, calendario, `Broker`, receta, `AlmacenDocumentos`/`RaizDatos`). Tareas 5.1-5.8 completadas; **la 5.7 es solo la checklist** (en `docs/ui.md`, «Checklist 5.7»): no se ejecutó ninguna orden de prueba ni nada contra Alpaca (todo con clientes falsos).
+
+Desviaciones respecto al diseño de 5.1/5.2:
+
+- **Producto: el bot se vincula a un EXPERIMENTO, no a una configuración.** El usuario trabaja con experimentos (las configuraciones salen del menú). `--perfil X --experimento ID` congela su `Receta` en `vinculo.json`; `--configuracion ID` queda como extra barato (misma `receta_de_origen`). El vínculo guarda también la huella de la receta, los tickers resueltos y la frecuencia; se completa `equity_inicial` al abrir la cuenta. Cambiar de experimento guarda el anterior en `vinculos_anteriores` y borra `estado_estrategia.json`. Falta la parte «el paper interno vinculado toma por defecto `capital_inicial` = equity de la cuenta al vincular»: queda para la integración con `src/ypyquant/paper/` (otra rama); el dato (`equity_inicial`) ya está en el vínculo.
+- **Paquete `src/ypyquant/perfiles_alpaca/`** en vez de `src/ypyquant/paper/perfiles.py` e `instantaneas.py` (`ypyquant.paper` es del paper interno y lo trabaja otra rama): `perfiles`, `redaccion`, `almacen` (`AlmacenPerfiles` sobre `AlmacenDocumentos`, con `RaizDatos.paper_trading`), `vinculo`, `procesos`. Las instantáneas son un método del almacén, no un módulo (`instantaneas.parquet`: fecha, equity, efectivo y posiciones como JSON).
+- **`GestorBots` en `app/api/gestor_bots.py`** (no en `paper.py`) y rutas nuevas en `app/api/rutas_alpaca.py` (`/api/paper/alpaca/...`, no `/api/paper/bots`); las rutas existentes admiten `?perfil=` y `tests/test_api.py` pasa sin cambios. `BotControl` y `/api/paper/bot/*` se conservan para el perfil `DEFECTO` (409 si el heredado y el nuevo se pisan), pero la UI ya no los usa.
+- **`ALPACA_PERFILES=A,B,C`** (no estaba en el plan) declara perfiles sin claves para que la UI los muestre «sin configurar» con las variables que faltan.
+- **Conexión por perfil** (`comprobar_conexion`, caché de 15 s) en `/perfiles`; los errores salen redactados.
+- **Rehidratación**: `bot.json` guarda pid + hora de creación del proceso (con `psutil` si está instalado; es transitivo, no declarado) para no confundir un pid reutilizado. Sin `psutil` solo se comprueba que el pid exista.
+- **Bot** (ya respetaba frecuencia y persistía `estado_bot.json` tras el refactor del Ejecutor): añadido `estado_estrategia.json` (solo la parte serializable de `Estrategia.estado`; un modelo en memoria como el `estado["modelo"]` de `preset_ypyquant` se recrea solo), fills enriquecidos (`perfil`, `experimento_id`, `tipo`, `precio_referencia` guardado con la orden pendiente), instantánea diaria (fecha UTC del reloj del bot; se reescribe en cada iteración del día), modo `diario`/`continuo` (`--modo`; `--una-vez` equivale a `diario`), reloj inyectable y filtro de redacción de claves en los logs (`ConfiguracionAlpaca` ya no muestra las claves en su `repr`).
+- **`--enviar-fuera-de-horario`** (no estaba): envía con el mercado cerrado para probar la hipótesis de 5.1 punto 3 (orden DAY en cola hasta la apertura). Por defecto NO se envía con el mercado cerrado (comportamiento anterior). Pendiente de verificar con la checklist 5.7.
+- **Acciones enteras / fraccionarias:** sin cambios (el Ejecutor del bot sigue en enteros, `POLITICA_BOT`); la opción `fraccionarias` queda para cuando se verifique con alpaca-py y para la fase 6 (descuadre por enteros).
+- **Reconciliación de órdenes huérfanas al arrancar:** no se añadió nada nuevo; el bucle ya lee posiciones y órdenes abiertas en cada pasada y no duplica sobre un ticker con orden abierta.
+- **Universo `sp500_pit`:** no operable en vivo (la elegibilidad por fecha necesita las membresías históricas): 422 al arrancar. Decisión pendiente.
+- **Web:** `PaperTrading.tsx` pasó a pestañas por perfil (`componentes/{SelectorPerfil,PerfilSinConfigurar,BotPerfil}.tsx`, `api/alpaca.ts`) y se retiró el formulario del bot heredado (estrategia suelta); botón «Llevar a Alpaca» en la ficha del experimento (`/paper?experimento=ID`).
+- **Tests:** `tests/test_alpaca_perfiles.py` (5.1, 5.2, 5.3, 5.5 y 5.6: perfiles sin secretos, redacción, claves por perfil, gestor con dos perfiles/409/límite/rehidratación, vínculo, rutas) y `tests/test_bot_experimento.py` (5.4 y 5.5: frecuencia, reinicio con `cruce_medias`, fills enriquecidos, instantánea, vínculo desde el CLI, redacción); Vitest del selector, del estado «sin configurar» y de la página.
 
 Riesgos: claves en logs (filtro de redacción en `GestorBots.log`); límite de 3 cuentas y rate limits; cambiar el comportamiento del bot actual (hoy rebalancea cada iteración): se anuncia en `docs/ui.md` y se conserva `--modo continuo` con una advertencia; órdenes huérfanas si el bot cae entre decidir y enviar (se reconcilia leyendo posiciones al arrancar y comparando con el objetivo).
 

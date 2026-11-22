@@ -2,14 +2,18 @@
 Rutas de paper trading (Alpaca, cuenta paper) y control del bot.
 
 Responsabilidad:
-- Lectura: `/api/paper/estado`, `/cuenta`, `/posiciones`, `/ordenes`, `/historial`, `/fills`.
-  Sin claves de Alpaca responden 503 con un mensaje claro (la UI lo muestra); los errores de
-  Alpaca se traducen a 502.
-- Bot: `POST /api/paper/bot/arrancar` (estrategia del registro + parámetros + tickers; opcionalmente
+- Lectura: `/api/paper/estado`, `/cuenta`, `/posiciones`, `/ordenes`, `/historial`, `/fills`. Todas admiten
+  `?perfil=` (nombre del perfil de Alpaca; por defecto `DEFECTO`, las claves `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`).
+  Sin claves del perfil responden 503 con un mensaje claro que nombra el perfil (la UI lo muestra); los errores de
+  Alpaca se traducen a 502; un nombre de perfil inválido es 422.
+- Bot ÚNICO heredado (perfil DEFECTO): `POST /api/paper/bot/arrancar` (estrategia del registro + parámetros + tickers; opcionalmente
   `dias_historico` mínimo y `frecuencia_rebalanceo`),
   `POST /api/paper/bot/parar`, `GET /api/paper/bot/estado` y `GET /api/paper/bot/log?desde=N` (polling por línea).
 
-Se relaciona con: app/api/paper.py (ServicioAlpaca, BotControl), app/api/contexto.py y el registro
+Los perfiles, los bots por perfil (vinculados a un experimento) y su log están en app/api/rutas_alpaca.py
+(`/api/paper/alpaca/...`).
+
+Se relaciona con: app/api/paper.py (ServicioAlpaca, BotControl), app/api/contexto.py (`alpaca_de`) y el registro
 de estrategias (se valida el nombre y los parámetros antes de lanzar el subproceso).
 """
 
@@ -18,9 +22,11 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from app.api.contexto import Contexto, obtener_contexto
+from app.api.contexto import Contexto, alpaca_de, obtener_contexto
 from app.api.paper import SinClavesAlpaca, leer_fills
 from ypyquant.estrategias import registro
+from ypyquant.perfiles_alpaca.perfiles import NOMBRE_DEFECTO
+from ypyquant.perfiles_alpaca.redaccion import redactar
 
 router = APIRouter(prefix="/api/paper", tags=["paper trading"])
 
@@ -39,44 +45,55 @@ class PeticionBot(BaseModel):
     frecuencia_rebalanceo: Literal["daily", "weekly", "monthly", "quarterly"] | None = None
 
 
-def _alpaca(ctx: Contexto, accion):
-    """Ejecuta `accion(servicio)` traduciendo 'sin claves' a 503 y los fallos de Alpaca a 502."""
+def servicio_de_perfil(ctx: Contexto, perfil: str):
+    """Servicio de Alpaca del perfil; un nombre inválido es 422."""
     try:
-        return accion(ctx.alpaca)
+        return alpaca_de(ctx, perfil)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+def _alpaca(ctx: Contexto, accion, perfil: str = NOMBRE_DEFECTO):
+    """Ejecuta `accion(servicio)` traduciendo 'sin claves' a 503 y los fallos de Alpaca a 502 (redactados)."""
+    servicio = servicio_de_perfil(ctx, perfil)
+    try:
+        return accion(servicio)
     except SinClavesAlpaca as error:
         raise HTTPException(503, str(error)) from error
     except Exception as error:
-        raise HTTPException(502, f"Error de Alpaca: {error}") from error
+        raise HTTPException(502, f"Error de Alpaca ({perfil}): {redactar(str(error))}") from error
 
 
 @router.get("/estado")
-def estado(ctx: Contexto = Depends(obtener_contexto)):
-    return {"alpaca_configurado": ctx.alpaca.disponible, "bot": ctx.bot.estado()}
+def estado(perfil: str = NOMBRE_DEFECTO, ctx: Contexto = Depends(obtener_contexto)):
+    return {"alpaca_configurado": servicio_de_perfil(ctx, perfil).disponible, "perfil": perfil, "bot": ctx.bot.estado()}
 
 
 @router.get("/cuenta")
-def cuenta(ctx: Contexto = Depends(obtener_contexto)):
-    return _alpaca(ctx, lambda s: s.cuenta())
+def cuenta(perfil: str = NOMBRE_DEFECTO, ctx: Contexto = Depends(obtener_contexto)):
+    return _alpaca(ctx, lambda s: s.cuenta(), perfil)
 
 
 @router.get("/posiciones")
-def posiciones(ctx: Contexto = Depends(obtener_contexto)):
-    return {"posiciones": _alpaca(ctx, lambda s: s.posiciones())}
+def posiciones(perfil: str = NOMBRE_DEFECTO, ctx: Contexto = Depends(obtener_contexto)):
+    return {"posiciones": _alpaca(ctx, lambda s: s.posiciones(), perfil)}
 
 
 @router.get("/ordenes")
-def ordenes(limite: int = 100, ctx: Contexto = Depends(obtener_contexto)):
-    return {"ordenes": _alpaca(ctx, lambda s: s.ordenes(limite))}
+def ordenes(limite: int = 100, perfil: str = NOMBRE_DEFECTO, ctx: Contexto = Depends(obtener_contexto)):
+    return {"ordenes": _alpaca(ctx, lambda s: s.ordenes(limite), perfil)}
 
 
 @router.get("/historial")
-def historial(periodo: str = "1M", marco: str = "1D", ctx: Contexto = Depends(obtener_contexto)):
-    return _alpaca(ctx, lambda s: s.historial_equity(periodo, marco))
+def historial(periodo: str = "1M", marco: str = "1D", perfil: str = NOMBRE_DEFECTO,
+              ctx: Contexto = Depends(obtener_contexto)):
+    return _alpaca(ctx, lambda s: s.historial_equity(periodo, marco), perfil)
 
 
 @router.get("/fills")
-def fills(limite: int = 200):
-    return {"fills": leer_fills(limite=limite)}
+def fills(limite: int = 200, perfil: str = NOMBRE_DEFECTO, ctx: Contexto = Depends(obtener_contexto)):
+    servicio_de_perfil(ctx, perfil)  # valida el nombre
+    return {"fills": leer_fills(limite=limite, perfil=perfil, carpeta=ctx.almacen_perfiles.raiz)}
 
 
 @router.post("/bot/arrancar")

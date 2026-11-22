@@ -34,6 +34,7 @@ from app.api import (
     rutas_marcos,
     rutas_paper,
 )
+from app.api import rutas_alpaca
 from app.api.contexto import Contexto
 from app.api.paper import BotControl, ServicioAlpaca
 from ypyquant.data.matriz_precios import CargadorPrecios
@@ -98,6 +99,7 @@ def crear_app(
         bot=bot or BotControl(),
     )
 
+    api.state.ctx.gestor_bots.rehidratar()  # bots de Alpaca que siguieron vivos tras reiniciar la API
     almacen.indexar()  # índice receta -> experimentos (backtests de una configuración sin recorrer el disco)
     almacen_marcos.indexar_comparativas()  # índice configuración -> comparativas
 
@@ -111,6 +113,7 @@ def crear_app(
     api.include_router(rutas_configuraciones.router)
     api.include_router(rutas_marcos.router)
     api.include_router(rutas_paper.router)
+    api.include_router(rutas_alpaca.router)
 
     if CARPETA_WEB.is_dir():  # frontend compilado (npm run build); en desarrollo se usa `npm run dev`
         api.mount("/assets", StaticFiles(directory=CARPETA_WEB / "assets"), name="assets")

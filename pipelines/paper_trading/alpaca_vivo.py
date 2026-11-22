@@ -17,8 +17,19 @@ Responsabilidad:
       Los demás días solo se loguea.
     - Órdenes abiertas: no se envía orden nueva sobre un ticker con una orden aún abierta, y si no se
       pueden consultar las abiertas no se envía nada (evita duplicar).
-    - Fills: al enviar una orden su cantidad ejecutada es 0, así que solo se anota su id como pendiente;
-      `sincronizar_fills` consulta después cada pendiente y registra el fill REAL (una sola vez).
+    - Fills: al enviar una orden su cantidad ejecutada es 0, así que solo se anota su id como pendiente (con el
+      precio de referencia con que se decidió); `sincronizar_fills` consulta después cada pendiente y registra el
+      fill REAL (una sola vez), enriquecido con perfil, experimento, tipo y `precio_referencia`.
+    - Memoria de la estrategia: `Estrategia.estado` se restaura al arrancar y se guarda tras cada decisión
+      (estado_bot.py), así un reinicio no hace perder las posiciones de una `EstrategiaSenales`.
+    - Instantánea diaria de la cuenta (equity, efectivo, posiciones con cantidad y precio) por perfil, una fila por
+      día (`ypyquant.perfiles_alpaca.almacen`): Alpaca no devuelve las posiciones pasadas y sin ella no se puede
+      medir el descuadre de cartera. La fecha es la del reloj del bot (UTC).
+    - Modos: `max_iteraciones=1` es el modo `diario` (una pasada y sale, pensado para el programador de tareas);
+      sin límite es el modo `continuo` (bucle cada N segundos). El reloj es inyectable (`ahora`) para los tests.
+    - Mercado cerrado: por defecto se calculan los pesos pero NO se envía nada ni se marca el rebalanceo. Con
+      `permitir_cerrado` se envían igualmente (orden de mercado DAY, que Alpaca deja en cola hasta la apertura;
+      hipótesis a comprobar a mano, ver la checklist de docs/ui.md); los fills se registran al sincronizar.
 
 Se relaciona con:
     - config.py: claves y parámetros.
@@ -32,10 +43,11 @@ Se relaciona con:
 import json
 import logging
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 
 from pipelines.paper_trading.config import ConfiguracionEstrategia, ConfiguracionServicio
-from pipelines.paper_trading.estado_bot import EstadoBot
+from pipelines.paper_trading.estado_bot import EstadoBot, guardar_estado_estrategia, restaurar_estado_estrategia
 from pipelines.paper_trading.precios import (
     avisar_historia_insuficiente,
     descargar_precios,
@@ -108,7 +120,7 @@ def sincronizar_fills(broker: Broker, registro: RegistroFills, estado: EstadoBot
             if not orden.terminal:
                 continue
             if orden.cantidad_ejecutada > 0:
-                if registro.registrar(orden.a_dict_fill()) is not None:
+                if registro.registrar(orden.a_dict_fill(), {"precio_referencia": estado.referencias.get(str(id_orden))}) is not None:
                     registrados += 1
                     logger.info("FILL registrado: %s %s %s @ %s", orden.ticker, orden.lado,
                                 orden.cantidad_ejecutada, orden.precio_medio)
@@ -127,6 +139,31 @@ def _sincronizar_sin_fallar(broker: Broker, registro: RegistroFills, estado: Est
         sincronizar_fills(broker, registro, estado, **opciones)
     except Exception as e:  # noqa: BLE001
         logger.warning("No se pudieron sincronizar los fills: %s", e)
+
+
+def registrar_instantanea(broker: Broker, guardar: Callable[..., None], fecha: date) -> bool:
+    """
+    Guarda la foto de la cuenta del día: equity, efectivo y posiciones `{ticker: {cantidad, precio}}`.
+
+    `guardar(fecha_iso, equity, efectivo, posiciones)` es normalmente `AlmacenPerfiles.guardar_instantanea` del perfil (una
+    fila por día: si ya había una de hoy, la reemplaza). El precio de cada posición es la cotización del broker (None se
+    guarda como 0.0: se ve que faltó). Nunca lanza: un fallo de red se avisa y se reintenta en la siguiente iteración.
+    """
+    try:
+        cuenta = broker.estado_cuenta()
+        posiciones = {}
+        for ticker, cantidad in cuenta.posiciones.items():
+            try:
+                precio = broker.precio_actual(ticker) or 0.0
+            except Exception as e:  # noqa: BLE001 - una cotización fallida no impide guardar el resto
+                logger.warning("Sin cotización de %s para la instantánea: %s", ticker, e)
+                precio = 0.0
+            posiciones[ticker] = {"cantidad": float(cantidad), "precio": float(precio)}
+        guardar(fecha.isoformat(), cuenta.equity, cuenta.efectivo, posiciones)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("No se pudo guardar la instantánea de la cuenta: %s", e)
+        return False
 
 
 def evaluar_y_enviar(broker: Broker, ticker, senal, estrategia, equity, cantidad_actual, abierto):
@@ -164,7 +201,7 @@ def precios_a_ohlcv(precios) -> dict:
 
 
 def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, precios, abierto, estado: EstadoBot,
-                                        frecuencia: str, hoy: date | None = None):
+                                        frecuencia: str, hoy: date | None = None, permitir_cerrado: bool = False):
     """
     Una iteración en modo registro: si toca, pide pesos a la estrategia y envía las órdenes de rebalanceo.
 
@@ -172,7 +209,8 @@ def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, p
     entre iteraciones). Reglas:
     - Solo rebalancea cuando `toca_rebalancear(frecuencia, estado.ultimo_rebalanceo, hoy)`; si no, loguea
       y devuelve None (no calcula pesos ni envía nada).
-    - Con el mercado cerrado calcula y muestra los pesos pero no envía ni marca el rebalanceo.
+    - Con el mercado cerrado calcula y muestra los pesos pero no envía ni marca el rebalanceo (salvo `permitir_cerrado`:
+      envía igualmente órdenes DAY, que quedan en cola en el broker hasta la apertura).
     - No envía orden sobre un ticker con una orden abierta; si no puede consultar las abiertas, no envía nada.
     - Cada orden enviada queda como pendiente de registrar (su fill llega después, ver `sincronizar_fills`).
     - Marca el rebalanceo como hecho solo si ningún envío falló (si falla uno, se reintenta en la siguiente
@@ -188,9 +226,11 @@ def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, p
     datos = precios_a_ohlcv(precios)
     pesos = estrategia_registrada.como_funcion()(precios.index[-1].to_pydatetime(), datos)
     logger.info("Pesos objetivo de %s: %s", estrategia_registrada.nombre, {t: round(w, 4) for t, w in pesos.items()})
-    if not abierto:
+    if not abierto and not permitir_cerrado:
         logger.info("Mercado cerrado: no se enviarán órdenes")
         return pesos
+    if not abierto:
+        logger.info("Mercado cerrado: se envían las órdenes igualmente (quedarán en cola hasta la apertura)")
     bloqueados = _abiertas_o_none(broker)
     if bloqueados is None:
         return pesos
@@ -207,7 +247,7 @@ def rebalancear_con_estrategia_registro(broker: Broker, estrategia_registrada, p
             id_orden = broker.enviar_orden(orden.ticker, orden.lado, int(orden.cantidad))
             logger.info("ORDEN %s: %d %s (objetivo %d)", orden.lado.upper(), orden.cantidad, orden.ticker,
                         orden.cantidad_objetivo)
-            estado.anadir_pendiente(id_orden)  # el fill real se registra en `sincronizar_fills`
+            estado.anadir_pendiente(id_orden, ultimos.get(orden.ticker))  # el fill real se registra en `sincronizar_fills`
         except Exception as e:  # noqa: BLE001 - una orden fallida no aborta el resto
             hubo_error = True
             logger.warning("No se pudo enviar la orden de %s: %s", orden.ticker, e)
@@ -233,19 +273,41 @@ def _firma_estrategia(estrategia: ConfiguracionEstrategia) -> str:
     """Identifica estrategia + parámetros + tickers: el último rebalanceo guardado solo vale para esta misma firma."""
     modo = estrategia.estrategia_registro or "senales"
     parametros = json.dumps(estrategia.parametros_registro, sort_keys=True, ensure_ascii=False)
-    return f"{modo}|{parametros}|{','.join(sorted(estrategia.tickers))}"
+    firma = f"{modo}|{parametros}|{','.join(sorted(estrategia.tickers))}"
+    return f"{firma}|{estrategia.huella_receta}" if estrategia.huella_receta else firma
+
+
+def _completar_equity_inicial(servicio: ConfiguracionServicio, equity: float) -> None:
+    """Si el vínculo del perfil aún no tiene el equity inicial de la cuenta (se crea antes de abrir el broker), lo anota."""
+    if servicio.almacen_perfiles is None or servicio.perfil is None:
+        return
+    vinculo = servicio.almacen_perfiles.leer_vinculo(servicio.perfil)
+    if vinculo and vinculo.get("equity_inicial") is None:
+        servicio.almacen_perfiles.guardar_vinculo(servicio.perfil, {**vinculo, "equity_inicial": equity})
+        logger.info("Vínculo: equity inicial de la cuenta %s = %s", servicio.perfil, f"{equity:,.2f}")
 
 
 def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstrategia,
-                  control: ControlParada, max_iteraciones: int | None = None):
-    """Bucle principal de paper trading. `max_iteraciones` permite una pasada única (--una-vez)."""
+                  control: ControlParada, max_iteraciones: int | None = None,
+                  ahora: Callable[[], datetime] | None = None, permitir_cerrado: bool = False):
+    """
+    Bucle principal de paper trading. `max_iteraciones=1` es el modo diario (una pasada y sale).
+
+    `ahora` (reloj inyectable, UTC) y `permitir_cerrado` (enviar con el mercado cerrado) ver la cabecera del módulo.
+    """
+    ahora = ahora or (lambda: datetime.now(UTC))
     cliente, cliente_datos = crear_clientes(servicio)
     broker = BrokerAlpaca(cliente, cliente_datos)
-    registro = RegistroFills(servicio.ruta_fills)
-    estado = EstadoBot.cargar(servicio.ruta_estado, _firma_estrategia(estrategia))
+    registro = RegistroFills(servicio.ruta_fills, servicio.etiquetas_fills)
+    firma = _firma_estrategia(estrategia)
+    estado = EstadoBot.cargar(servicio.ruta_estado, firma)
+    guardar_instantanea = (None if servicio.almacen_perfiles is None or servicio.perfil is None
+                           else lambda *args: servicio.almacen_perfiles.guardar_instantanea(servicio.perfil, *args))
 
     cuenta = broker.estado_cuenta()
-    logger.info("Cuenta Alpaca | efectivo: %s | equity: %s", f"{cuenta.efectivo:,.2f}", f"{cuenta.equity:,.2f}")
+    logger.info("Cuenta Alpaca%s | efectivo: %s | equity: %s", f" [{servicio.perfil}]" if servicio.perfil else "",
+                f"{cuenta.efectivo:,.2f}", f"{cuenta.equity:,.2f}")
+    _completar_equity_inicial(servicio, cuenta.equity)
 
     estrategia_registrada = None
     combinador = None
@@ -260,6 +322,8 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
         frecuencia = estrategia.frecuencia_rebalanceo_registro or clase.frecuencia_rebalanceo
         if frecuencia not in FRECUENCIAS_VALIDAS:
             raise ValueError(f"Frecuencia de rebalanceo no válida: {frecuencia!r} (válidas: {', '.join(FRECUENCIAS_VALIDAS)})")
+        if servicio.ruta_estado_estrategia is not None:
+            restaurar_estado_estrategia(servicio.ruta_estado_estrategia, firma, estrategia_registrada)
         sesiones_necesarias = estrategia_registrada.sesiones_necesarias()
         dias_historico = resolver_dias_historico(sesiones_necesarias, servicio.dias_historico)
         logger.info("Modo registro: estrategia %s con parámetros %s, rebalanceo %s",
@@ -276,8 +340,8 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
     iteracion = 0
     while control.en_marcha and (max_iteraciones is None or iteracion < max_iteraciones):
         iteracion += 1
-        hoy = datetime.now(UTC).date()
-        logger.info("--- Iteración %d [%s] ---", iteracion, datetime.now(UTC).strftime("%H:%M:%S UTC"))
+        hoy = ahora().date()
+        logger.info("--- Iteración %d [%s] ---", iteracion, ahora().strftime("%H:%M:%S UTC"))
         _sincronizar_sin_fallar(broker, registro, estado, reintentos=0)  # fills de órdenes de iteraciones anteriores
         try:
             if estrategia_registrada is not None:
@@ -290,8 +354,13 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
                         logger.warning("Sin precios; se reintenta en la siguiente iteración")
                     else:
                         avisar_historia_insuficiente(precios, sesiones_necesarias, estrategia.nombre)
-                        rebalancear_con_estrategia_registro(
-                            broker, estrategia_registrada, precios, broker.mercado_abierto(), estado, frecuencia, hoy=hoy)
+                        try:
+                            rebalancear_con_estrategia_registro(
+                                broker, estrategia_registrada, precios, broker.mercado_abierto(), estado, frecuencia,
+                                hoy=hoy, permitir_cerrado=permitir_cerrado)
+                        finally:  # la estrategia avanzó su memoria aunque algún envío fallara: se guarda siempre
+                            if servicio.ruta_estado_estrategia is not None:
+                                guardar_estado_estrategia(servicio.ruta_estado_estrategia, firma, estrategia_registrada)
             else:
                 precios = descargar_precios(estrategia.tickers, dias_historico)
                 senales = combinador.generate(precios) if not precios.empty else None
@@ -319,6 +388,8 @@ def ejecutar_vivo(servicio: ConfiguracionServicio, estrategia: ConfiguracionEstr
             logger.error("Error en la iteración %d: %s", iteracion, e, exc_info=True)
         # Las órdenes de mercado recién enviadas suelen ejecutarse en segundos: se registra su fill real ahora
         _sincronizar_sin_fallar(broker, registro, estado, reintentos=REINTENTOS_FILLS, espera_s=ESPERA_FILLS_S)
+        if guardar_instantanea is not None:
+            registrar_instantanea(broker, guardar_instantanea, hoy)
 
         if control.en_marcha and (max_iteraciones is None or iteracion < max_iteraciones):
             control.dormir(servicio.segundos_entre_iteraciones)

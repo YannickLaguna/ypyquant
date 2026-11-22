@@ -144,6 +144,11 @@ export default function ExperimentoDetalle() {
               Crear marco desde este experimento
             </Link>
           )}
+          {data.estado === 'hecho' && !esImportadoTfm(data.estrategia) && (
+            <Link to={`/paper?experimento=${encodeURIComponent(data.id)}`} className="boton" title="Abre Paper trading con este experimento preseleccionado para el bot de una cuenta de Alpaca">
+              Llevar a Alpaca
+            </Link>
+          )}
           <button type="button" className="boton boton-peligro" onClick={eliminar} disabled={borrar.isPending}>Borrar</button>
         </div>
       </header>

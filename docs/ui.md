@@ -22,7 +22,8 @@ src/ypyquant/estrategias/  │  núcleo (sin UI): Estrategia, registro, experime
   precios.py     yfinance con caché Parquet (data/cache_precios) y precios sintéticos
 app/api/   FastAPI fina (sin lógica de negocio), 127.0.0.1, sin autenticación
 app/web/   React 18 + TypeScript + Vite + Tailwind + TanStack Query + lightweight-charts
-pipelines/paper_trading/   bot (subproceso) que acepta estrategias del registro
+pipelines/paper_trading/   bot (subproceso, uno por cuenta/perfil de Alpaca) que opera un experimento
+src/ypyquant/perfiles_alpaca/   perfiles de claves, vínculo cuenta-experimento, almacén por perfil, redacción de secretos
 ```
 
 Cada experimento vive en `data/experimentos/<estrategia>-<huella10>/`: `config.json`, `estado.json`, `metricas.json`, `procedencia.json`, `equity.parquet`, `pesos.parquet`, `operaciones.parquet`. La misma configuración da el mismo id (se reutiliza el resultado; `?forzar=true` recalcula). `AlmacenExperimentos.ejecutar_sql(...)` expone vistas DuckDB `equity`, `pesos` y `operaciones` para análisis y validaciones futuras.
@@ -77,7 +78,7 @@ cd app/web && npm run dev          # http://127.0.0.1:5173
 cd app/web && npm run build
 ```
 
-Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUANT_OFFLINE=1` (no descarga; usa la caché), `YPYQUANT_ESTRATEGIAS_USUARIO=<carpeta>`, `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (cuenta **paper**, en `.env`). Docker opcional: `docker compose up` (ver `docker-compose.yml`).
+Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUANT_OFFLINE=1` (no descarga; usa la caché), `YPYQUANT_ESTRATEGIAS_USUARIO=<carpeta>`, `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (perfil `DEFECTO`) o `ALPACA_<PERFIL>_API_KEY` / `ALPACA_<PERFIL>_SECRET_KEY` (cuentas **paper**, en `.env`; ver «Alpaca multi-perfil»). Docker opcional: `docker compose up` (ver `docker-compose.yml`).
 
 ## API
 
@@ -108,8 +109,11 @@ Variables: `YPYQUANT_PRECIOS=sintetico` (precios sin red, para probar), `YPYQUAN
 | GET / PUT / DELETE | `/api/marcos/{id}` | Marco + sus comparativas / reemplaza (los experimentos ya lanzados no cambian) / borra |
 | POST | `/api/marcos/{id}/comparativa` | `{estrategias: [{estrategia, parametros}], forzar?}`: aplica el marco, valida TODAS antes de lanzar (422), crea N experimentos normales y registra la comparativa (202) |
 | GET | `/api/comparativas?id_marco=`, `/api/comparativas/{id}` | Registro de la comparativa con el estado actual de cada experimento |
-| GET | `/api/paper/{estado,cuenta,posiciones,ordenes,historial,fills}` | Alpaca paper; **503** sin claves, 502 si Alpaca falla |
-| POST | `/api/paper/bot/{arrancar,parar}` | Subproceso `python -m pipelines.paper_trading --estrategia ...`; `arrancar` admite `dias_historico` (mínimo, 30-10000) y `frecuencia_rebalanceo` opcionales |
+| GET | `/api/paper/{estado,cuenta,posiciones,ordenes,historial,fills}?perfil=X` | Alpaca paper de UN perfil (por defecto `DEFECTO`); **503** sin claves (el mensaje nombra el perfil y las variables), 502 si Alpaca falla, 422 si el nombre del perfil es inválido |
+| GET | `/api/paper/alpaca/perfiles?conexion=` | Cuentas detectadas: nombre, configurada sí/no, últimos 4 de la API key (nunca el secreto), variables que faltan, conexión y equity, bot y vínculo; límite blando (3) y aviso |
+| GET | `/api/paper/alpaca/bots/{perfil}` / `.../log?desde=N` / `/api/paper/alpaca/{perfil}/instantaneas` | Estado del bot + vínculo / log redactado (polling por línea) / foto diaria de la cuenta |
+| POST | `/api/paper/alpaca/bots/{perfil}/{arrancar,parar}` | `arrancar`: `{experimento_id \| configuracion_id, modo: continuo\|diario, intervalo_s}`; **404** experimento inexistente, **422** receta no operable (universo `sp500_pit`, parámetros inválidos), **409** perfil ocupado o límite de 3 bots, **503** perfil sin claves |
+| POST | `/api/paper/bot/{arrancar,parar}` | (bot ÚNICO heredado, perfil `DEFECTO`; la UI ya no lo usa) Subproceso `python -m pipelines.paper_trading --estrategia ...`; `arrancar` admite `dias_historico` (mínimo, 30-10000) y `frecuencia_rebalanceo` opcionales |
 | GET | `/api/paper/bot/{estado,log?desde=N}` | Estado y log (polling por línea) |
 
 ## Procedencia de un experimento
@@ -299,6 +303,41 @@ Reglas del bot en modo registro:
 - **Órdenes abiertas**: antes de decidir consulta las órdenes abiertas y no envía ninguna sobre un ticker que ya tenga una; si no puede consultarlas, no envía nada.
 - **Fills**: una orden de mercado recién enviada tiene `filled_qty` 0, así que el bot anota su id como pendiente (en `estado_bot.json`) y registra el fill real en `data/paper_trading/fills.jsonl` cuando la orden termina (al cerrar cada iteración, con unos reintentos, y al empezar la siguiente). Un mismo `id_orden` no se registra dos veces.
 
+## Alpaca multi-perfil (fase 5)
+
+Hasta 3 cuentas paper de Alpaca en paralelo, cada una operando UN experimento, para probar estrategias avanzadas a la vez.
+
+**Claves (solo en `.env`, nunca en pantalla ni en la API).** Por cada cuenta, dos variables con el nombre del perfil en mayúsculas (`[A-Z0-9_]`):
+
+```
+ALPACA_TREND_API_KEY=...        ALPACA_TREND_SECRET_KEY=...
+ALPACA_VALOR_API_KEY=...        ALPACA_VALOR_SECRET_KEY=...
+ALPACA_ML_API_KEY=...           ALPACA_ML_SECRET_KEY=...
+```
+
+`ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (sin nombre) son el perfil `DEFECTO` (compatibilidad). `ALPACA_PERFILES=TREND,VALOR,ML` (opcional) declara perfiles aunque aún no tengan claves: aparecen como «sin configurar» con las variables que faltan. La API reinicia para leer el `.env`. De una clave solo salen «configurada sí/no» y los últimos 4 caracteres de la API key; los logs del bot pasan por un filtro de redacción (y la API vuelve a redactar al servirlos). El límite blando de cuentas activas (3 bots a la vez) es `LIMITE_PERFILES_ACTIVOS`.
+
+**Vínculo cuenta-experimento.** Al arrancar un bot (`--perfil X --experimento ID`, o el botón de la UI) se congela la `Receta` del experimento (estrategia, parámetros, entorno) en `data/paper_trading/<PERFIL>/vinculo.json`, con su huella, el universo ya resuelto a tickers, la frecuencia de rebalanceo (la de la receta o la sugerida por la estrategia), la fecha de alta y el equity inicial de la cuenta. Si el experimento se borra o se edita después, el bot sigue con lo congelado. Cambiar de experimento guarda el anterior en `vinculos_anteriores` y borra la memoria de la estrategia. `--configuracion ID` toma la receta de una configuración guardada (opcional; la UI trabaja con experimentos). El universo dinámico `sp500_pit` no se puede operar en vivo (422): usa una lista de tickers o `sp500:N`.
+
+**Qué hay en `data/paper_trading/<PERFIL>/`:** `vinculo.json`, `bot.json` (pid, marca del proceso, modo, intervalo; lo escribe la API), `bot.log`, `estado_bot.json` (último rebalanceo y órdenes pendientes con su precio de referencia), `estado_estrategia.json` (memoria de la estrategia entre reinicios: las posiciones de una `EstrategiaSenales`; solo la parte serializable), `fills.jsonl` y `instantaneas.parquet` (una fila por día: equity, efectivo y posiciones con cantidad y precio; Alpaca no devuelve posiciones pasadas y sin esto no se puede medir el descuadre de cartera). Los fills añaden `perfil`, `experimento_id` (o `configuracion_id`), `tipo` (`rebalanceo`) y `precio_referencia` (último cierre al decidir); las filas antiguas se leen igual.
+
+**Modos del bot** (`--modo`): `diario` = una pasada y sale (para el programador de tareas; `--perfil X --modo diario` sin `--experimento` reanuda el vínculo guardado) y `continuo` = bucle cada `--intervalo` segundos, con un aviso: solo rebalancea cuando toca la frecuencia. **Cambio de comportamiento respecto al bot anterior:** antes, sin frecuencia, se rebalanceaba en cada iteración; ahora solo cuando toca, y el estado de la estrategia sobrevive a los reinicios. Con el mercado cerrado calcula los pesos pero no envía (como antes); `--enviar-fuera-de-horario` envía igualmente (ver la checklist).
+
+**API y reinicios.** `GestorBots` lanza un subproceso por perfil; un perfil ocupado devuelve 409. Al arrancar la API **rehidrata**: lee los `bot.json`, comprueba que el pid siga vivo y sea el mismo proceso (pid + hora de creación, con `psutil` si está) y lo adopta (se puede parar por pid); los muertos se limpian. Los bots son hijos de la API pero siguen vivos si esta cae, por eso se rehidratan.
+
+**UI** (`/paper`): una pestaña por cuenta (`?perfil=`) con su estado (sin configurar, sin conexión, bot en marcha), equity, posiciones, órdenes, fills, instantáneas y el control del bot (elegir experimento, modo e intervalo; arrancar/parar; log). Un perfil sin claves muestra qué variables poner en el `.env` (sin campo para pegarlas). En la ficha de un experimento terminado, **«Llevar a Alpaca»** abre `/paper?experimento=<id>` con el experimento preseleccionado.
+
+### Checklist 5.7: orden de prueba manual (NO automática)
+
+Verifica a mano, en el perfil de pruebas, la hipótesis del diseño: una orden de mercado `DAY` enviada con el mercado cerrado queda en cola y se ejecuta en la apertura siguiente (lo que casa con el modelo `apertura_siguiente`). No la ejecutes desde tests ni desde el bot sin vigilar.
+
+1. Elige el perfil de pruebas (cuenta paper sin posiciones que importen) y comprueba en `/paper` que está «bot parado» y conectado.
+2. Fuera del horario del mercado (noche o fin de semana), crea una orden de mercado `DAY` de 1 acción de un ticker líquido (p. ej. desde la consola de Alpaca paper o con `python -m pipelines.paper_trading --perfil X --experimento ID --modo diario --enviar-fuera-de-horario` sobre un experimento de un solo ticker).
+3. Anota el estado inmediato (`new`/`accepted`/`pending_new`), la hora de creación y que aparece en «Órdenes recientes» y bloquea nuevas órdenes de ese ticker.
+4. Tras la apertura siguiente, anota cuándo pasa a `filled`, el precio medio y compáralo con la apertura (`Open`) de la fuente de precios del proyecto: la diferencia es slippage más diferencia de fuente.
+5. Confirma que el fill se registra en `data/paper_trading/<PERFIL>/fills.jsonl` con `precio_referencia` y `experimento_id` en la siguiente sincronización (siguiente pasada del bot).
+6. Anota el resultado en el plan (sección «Estado 2026-11-22 (fase 5)»): si se confirma, `--enviar-fuera-de-horario` puede ser el defecto del modo `diario`; si no, el modo `diario` debe programarse con el mercado abierto.
+
 ## Tests
 
 `uv run pytest` (Python, sin red), `cd app/web && npx tsc --noEmit && npx vitest run && npm run build`.
@@ -309,4 +348,5 @@ Reglas del bot en modo registro:
 - Estrategias de señales: stops evaluados con el cierre diario (sin intradía ni gaps de apertura); las rejillas de barrido de la UI no admiten `null` (sin stop) en un parámetro opcional, solo la API.
 - Las validaciones del barrido (DSR, PBO, permutación) cuentan solo las combinaciones de la rejilla: si probaste más cosas a mano, N real es mayor (ver `docs/validacion.md`). El PBO-CSCV y el walk-forward sobre la matriz ignoran el coste de cambiar de combinación.
 - CPCV no está implementado (sí DSR, PBO-CSCV, rachas, permutación y walk-forward).
-- Sin autenticación: solo para `127.0.0.1`. El bot es hijo de la API; si la API muere en Windows puede seguir vivo.
+- Sin autenticación: solo para `127.0.0.1`. El bot es hijo de la API; si la API muere en Windows puede seguir vivo (la API lo rehidrata al volver a arrancar).
+- Alpaca: acciones enteras (el simulador usa fracciones: el descuadre por enteros se mide en la fase 6) y universo `sp500_pit` no soportado en vivo.
