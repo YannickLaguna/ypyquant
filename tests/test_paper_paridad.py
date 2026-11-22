@@ -169,3 +169,41 @@ def test_llamada_de_margen_identica_en_motor_y_paper(tmp_path):
     assert llamadas_bt, "el corto se multiplica: debe haber al menos una llamada de margen"
     assert llamadas_paper == llamadas_bt
     _comparar(tablas, referencia)
+
+
+# ---- estrategia de señales largo-corto con stops: la máquina de estados es la misma en el motor y en el paper ----------
+
+SENALES_LARGO_CORTO = [
+    ("cruce_medias", {"rapida": 5, "lenta": 20, "lados": "largo_corto", "exposicion_bruta_max": 1.5, "stop_perdida": 0.03,
+                      "stop_trailing": 0.05, "take_profit": 0.08, "max_posiciones": 4, "peso_maximo": 0.4,
+                      "permitir_giro": True, "coste_prestamo_titulos": 0.02}, "daily"),
+    ("canal_rsi_volatilidad", {"ventana_canal": 15, "ventana_salida": 6, "ventana_rsi": 7, "lados": "largo_corto",
+                               "exposicion_bruta_max": 1.2, "max_posiciones": 3, "max_dias_posicion": 25,
+                               "stop_perdida": 0.04}, "weekly"),
+]
+
+
+@pytest.mark.parametrize("estrategia,parametros,frecuencia", SENALES_LARGO_CORTO)
+def test_paridad_de_una_estrategia_de_senales_largo_corto_con_stops(tmp_path, estrategia, parametros, frecuencia):
+    receta = _receta(estrategia, parametros, frecuencia)
+    servicio = _servicio(tmp_path, FIN)
+    sesion = servicio.crear_sesion(receta, nombre="paridad senales", fecha_alta=INICIO, modo_ejecucion="cierre")
+    for dia in pd.bdate_range(INICIO, FIN):
+        servicio.simulador.avanzar(sesion.id, hasta=dia.date())
+    referencia = _backtest(receta, FIN)
+    tablas = servicio.almacen.leer_tablas(sesion.id)
+    _comparar(tablas, referencia)
+    assert (tablas.pesos["peso"] < 0).any(), "el caso debe abrir cortos"
+    assert {"entrada_corta"} <= set(referencia.operaciones["motivo"]) and {"stop_loss", "trailing", "take_profit", "senal_contraria"} & set(
+        referencia.operaciones["motivo"]), "el caso debe ejercitar los stops y el giro"
+
+
+def test_senales_largo_corto_partidas_en_dos_procesos_recargan_el_estado_con_los_cortos(tmp_path):
+    estrategia, parametros, frecuencia = SENALES_LARGO_CORTO[0]
+    receta = _receta(estrategia, parametros, frecuencia)
+    primero = _servicio(tmp_path, FIN)
+    sesion = primero.crear_sesion(receta, nombre="partido", fecha_alta=INICIO, modo_ejecucion="cierre")
+    primero.simulador.avanzar(sesion.id, hasta=date(2021, 4, 30))
+    segundo = ServicioPaper(AlmacenPaper(tmp_path / "paper"), FuenteSintetica(), ahora=_reloj(FIN))
+    segundo.simulador.avanzar(sesion.id)
+    _comparar(segundo.almacen.leer_tablas(sesion.id), _backtest(receta, FIN))

@@ -206,3 +206,17 @@ def test_las_estrategias_migradas_abren_cortos_con_lados_largo_corto_y_el_modo_c
     assert (resultado.pesos["peso"] < 0).any()
     assert "entrada_corta" in set(resultado.operaciones["motivo"])
     assert resultado.metricas["exposicion_bruta_maxima"] < 1.8   # el límite de 1,5 rige al entrar; la deriva puede superarlo algo
+
+
+# ---- plantilla largo-corto de estrategias_usuario/ -------------------------------------------------------------
+
+
+def test_la_plantilla_de_reversion_zscore_no_mira_al_futuro_y_opera_en_los_dos_lados():
+    clase = registro.obtener_estrategia("reversion_zscore_largo_corto")
+    assert verificar_sin_lookahead(clase, {"ventana": 10, "z_entrada": 1.0, "max_posiciones": 3}, _datos_aleatorios(), FECHAS_MUESTRA) == []
+    config = _config("reversion_zscore_largo_corto", parametros={"ventana": 20, "z_entrada": 1.2, "max_posiciones": 4})
+    resultado = ejecutar_con_datos(config, cargar_datos_experimento(config, FuenteSintetica()))
+    assert {"entrada_larga", "entrada_corta"} <= set(resultado.operaciones["motivo"])
+    assert (resultado.pesos["peso"] < 0).any() and resultado.metricas["motivos_salida"]
+    neta = resultado.pesos[resultado.pesos["ticker"] != TICKER_EFECTIVO].groupby("fecha")["peso"].sum()
+    assert neta.min() > -0.8 and neta.max() < 0.8        # neta acotada a ±0,5 al entrar (la deriva puede moverla algo)
