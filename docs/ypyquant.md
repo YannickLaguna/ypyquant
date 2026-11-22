@@ -45,8 +45,15 @@ point-in-time y motor de rejilla del TFM). Guía: `docs/migracion-v0.4.0.md`.
 Optimización canónica (2026-11-21): el código nuevo usa `estimacion_robusta` (implementación única de max-Sharpe QP,
 mínima varianza, volatilidad objetivo, estimadores, CVaR y paridad de riesgo en `riesgo.py`), los modelos de
 `portfolio_models` (ahora subpaquete; la ruta de importación no cambia) o las estrategias. `optimizador_portafolio`
-y `PortfolioOptimizationService` quedan congelados como fachada para GrowSave. Mapa de duplicados y decisiones
-pendientes: `docs/planes/2026-11-21-optimizacion-canonica.md`.
+y `PortfolioOptimizationService` quedan congelados como fachada para GrowSave. Mapa de duplicados y decisiones:
+`docs/planes/2026-11-21-optimizacion-canonica.md`.
+
+Desde 2026-11-22 la fachada DELEGA en el núcleo canónico (mismos nombres y firmas; cambian los pesos numéricos):
+`optimizar_max_sharpe_scipy`, `optimizar_max_sharpe_pypfopt` (rf = 2 %), `MarkowitzOptimizer` y
+`optimizar_min_volatilidad` usan el QP / mínima varianza de `estimacion_robusta`; `optimizar_volatilidad_objetivo`
+usa el SOCP: ya no lanza `ValueError` cuando σ* es inalcanzable (devuelve la GMV con la clave `estado`), el
+apalancamiento escala la tangente long-only (sin cortos, peso <= 2). `LedoitWolfShrinkageModel` y
+`estimar_sigma_ledoit_wolf` comparten reserva (covarianza muestral) vía `ledoit_wolf_con_metodo`.
 
 > `ypyquant.quantlib` está deprecated y existe solo como shim de retrocompatibilidad.
 > Importar directamente desde `ypyquant.optimization`, `ypyquant.portfolio` o `ypyquant.data`.

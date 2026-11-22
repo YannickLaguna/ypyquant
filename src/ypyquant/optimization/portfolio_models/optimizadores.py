@@ -2,7 +2,7 @@
 Optimizadores de pesos (Strategy `PortfolioOptimizer`).
 
 Responsabilidad: convertir (µ, Σ, restricciones) en pesos y métricas:
-- Clásicos: `MarkowitzOptimizer` (pypfopt, SLSQP de reserva), `RiskParityOptimizer` (delega en
+- Clásicos: `MarkowitzOptimizer` (delega en el QP/mín. varianza/SOCP canónicos de `estimacion_robusta`), `RiskParityOptimizer` (delega en
   `estimacion_robusta.riesgo.optimizar_paridad_riesgo`).
 - PMPT: `PMPTMinCVaROptimizer` (CVaR vía `estimacion_robusta.riesgo.var_cvar_historicos`),
   `PMPTMaxSortinoOptimizer`.
@@ -18,6 +18,8 @@ import logging
 
 import numpy as np
 import pandas as pd
+from cvxpy import error as cvxpy_error
+from pypfopt import exceptions as pypfopt_exceptions
 
 from ypyquant.optimization.estimacion_robusta.elipsoide import (
     delta_caja,
@@ -28,11 +30,21 @@ from ypyquant.optimization.estimacion_robusta.elipsoide import (
     z_confianza,
 )
 from ypyquant.optimization.estimacion_robusta.estimadores_mu import estimar_mu_michaud
-from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import optimizar_max_sharpe, optimizar_volatilidad_objetivo
+from ypyquant.optimization.estimacion_robusta.max_sharpe_qp import (
+    optimizar_max_sharpe,
+    optimizar_min_varianza,
+    optimizar_volatilidad_objetivo,
+)
 from ypyquant.optimization.estimacion_robusta.riesgo import optimizar_paridad_riesgo, var_cvar_historicos
 from ypyquant.optimization.portfolio_models.base import PortfolioOptimizer
 
 logger = logging.getLogger(__name__)
+
+# Fallos esperables de pypfopt/cvxpy (problema infactible, solver sin solución, datos degenerados) tras los que
+# la cascada pasa a SLSQP con un aviso en el log. No incluye errores de programación.
+_ERRORES_SOLVER = (
+    ValueError, ArithmeticError, np.linalg.LinAlgError, cvxpy_error.SolverError, pypfopt_exceptions.OptimizationError,
+)
 
 
 class MarkowitzOptimizer(PortfolioOptimizer):
@@ -41,8 +53,9 @@ class MarkowitzOptimizer(PortfolioOptimizer):
 
     I: μ (Series), Σ (DataFrame), objective='max_sharpe'|'min_volatility'|'efficient_risk'
        (este último con `target_volatility`, σ anual objetivo).
-    T: pypfopt.EfficientFrontier con backend CVXPY (fallback SLSQP si pypfopt falla);
-       efficient_risk con `optimizar_volatilidad_objetivo` (máx. µ'w con σ <= objetivo).
+    T: max_sharpe → `optimizar_max_sharpe` (QP exacto con cascada de respaldo); min_volatility →
+       `optimizar_min_varianza`; efficient_risk → `optimizar_volatilidad_objetivo` (máx. µ'w con σ <= objetivo).
+       Desde 2026-11-22 ya no usa pypfopt como implementación principal ni redondea pesos (`clean_weights`).
     O: Pesos óptimos + métricas (retorno esperado, volatilidad, Sharpe).
     """
 
@@ -76,78 +89,20 @@ class MarkowitzOptimizer(PortfolioOptimizer):
                 self, expected_returns, risk_matrix, self.target_volatility, max_weight, self.risk_free_rate
             )
 
-        # Intentar con pypfopt.EfficientFrontier (backend CVXPY, más estable numéricamente)
-        try:
-            from pypfopt import EfficientFrontier as _EF
-
-            ef = _EF(
-                expected_returns,
-                risk_matrix,
-                weight_bounds=(0, max_weight),
-            )
-            if self.objective == "max_sharpe":
-                ef.max_sharpe(risk_free_rate=self.risk_free_rate)
-            elif self.objective == "min_volatility":
-                ef.min_volatility()
-            else:
-                raise ValueError(f"Unknown objective: {self.objective}")
-
-            weights_dict = ef.clean_weights()
-            weights = np.array([weights_dict.get(t, 0.0) for t in expected_returns.index])
-            metrics = self.calculate_metrics(weights, expected_returns, risk_matrix, self.risk_free_rate)
-            return {
-                'weights': {t: float(w) for t, w in zip(expected_returns.index, weights)},
-                **metrics,
-                'optimizer_metadata': {'method': 'pypfopt_ef', 'success': True},
-            }
-
-        except (ImportError, Exception) as exc:
-            logger.warning(f"[MarkowitzOptimizer] pypfopt falló ({exc}), usando SLSQP")
-
-        # Fallback: SLSQP manual
-        from scipy.optimize import minimize
-
-        num_assets = len(expected_returns)
-        initial_weights = np.array([1 / num_assets] * num_assets)
-
         if self.objective == "max_sharpe":
-            def objective_func(w):
-                ret = np.sum(expected_returns * w)
-                vol = np.sqrt(np.dot(w.T, np.dot(risk_matrix, w)))
-                sharpe = (ret - self.risk_free_rate) / vol if vol > 0 else 0
-                return -sharpe
+            pesos, degenerado, estado = optimizar_max_sharpe(
+                expected_returns.values, risk_matrix.values, self.risk_free_rate, max_weight
+            )
         elif self.objective == "min_volatility":
-            def objective_func(w):
-                return np.sqrt(np.dot(w.T, np.dot(risk_matrix, w)))
+            pesos, degenerado, estado = optimizar_min_varianza(risk_matrix.values, max_weight), False, "min_varianza"
         else:
             raise ValueError(f"Unknown objective: {self.objective}")
 
-        constraints_list = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
-        bounds = tuple((0, max_weight) for _ in range(num_assets))
-
-        result = minimize(
-            objective_func,
-            initial_weights,
-            method='SLSQP',
-            bounds=bounds,
-            constraints=constraints_list,
-            options={'maxiter': 1000},
-        )
-
-        if not result.success:
-            logger.warning(f"[MarkowitzOptimizer] SLSQP no convergió: {result.message}")
-
-        weights = result.x
-        metrics = self.calculate_metrics(weights, expected_returns, risk_matrix, self.risk_free_rate)
+        metrics = self.calculate_metrics(pesos, expected_returns, risk_matrix, self.risk_free_rate)
         return {
-            'weights': {ticker: float(w) for ticker, w in zip(expected_returns.index, weights)},
+            'weights': {t: float(w) for t, w in zip(expected_returns.index, pesos, strict=True)},
             **metrics,
-            'optimizer_metadata': {
-                'method': 'slsqp',
-                'success': result.success,
-                'message': result.message,
-                'iterations': result.nit,
-            },
+            'optimizer_metadata': {'method': estado, 'success': not degenerado, 'degenerate': degenerado},
         }
 
 
@@ -269,7 +224,7 @@ class PMPTMinCVaROptimizer(PortfolioOptimizer):
                 'optimizer_metadata': {'method': 'pypfopt_ecvar', 'success': True},
             }
 
-        except (ImportError, Exception) as exc:
+        except (ImportError, *_ERRORES_SOLVER) as exc:  # reserva legítima de la cascada: SLSQP
             logger.warning(f"[PMPTMinCVaR] pypfopt falló ({exc}), usando SLSQP")
 
         # Fallback: SLSQP manual sobre CVaR empírico
@@ -392,7 +347,7 @@ class PMPTMaxSortinoOptimizer(PortfolioOptimizer):
                     'target_return': self.target_return,
                     'optimizer_metadata': {'method': 'pypfopt_esv', 'success': True},
                 }
-            except (ImportError, Exception) as exc:
+            except (ImportError, *_ERRORES_SOLVER) as exc:  # reserva legítima de la cascada: SLSQP
                 logger.warning(f"[PMPTMaxSortino] pypfopt EfficientSemivariance falló ({exc}), usando SLSQP")
 
         # Fallback (y caso sin retornos históricos): SLSQP sobre Sortino matricial
