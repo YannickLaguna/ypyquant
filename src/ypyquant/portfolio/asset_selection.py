@@ -12,6 +12,8 @@ Responsabilidades:
 
 Se relaciona con:
 - ypyquant.data.matriz_precios: construir_matriz_precios / calcular_matriz_retornos.
+- ypyquant.data.universos: `resolver_seleccion` y `universo_de_indice` (la resolución del universo, antes un
+  `_resolver_universo` propio, vive allí).
 - ypyquant.optimization.data_preprocessing: DiasTrading, TipoRetorno.
 - GrowSave: su AssetSelectionService pasa a ser una subclase que inyecta get_ticker_data,
   TickerService.get_index_constituents_in_period y get_latest_fundamentals
@@ -39,6 +41,7 @@ from ypyquant.data.matriz_precios import (
     construir_matriz_precios,
     extraer_serie_precios,
 )
+from ypyquant.data.universos import resolver_seleccion, universo_de_indice
 from ypyquant.optimization.data_preprocessing import (
     DiasTrading,
     TipoRetorno,
@@ -422,29 +425,6 @@ class AssetSelectionService:
             raise RuntimeError("AssetSelectionService necesita un cargador_precios para cargar datos")
         return self.cargador_precios(ticker, start_date, end_date)
 
-    def _resolver_universo(
-        self,
-        tickers: list[str] | None,
-        start_date: str | None,
-        end_date: str | None,
-        index_name: str | None,
-        avoid_survivorship_bias: bool,
-    ) -> list[str]:
-        """Devuelve la lista de tickers a evaluar (explícita o universo histórico del índice)."""
-        if index_name:
-            if not start_date or not end_date:
-                raise ValueError("start_date y end_date son requeridos cuando se usa index_name")
-            tickers = self.get_historical_universe(
-                index_name=index_name,
-                start_date=start_date,
-                end_date=end_date,
-                avoid_survivorship_bias=avoid_survivorship_bias,
-            )
-            logger.info(f"Usando universo histórico de {index_name}: {len(tickers)} tickers")
-        if not tickers:
-            raise ValueError("Debe proporcionar 'tickers' o 'index_name'")
-        return tickers
-
     def get_historical_universe(
         self,
         index_name: str,
@@ -458,14 +438,7 @@ class AssetSelectionService:
         Requiere `proveedor_universo`; con avoid_survivorship_bias=True se incluyen los
         tickers que salieron del índice.
         """
-        if self.proveedor_universo is None:
-            raise RuntimeError("get_historical_universe necesita un proveedor_universo")
-        return self.proveedor_universo(
-            index_name,
-            datetime.strptime(start_date, '%Y-%m-%d'),
-            datetime.strptime(end_date, '%Y-%m-%d'),
-            not avoid_survivorship_bias,
-        )
+        return universo_de_indice(index_name, start_date, end_date, avoid_survivorship_bias, self.proveedor_universo)
 
     def get_available_tickers_info(self) -> list[dict]:
         """Lista de tickers disponibles con información básica (nombre/sector aún sin datos)."""
@@ -536,7 +509,7 @@ class AssetSelectionService:
             [{ticker, total_return, annualized_volatility, sharpe_ratio, momentum_score}]
             ordenada por momentum_score descendente (top_n). sharpe_ratio aquí es sin r_f.
         """
-        tickers = self._resolver_universo(tickers, start_date, end_date, index_name, avoid_survivorship_bias)
+        tickers = resolver_seleccion(tickers, start_date, end_date, index_name, avoid_survivorship_bias, self.proveedor_universo)
         datos = []
         for ticker in tickers:
             try:
@@ -575,7 +548,7 @@ class AssetSelectionService:
         Returns:
             [{ticker, sharpe_ratio, annualized_return, annualized_volatility}] (top_n).
         """
-        tickers = self._resolver_universo(tickers, start_date, end_date, index_name, avoid_survivorship_bias)
+        tickers = resolver_seleccion(tickers, start_date, end_date, index_name, avoid_survivorship_bias, self.proveedor_universo)
         if risk_free_rate is None:
             risk_free_rate = 0.02  # Valor conservador por defecto
         datos = []
@@ -614,7 +587,7 @@ class AssetSelectionService:
         Returns:
             [{ticker, annualized_volatility, annualized_return}] (top_n).
         """
-        tickers = self._resolver_universo(tickers, start_date, end_date, index_name, avoid_survivorship_bias)
+        tickers = resolver_seleccion(tickers, start_date, end_date, index_name, avoid_survivorship_bias, self.proveedor_universo)
         datos = []
         for ticker in tickers:
             try:

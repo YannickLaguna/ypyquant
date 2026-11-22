@@ -9,7 +9,7 @@ Uso:
     uv run python scripts/exportar_membresias_sp500.py                  # TFM_DIR o la ruta por defecto
     uv run python scripts/exportar_membresias_sp500.py --db RUTA/TFM.db --salida universos/sp500_membresias.json
 
-Se relaciona con: ypyquant.estrategias.universo_dinamico (`extraer_membresias_desde_sqlite`,
+Se relaciona con: ypyquant.data.universos (`extraer_membresias_desde_sqlite`,
 `cargar_membresias_sp500`) y universos/sp500_membresias.json.
 """
 
@@ -19,7 +19,7 @@ import os
 from datetime import date
 from pathlib import Path
 
-from ypyquant.estrategias.universo_dinamico import RUTA_MEMBRESIAS, extraer_membresias_desde_sqlite
+from ypyquant.data.universos import RUTA_MEMBRESIAS, extraer_membresias_desde_sqlite
 
 RUTA_TFM_POR_DEFECTO = "C:/Users/yanni/Documents/Codigo/Proyectos/tfm"
 

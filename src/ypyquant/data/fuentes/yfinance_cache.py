@@ -79,6 +79,7 @@ class FuenteYFinanceCache(FuentePrecios):
     def __init__(self, carpeta: Path | str | None = None, descargar: bool | None = None):
         self.carpeta = Path(carpeta) if carpeta else CARPETA_CACHE_POR_DEFECTO
         self.descargar = (os.environ.get("YPYQUANT_OFFLINE") != "1") if descargar is None else descargar
+        self._ultimo_dato: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}  # símbolo -> (último dato, fin cubierto)
 
     # -- caché ----------------------------------------------------------------
 
@@ -123,6 +124,7 @@ class FuenteYFinanceCache(FuentePrecios):
         fin_pedido = min(fecha_fin, hoy)
         cache, cubierto = self._leer_cache(simbolo, ajuste)
         if cache is not None and cubierto and cubierto[0] <= fecha_inicio and cubierto[1] >= fin_pedido:
+            self._anotar_ultimo_dato(simbolo, ajuste, cache, cubierto[1])
             return cache.loc[fecha_inicio:fecha_fin]
         if self.descargar:
             inicio_total = min(fecha_inicio, cubierto[0]) if cubierto else fecha_inicio
@@ -130,18 +132,27 @@ class FuenteYFinanceCache(FuentePrecios):
             nuevo = self._descargar(simbolo, inicio_total, fin_total, ajuste)
             if nuevo is not None and not nuevo.empty:
                 self._guardar_cache(simbolo, nuevo, inicio_total, fin_total, ajuste)
+                self._anotar_ultimo_dato(simbolo, ajuste, nuevo, fin_total)
                 return nuevo.loc[fecha_inicio:fecha_fin]
         if cache is not None:
             logger.warning("%s: sin red o sin datos nuevos; se usa la caché parcial (%s a %s)", simbolo, *cubierto)
+            self._anotar_ultimo_dato(simbolo, ajuste, cache, cubierto[1])
             return cache.loc[fecha_inicio:fecha_fin]
         return None
+
+    def _anotar_ultimo_dato(self, simbolo: str, ajuste: Ajuste, df: pd.DataFrame, fin_cubierto: str) -> None:
+        """Recuerda (último dato, fin cubierto) de la serie ajustada para `deslistado` sin volver a leer el Parquet."""
+        if ajuste == "ajustado" and not df.empty:
+            self._ultimo_dato[simbolo] = (pd.Timestamp(df.index[-1]), pd.Timestamp(fin_cubierto))
 
     def identificador(self, simbolo: str) -> str:
         return f"yf:{simbolo}"
 
     def deslistado(self, simbolo: str) -> Deslistado | None:
-        """Inferido de la caché ajustada: último dato frente al final del rango que se ha pedido (sin red)."""
-        cache, cubierto = self._leer_cache(simbolo)
-        if cache is None or cache.empty or not cubierto:
-            return None
-        return inferir_deslistado(cache.index[-1], pd.Timestamp(cubierto[1]))
+        """Inferido de la caché ajustada: último dato frente al final del rango cubierto (sin red)."""
+        if simbolo not in self._ultimo_dato:
+            cache, cubierto = self._leer_cache(simbolo)
+            if cache is None or cache.empty or not cubierto:
+                return None
+            self._anotar_ultimo_dato(simbolo, "ajustado", cache, cubierto[1])
+        return inferir_deslistado(*self._ultimo_dato[simbolo])
